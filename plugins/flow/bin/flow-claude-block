@@ -1,0 +1,113 @@
+#!/bin/bash
+#
+# Keeps the flow block in the project's CLAUDE.md in step with the template
+# in flow/templates/claude-block.md. The block is short on purpose: it loads
+# in every session. The full method is in the flow:workflow skill.
+#
+# The block sits between "<!-- flow:begin rev N -->" and "<!-- flow:end -->".
+# N is the block revision in the template. The plugin has no version field,
+# so the revision is the only way to tell an old block from a current one.
+# Text outside the markers is never changed.
+#
+# Usage: flow-claude-block --status | --diff | --apply
+#   --status  Print one of: current, old (rev N), missing, no CLAUDE.md.
+#   --diff    Print a unified diff of CLAUDE.md before and after --apply.
+#   --apply   Write the block: replace an old block, or append a new one.
+#             Create CLAUDE.md if it does not exist.
+#
+# Exit codes:
+#   0  --status: the block is current. --diff, --apply: done.
+#   1  --status: the block is old or missing, or there is no CLAUDE.md.
+#   2  Usage error, not in a git repo, or the markers in CLAUDE.md are
+#      broken (a begin with no end, or more than one block).
+
+set -euo pipefail
+
+prog="$(basename "$0")"
+mode="${1:-}"
+case "$mode" in
+    --status|--diff|--apply) ;;
+    *)
+        echo "Usage: ${prog} --status | --diff | --apply" >&2
+        exit 2
+        ;;
+esac
+
+if ! top="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    echo "${prog}: not in a git repository." >&2
+    exit 2
+fi
+
+template="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/templates/claude-block.md"
+if [ ! -f "$template" ]; then
+    echo "${prog}: template ${template} is missing." >&2
+    exit 2
+fi
+want_rev="$(sed -nE '1s/^<!-- flow:begin rev ([0-9]+) -->$/\1/p' "$template")"
+if [ -z "$want_rev" ]; then
+    echo "${prog}: the first line of ${template} is not '<!-- flow:begin rev N -->'." >&2
+    exit 2
+fi
+
+claude_md="${top}/CLAUDE.md"
+
+begins=0
+ends=0
+have_rev=""
+if [ -f "$claude_md" ]; then
+    begins="$(grep -cE '^<!-- flow:begin rev [0-9]+ -->$' "$claude_md" || true)"
+    ends="$(grep -cE '^<!-- flow:end -->$' "$claude_md" || true)"
+    have_rev="$(sed -nE 's/^<!-- flow:begin rev ([0-9]+) -->$/\1/p' "$claude_md" | head -n1)"
+fi
+
+if [ "$begins" -gt 1 ] || [ "$begins" -ne "$ends" ]; then
+    echo "${prog}: ${claude_md} has ${begins} flow:begin and ${ends} flow:end markers. Fix them by hand, so there is one block or none." >&2
+    exit 2
+fi
+
+if [ "$mode" = "--status" ]; then
+    if [ ! -f "$claude_md" ]; then
+        echo "no CLAUDE.md"
+        exit 1
+    elif [ "$begins" -eq 0 ]; then
+        echo "missing"
+        exit 1
+    elif [ "$have_rev" != "$want_rev" ]; then
+        echo "old (rev ${have_rev}, current rev ${want_rev})"
+        exit 1
+    fi
+    echo "current"
+    exit 0
+fi
+
+new_file="$(mktemp)"
+trap 'rm -f "$new_file"' EXIT
+
+if [ "$begins" -eq 1 ]; then
+    # Replace the old block in place, so its position in CLAUDE.md stays.
+    awk -v tpl="$template" '
+        /^<!-- flow:begin rev [0-9]+ -->$/ {
+            while ((getline line < tpl) > 0) print line
+            skip = 1
+            next
+        }
+        skip && /^<!-- flow:end -->$/ { skip = 0; next }
+        !skip { print }
+    ' "$claude_md" > "$new_file"
+elif [ -f "$claude_md" ]; then
+    { cat "$claude_md"; printf '\n'; cat "$template"; } > "$new_file"
+else
+    cat "$template" > "$new_file"
+fi
+
+if [ "$mode" = "--diff" ]; then
+    if [ -f "$claude_md" ]; then
+        diff -u --label "CLAUDE.md" --label "CLAUDE.md (with flow block rev ${want_rev})" "$claude_md" "$new_file" || true
+    else
+        diff -u --label "CLAUDE.md (new)" --label "CLAUDE.md (with flow block rev ${want_rev})" /dev/null "$new_file" || true
+    fi
+    exit 0
+fi
+
+cp "$new_file" "$claude_md"
+echo "${prog}: wrote flow block rev ${want_rev} to ${claude_md}."

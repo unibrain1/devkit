@@ -8,6 +8,10 @@ release notes.
 Claude Code does not load this file in a normal session. Each shared command
 reads it in its first step. Do not import it into CLAUDE.md with `@`.
 
+To create it, run `/flow:setup`. The command also adds the flow block to
+CLAUDE.md. A SessionStart hook tells you when the file or the block is
+missing or old.
+
 ## Format
 
 One fact on each line, in this form:
@@ -34,12 +38,12 @@ Scripts read a value with `flow-project-fact <key>`.
 | `verify` | Optional | The full verification command before a review or release. |
 | `deploy` | Optional | The deploy guide or command. |
 | `standards` | Optional | Coding standards files that the agents read. Separate paths with a space. |
-| `plans` | Optional | The folder for issue plan files. It must be git-ignored. `release-milestone` needs it. |
+| `plans` | Optional | The folder for plan files. It must be git-ignored. It holds `issues/` (issue plans) and `releases/` (release notes copies, retrospectives, review markers). `release-milestone` needs it. |
 | `release_notes` | Optional | The path pattern for release notes. `{version}` is the milestone version. `release-milestone` needs it. |
 | `ledger` | Optional | The list of deferred cleanup items. |
 | `private_paths` | Optional | Paths that must never go into a commit. Separate paths with a space. |
 | `milestone_setup` | Optional | A command that `start-milestone` runs after it makes the branch. |
-| `issue_checks` | Optional | A command that `finish-issue` runs before it opens the PR. |
+| `issue_checks` | Optional | A command that `execute-plan` runs after the code changes, and `finish-issue` runs before the merge. |
 | `milestone_checks` | Optional | A command that `finish-milestone` runs before the milestone PR. |
 | `release_checks` | Optional | A command that `release-milestone` runs before the merge. |
 | `vault` | Optional, v1.1 | The hub note path in the Baalda vault. |
