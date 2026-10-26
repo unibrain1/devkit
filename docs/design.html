@@ -1,0 +1,660 @@
+<title>Devkit Design</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Public+Sans:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column with a sticky section index on wide screens. Tables and code scroll inside their own boxes. */
+:root {
+  --bg: #f6f7f4;
+  --surface: #ffffff;
+  --fg: #1d2420;
+  --muted: #5b6660;
+  --line: #d9ded8;
+  --accent: #2f6b55;
+  --accent-soft: #e3efe8;
+  --warn: #9a5b00;
+  --warn-soft: #fbefd9;
+  --code-bg: #eef1ec;
+  --f-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --f-body: "Public Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131815; --surface: #1a201c; --fg: #e3e8e4; --muted: #9aa69f; --line: #2c352f;
+    --accent: #7cc4a6; --accent-soft: #1f3329; --warn: #e6b05c; --warn-soft: #33281a;
+    --code-bg: #1f2622; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131815; --surface: #1a201c; --fg: #e3e8e4; --muted: #9aa69f; --line: #2c352f;
+  --accent: #7cc4a6; --accent-soft: #1f3329; --warn: #e6b05c; --warn-soft: #33281a;
+  --code-bg: #1f2622; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--f-body);
+  font-size: 16px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px; }
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; font-size: 13px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; counter-reset: s; }
+nav.toc li { counter-increment: s; }
+nav.toc a { color: var(--muted); text-decoration: none; display: flex; gap: 8px; }
+nav.toc a::before { content: counter(s); font-family: var(--f-mono); font-size: 11px; color: var(--accent); min-width: 16px; padding-top: 2px; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--fg); }
+main { min-width: 0; max-width: 760px; }
+header.doc { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 8px; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--f-display); font-weight: 650; font-size: clamp(32px, 5vw, 44px); line-height: 1.1; margin: 8px 0 12px; text-wrap: balance; }
+h2 { font-family: var(--f-display); font-weight: 650; font-size: 26px; line-height: 1.2; margin: 56px 0 12px; text-wrap: balance; scroll-margin-top: 24px; }
+h3 { font-size: 17px; font-weight: 600; margin: 28px 0 8px; }
+p, li { max-width: 68ch; }
+p { margin: 0 0 14px; }
+ul, ol { padding-left: 22px; margin: 0 0 14px; }
+li { margin-bottom: 4px; }
+.lede { font-size: 18px; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); margin-top: 16px; }
+.meta b { color: var(--fg); font-weight: 600; }
+a { color: var(--accent); }
+code { font-family: var(--f-mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { font-family: var(--f-mono); font-size: 13px; line-height: 1.55; background: var(--code-bg); padding: 14px 16px; border-radius: 6px; overflow-x: auto; margin: 0 0 16px; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.tbl { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.on { background: var(--accent-soft); color: var(--accent); }
+.opt { background: var(--warn-soft); color: var(--warn); }
+.off { background: var(--code-bg); color: var(--muted); }
+.callout { border: 1px solid var(--line); border-left: 3px solid var(--warn); background: var(--surface); padding: 14px 16px; border-radius: 4px; margin: 0 0 18px; }
+.callout.decision { border-left-color: var(--accent); }
+.callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+.callout .label { font-family: var(--f-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 4px; }
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 0 0 18px; overflow-x: auto; }
+.diagram pre.mermaid { background: none; margin: 0; text-align: center; }
+.phase { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); }
+.phase .n { font-family: var(--f-display); font-size: 28px; color: var(--accent); line-height: 1; }
+.phase h3 { margin-top: 0; }
+.verify li::marker { content: "☐  "; color: var(--accent); }
+@media (max-width: 860px) {
+  .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  nav.toc { position: static; margin-bottom: 24px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Sections">
+  <ol>
+    <li><a href="#summary">Summary</a></li>
+    <li><a href="#today">Current state</a></li>
+    <li><a href="#overview">Design overview</a></li>
+    <li><a href="#plugin">The flow plugin</a></li>
+    <li><a href="#project">What stays in a project</a></li>
+    <li><a href="#ci">Shared CI</a></li>
+    <li><a href="#updates">Versions and updates</a></li>
+    <li><a href="#main-match">The main-match rule</a></li>
+    <li><a href="#day">A day with devkit</a></li>
+    <li><a href="#rollout">Rollout plan</a></li>
+    <li><a href="#verify">Verify in the pilot</a></li>
+    <li><a href="#later">Not in v1</a></li>
+    <li><a href="#brain">Second brain (v1.1)</a></li>
+    <li><a href="#decide">Decisions</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="doc">
+  <div class="eyebrow">Design doc · Draft 5 · Lean version</div>
+  <h1>Devkit: one source for Claude workflows and CI</h1>
+  <p class="lede">One public repo holds one Claude plugin and four reusable CI workflows. Private repos use the latest version. Registry pins a tag because it has outside contributors.</p>
+  <div class="meta">
+    <span><b>Owner</b> Jim Boone</span>
+    <span><b>Date</b> 2026-10-26</span>
+    <span><b>Status</b> Draft</span>
+    <span><b>Repo</b> <code>unibrain1/devkit</code> (public, not created yet)</span>
+  </div>
+</header>
+
+<h2 id="summary">Summary</h2>
+<p>Today, each project has its own copy of the milestone commands, review agents, and Claude CI workflows. The copies drifted apart. Registry and MyGunLog now make the same CI change by hand, one repo after the other.</p>
+<p>This design moves the shared parts into one repo, <code>unibrain1/devkit</code>. It is sized for one developer. It solves the double work and adds as little new process as possible. Registry is the starting point because its workflow is the most mature.</p>
+
+<div class="callout decision">
+  <span class="label">Decisions</span>
+  <div class="tbl" style="margin:6px 0 0">
+  <table>
+    <tr><th>Topic</th><th>Decision</th></tr>
+    <tr><td>Distribution</td><td>Claude Code plugin marketplace, in a public repo</td></tr>
+    <tr><td>Repo layout</td><td>One repo for the plugin and the reusable CI</td></tr>
+    <tr><td>Plugins</td><td><code>flow</code> for all repos. <code>brain</code> for your user settings only, in v1.1. Stack items stay in their projects.</td></tr>
+    <tr><td>Shared CI</td><td>Four reusable workflows. Stack CI stays in each project. The secret scanner is trufflehog.</td></tr>
+    <tr><td>CI work during the build</td><td>A short freeze in Registry and MyGunLog, from the base SHAs to <code>v0.1.0</code>. See <a href="#rollout">section 10</a>.</td></tr>
+    <tr><td>Updates</td><td>Private repos use <code>main</code>. Registry pins a tag.</td></tr>
+    <tr><td>Project facts</td><td>A small reference file, <code>.claude/project.md</code>. Commands read it when they run. CLAUDE.md does not load it.</td></tr>
+    <tr><td>Drifted commands</td><td>Registry version wins. Generic extras from other projects are merged in, with a review of each merge.</td></tr>
+    <tr><td>Extras in <code>flow</code></td><td>Global agents, milestone limit rule, <code>asd-ste100</code>, <code>context-audit</code></td></tr>
+    <tr><td>Scope</td><td>Repos that already have Claude config or Claude CI. Others join when you next work in them.</td></tr>
+    <tr><td>Second brain</td><td>Ships in v1.1, after the pilot. The Baalda vault <code>UniBrain</code>. The <code>flow</code> commands have optional vault steps. Each step skips with no error when the repo has no <code>vault</code> key or the Baalda tools are not available. Sensitive notes stay in <code>UniBrain</code> for now, under a written rule. See <a href="#brain">section 13</a>.</td></tr>
+  </table>
+  </div>
+</div>
+
+<div class="callout">
+  <span class="label">Changes from draft 1</span>
+  <p>Draft 1 was too heavy for one developer. Draft 2 removes these parts:</p>
+  <ul>
+    <li>Version pins in all repos, Renovate, and release rings. These made about 15 bump PRs per release.</li>
+    <li>Six stack plugins. Five of them had only one or two users.</li>
+    <li>The <code>devkit.json</code> config file, the <code>sync-settings</code> skill, and the drift check. A short Markdown file, <code>.claude/project.md</code>, replaces <code>devkit.json</code>.</li>
+    <li>Seven of the eleven reusable workflows.</li>
+  </ul>
+  <p>See <a href="#later">section 12</a> for when to add a part back.</p>
+</div>
+
+<div class="callout">
+  <span class="label">Changes from draft 3</span>
+  <p>Draft 4 adds the Baalda vault as the second brain:</p>
+  <ul>
+    <li>New <a href="#brain">section 13</a>. It sets where each vault part goes, the optional vault steps in <code>flow</code>, and the guard rule.</li>
+    <li>A new <code>vault</code> key in <code>.claude/project.md</code>.</li>
+    <li>A second plugin, <code>plugins/brain/</code>, in the repo tree. It is turned on at user scope only. Open decision 5 can remove it.</li>
+    <li>Vault steps in "A day with devkit", and a vault phase in the rollout plan.</li>
+    <li>Proposed text for <code>~/.claude/settings.json</code> and <code>~/.claude/CLAUDE.md</code>.</li>
+    <li>Two new open decisions: where the vault skills live, and where sensitive notes live.</li>
+  </ul>
+</div>
+
+<div class="callout">
+  <span class="label">Changes from draft 4</span>
+  <p>Draft 5 records Jim's answers to the open decisions. <a href="#decide">Section 14</a> lists them.</p>
+  <ul>
+    <li>The second brain ships in v1.1, after the pilot. Section 13 and rollout phase 4 say so.</li>
+    <li>trufflehog is the secret scanner for private repos.</li>
+    <li>A short CI freeze replaces the catch-up step.</li>
+    <li>Sensitive notes stay in <code>UniBrain</code>, under a written rule. A second vault costs money, so it waits until there is a need.</li>
+    <li>The milestone limit rule counts <code>milestone/*</code> branches, not open GitHub milestones. See <a href="#plugin">section 4</a>.</li>
+  </ul>
+</div>
+
+<h2 id="today">Current state</h2>
+<div class="tbl">
+<table>
+  <tr><th>Group</th><th>Repos</th><th>Visibility</th><th>Claude config today</th></tr>
+  <tr><td>PHP / UserSpice / Docker</td><td>registry, Monitoring</td><td>registry public, Monitoring private</td><td>Registry: 17 commands, 13 agents, 6 skills, 4 hooks, 8 rules. Monitoring: 8 commands.</td></tr>
+  <tr><td>Node web</td><td>MyGunLog, BurgessGunWorks, BurgessMachineWorks, TeamCroc, CCS-Website</td><td>all private</td><td>MyGunLog: 7 commands, 5 skills. Others: CI only, or 2 skills.</td></tr>
+  <tr><td>Python / Docker tools</td><td>TheSommelier, Fireboard, GitHubDashboard, mock-brevo</td><td>Sommelier, Fireboard, mock-brevo public</td><td>TheSommelier: 10 commands, 6 skills. mock-brevo: 3 skills.</td></tr>
+  <tr><td>Infra and devices</td><td>HomeLab, ESPHome, DryFireTimer, Arduino</td><td>all private</td><td>HomeLab: 4 commands, 6 agents, 3 skills. ESPHome: 1 skill.</td></tr>
+</table>
+</div>
+
+<h3>Problems</h3>
+<ul>
+  <li><strong>Drift.</strong> <code>start-issue</code>, <code>finish-milestone</code>, and <code>release-milestone</code> exist in up to 5 repos, and each copy is different.</li>
+  <li><strong>Three generations of Claude CI.</strong> The review workflow is 1,052 lines in Registry, 696 in MyGunLog, and 125 to 212 in the other repos.</li>
+  <li><strong>Three secret scanners.</strong> MyGunLog uses gitleaks. BurgessGunWorks and TheSommelier use trufflehog. The other repos use none.</li>
+  <li><strong>Commands depend on project scripts.</strong> Registry commands call about 20 scripts in <code>scripts/</code>, for example <code>check-plan-state.sh</code> and <code>resolve-base-branch.sh</code>.</li>
+  <li><strong>Two copies of the agents.</strong> <code>~/.claude/agents</code> holds older versions of five Registry agents.</li>
+</ul>
+
+<h3>CI work in progress</h3>
+<p>In the last 60 days, Registry changed its workflows in 31 commits on <code>main</code>. MyGunLog changed its workflows in 15 commits. Registry PR #2513 changes CI and is open now. The two repos make the same change by hand:</p>
+<div class="tbl">
+<table>
+  <tr><th>Change</th><th>Registry</th><th>MyGunLog</th></tr>
+  <tr><td>Pin third-party actions to SHAs</td><td>#2445</td><td>#623</td></tr>
+  <tr><td>Post findings as inline review comments</td><td>#2442</td><td>#620</td></tr>
+  <tr><td>Accept only a review posted in this run</td><td>#2440</td><td>#620</td></tr>
+</table>
+</div>
+<p>The rollout must not stop this work, and it must not lose changes that land while the migration runs. See <a href="#rollout">section 10</a>.</p>
+
+<h2 id="overview">Design overview</h2>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph DK["unibrain1/devkit (public)"]
+    P["plugins/flow<br/>commands, agents, skills, scripts"]
+    W[".github/workflows<br/>4 reusable workflows"]
+  end
+  subgraph PRIV["Private repos"]
+    S1["settings.json<br/>ref: main"]
+    C1["callers<br/>uses: ...@main"]
+  end
+  subgraph REG["Registry (public, contributors)"]
+    S2["settings.json<br/>ref: vX.Y.Z"]
+    C2["callers<br/>uses: ...@vX.Y.Z"]
+  end
+  V[("Baalda vault UniBrain<br/>personal, MCP only")]
+  P --> S1
+  P --> S2
+  W --> C1
+  W --> C2
+  S1 -. "optional vault steps" .-> V
+</pre>
+</div>
+<pre><code>unibrain1/devkit/
+├── .claude-plugin/
+│   └── marketplace.json        # name: "devkit". Lists flow and brain by relative path.
+├── plugins/flow/
+│   ├── .claude-plugin/plugin.json
+│   ├── commands/               # start-issue, finish-issue, start-milestone, ...
+│   ├── agents/                 # code-reviewer, senior-architect, ...
+│   ├── skills/                 # asd-ste100, context-audit
+│   ├── bin/                    # Generic workflow scripts from Registry scripts/
+│   └── hooks/hooks.json        # Generic guard hooks only
+├── plugins/brain/              # /brain, /capture. User scope only. v1.1.
+│   ├── .claude-plugin/plugin.json
+│   └── skills/
+├── .github/workflows/
+│   ├── claude.yml              # Reusable: @claude mentions
+│   ├── claude-review.yml       # Reusable: PR review, milestone-aware
+│   ├── secrets-scan.yml        # Reusable: private repos
+│   ├── node-site.yml           # Reusable: 3 Cloudflare static sites
+│   └── self-test.yml           # devkit's own CI
+├── templates/
+│   └── settings.json           # Starter permission allowlist, copied one time
+└── docs/
+    └── sources.md              # Base SHAs of the copied repos</code></pre>
+
+<h2 id="plugin">The flow plugin</h2>
+<p>One plugin holds everything that is not specific to one tech stack:</p>
+<ul>
+  <li>The milestone and issue commands from Registry.</li>
+  <li>The generic agents: code-reviewer, silent-failure-hunter, senior-architect, and the others.</li>
+  <li>The <code>asd-ste100</code> and <code>context-audit</code> skills.</li>
+  <li>The generic workflow scripts in <code>bin/</code>. Claude Code puts a plugin's <code>bin/</code> on the command path, so commands call the scripts by name.</li>
+  <li>Optional vault steps in four commands. See <a href="#brain">section 13</a>.</li>
+</ul>
+
+<h3>Commands read project facts from a reference file</h3>
+<p>Shared commands cannot name <code>composer phpstan</code> or <code>npm test</code>. Each project has <code>.claude/project.md</code>:</p>
+<pre><code># Project facts for devkit commands
+
+- test: `docker compose exec -u www-data app composer test:full`
+- lint: `composer phpstan`
+- format: `composer cs:fix`
+- verify: `scripts/run-verification-suite.sh`
+- deploy: see `docs/development/DEPLOYMENT.md`
+- vault: `Projects/Elan Registry/Elan Registry.md`</code></pre>
+<p>The <code>vault</code> key is optional. It gives the path of the project's hub note in the vault. A repo with no <code>vault</code> key gets no vault steps. In a public repo, the key shows only the note path, not the note.</p>
+<ul>
+  <li><strong>No load in normal sessions.</strong> Claude Code loads CLAUDE.md in every session. It does not load this file. Each shared command reads the file in its first step. If the file is missing, the command stops and tells you to make it.</li>
+  <li><strong>No <code>@</code> import.</strong> An <code>@.claude/project.md</code> line in CLAUDE.md loads the file in every session, which is the bloat to avoid. If CLAUDE.md names the file, it uses a plain path.</li>
+  <li><strong>Readable by scripts too.</strong> Each line has the form <code>- key: `command`</code>. The scripts in <code>flow/bin/</code> get a value with one <code>sed</code> line, so no JSON file is needed.</li>
+  <li><strong>One owner for each fact.</strong> If CLAUDE.md already lists the test command for normal work, keep it there. <code>project.md</code> holds only what the shared commands need. Do not copy text between the two files.</li>
+</ul>
+<p>Commands get the repo visibility from <code>gh repo view --json visibility</code>.</p>
+
+<h3>Milestone limit rule</h3>
+<p><code>/flow:start-milestone</code> counts the milestones in progress. A milestone is in progress when its <code>milestone/*</code> branch exists on <code>origin</code>. The command stops if a private repo already has 1 such branch, or a public repo already has 2.</p>
+<ul>
+  <li><strong>Count branches, not GitHub milestones.</strong> An open GitHub milestone is a plan. Registry has 13 open milestones (v2.31 to v2.43) and MyGunLog has 2, but neither repo has a <code>milestone/*</code> branch. A count of GitHub milestones would block both repos.</li>
+  <li><strong>How to count.</strong> <code>git ls-remote --heads origin 'milestone/*'</code>. A script in <code>flow/bin/</code> runs it, so all commands use the same count.</li>
+  <li><strong>End of a milestone.</strong> <code>/flow:release-milestone</code> deletes the <code>milestone/*</code> branch after the merge. If the branch stays, the count stays too.</li>
+</ul>
+
+<h3>Command names</h3>
+<p>Plugin commands have a prefix: <code>/flow:start-issue</code>, <code>@agent-flow:code-reviewer</code>. If a project has its own command with the same base name, <code>/start-issue</code> runs the project copy. Each migration must therefore delete the old project copies.</p>
+
+<h2 id="project">What stays in a project</h2>
+<div class="tbl">
+<table>
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>CLAUDE.md</code></td><td>Describes the code. A plugin cannot ship a CLAUDE.md. Devkit adds nothing to it.</td></tr>
+  <tr><td><code>.claude/project.md</code></td><td>Project facts for the shared commands, and the optional <code>vault</code> key. Read on demand.</td></tr>
+  <tr><td><code>.claude/settings.json</code></td><td>Marketplace and plugin, permission allowlist, project hooks</td></tr>
+  <tr><td><code>.claude/skills/</code>, <code>rules/</code>, <code>hooks/</code></td><td>Stack and project items. Examples: Registry's <code>userspice-*</code>, <code>phpstan-on-edit.sh</code>, and <code>check-deploy-sheet-fresh.sh</code>. HomeLab's Ansible skills.</td></tr>
+  <tr><td><code>.github/workflows/</code></td><td>Thin callers of the shared workflows, plus the project's own stack CI</td></tr>
+</table>
+</div>
+<p>The project's hub note does not stay in the repo. It is in the vault, at the path that the <code>vault</code> key gives. The repo stays the source for code facts.</p>
+<p>A private repo's <code>.claude/settings.json</code>:</p>
+<pre><code>{
+  "extraKnownMarketplaces": {
+    "devkit": {
+      "source": { "source": "github", "repo": "unibrain1/devkit", "ref": "main" },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": { "flow@devkit": true }
+}</code></pre>
+<p>A plugin cannot ship a permission allowlist. Each project copies <code>templates/settings.json</code> one time when it migrates, and then owns its copy.</p>
+
+<h2 id="ci">Shared CI</h2>
+<div class="tbl">
+<table>
+  <tr><th>Reusable workflow</th><th>Source</th><th>Public repos</th><th>Private repos</th></tr>
+  <tr><td><code>claude.yml</code> (@claude mentions)</td><td>Registry</td><td><span class="pill on">On</span></td><td><span class="pill on">On</span></td></tr>
+  <tr><td><code>claude-review.yml</code></td><td>Registry, plus MyGunLog #625 and #631</td><td><span class="pill on">On</span></td><td><span class="pill opt">Opt-in</span></td></tr>
+  <tr><td><code>secrets-scan.yml</code></td><td>New, trufflehog</td><td><span class="pill off">Not needed</span></td><td><span class="pill on">On</span></td></tr>
+  <tr><td><code>node-site.yml</code></td><td>TeamCroc, BurgessMachineWorks, CCS-Website</td><td>n/a</td><td>3 Cloudflare sites</td></tr>
+</table>
+</div>
+<p>"Opt-in" means that a private repo adds the caller file only if it wants the review.</p>
+
+<h3>Public repos: repo settings, not workflow files</h3>
+<p>GitHub gives these free to public repos. You turn them on in each repo's settings, so they need no workflow file and no maintenance:</p>
+<ul>
+  <li>CodeQL default setup</li>
+  <li>Secret scanning and push protection</li>
+  <li>Dependabot alerts</li>
+</ul>
+<p>Registry's own <code>codeql-analysis.yml</code> can stay or change to default setup. Release automation stays in the projects that have it (mock-brevo and Monitoring).</p>
+
+<h3>A caller</h3>
+<pre><code>name: Claude review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+jobs:
+  review:
+    uses: unibrain1/devkit/.github/workflows/claude-review.yml@main
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}</code></pre>
+<ul>
+  <li>Callers pass each secret by name. <code>secrets: inherit</code> does not work across orgs, and the repos are in three orgs.</li>
+  <li>Devkit keeps Registry's rule to pin third-party actions to full SHAs. Dependabot in devkit bumps them one time for all repos.</li>
+  <li>The review workflow keeps Registry's fork-safety rules (#1688) and its Dependabot skip.</li>
+</ul>
+
+<h2 id="updates">Versions and updates</h2>
+<div class="tbl">
+<table>
+  <tr><th></th><th>Private repos</th><th>Registry</th></tr>
+  <tr><td>Plugin</td><td><code>"ref": "main"</code>, auto-update on</td><td><code>"ref": "vX.Y.Z"</code></td></tr>
+  <tr><td>CI</td><td><code>uses: …@main</code></td><td><code>uses: …@vX.Y.Z</code></td></tr>
+  <tr><td>How a change arrives</td><td>Next session or next CI run. No PRs.</td><td>One manual PR to <code>main</code> changes both pins, at a milestone boundary only. See <a href="#main-match">section 8</a>.</td></tr>
+  <tr><td>If a change is bad</td><td>Fix devkit one time. All repos get the fix.</td><td>Not affected until you bump the pin</td></tr>
+</table>
+</div>
+
+<h3>Keep devkit main safe</h3>
+<ul>
+  <li>Changes go to devkit through a PR. <code>self-test.yml</code> must pass before the merge. It lints the workflows and checks that the plugin loads.</li>
+  <li>Test a risky change in one private repo first. Point that repo at the PR branch, then set it back to <code>main</code>.</li>
+  <li>Each devkit release bumps <code>version</code> in <code>plugin.json</code>. If the version stays the same, Claude Code keeps the old cached copy. Or leave out <code>version</code>, and each new commit counts as a new version. This is simpler for <code>main</code>.</li>
+</ul>
+
+<h3>When a new version reaches your machine</h3>
+<p>With <code>autoUpdate: true</code>, Claude Code checks for updates after the first message of a session, after a random delay of up to 10 minutes. The running session keeps the old version until <code>/reload-plugins</code> or the next launch. To get the new version at once, run <code>claude plugin marketplace update devkit</code>.</p>
+
+<h2 id="main-match">The main-match rule</h2>
+<p>In every repo, a Claude workflow on a branch must match the copy on <code>main</code>, or it does not run. This is not a Registry rule. It comes from GitHub and from <code>claude-code-action</code>:</p>
+<ol>
+  <li><strong>GitHub.</strong> For comment, issue, schedule, and <code>pull_request_target</code> events, GitHub runs only the workflow file on the default branch. A branch copy never runs. <code>@claude</code> in <code>claude.yml</code> is this case. A <code>workflow_dispatch</code> workflow must exist on the default branch.</li>
+  <li><strong><code>claude-code-action</code>.</strong> For a <code>pull_request</code> event, the action compares the workflow file on the PR head with the copy on the default branch. If the two are different, the action skips the review. A PR that edits a Claude workflow is never reviewed by Claude (Registry #1919).</li>
+</ol>
+<p>Registry writes this down in <code>.claude/rules/ci-workflows.md</code>. Its review gate reports the skip as a warning, not a failure. The other repos have the same limit, but have no rule or gate for it.</p>
+
+<h3>What devkit changes</h3>
+<div class="tbl">
+<table>
+  <tr><th>Repo state</th><th>Today</th><th>With devkit</th></tr>
+  <tr><td>Private repo, caller on <code>@main</code></td><td>Each review change edits the repo's workflow file. The review skips the PR that makes the change. The same change is then made again in the next repo.</td><td>The caller file does not change. The new logic comes from devkit <code>main</code>. The PR head and <code>main</code> stay identical, so the review always runs.</td></tr>
+  <tr><td>Registry, caller on a tag</td><td>Same as above, and the change must also go to the open milestone branch.</td><td>The caller changes only when the tag changes. That PR skips the review one time.</td></tr>
+  <tr><td>Any repo with milestone branches, caller edit (migration, new input)</td><td>Each open milestone and issue branch has the old file. The review skips all of their PRs until each branch gets the new file.</td><td>Same limit. Devkit makes caller edits rare, but it does not remove the limit. Make caller edits only between milestones.</td></tr>
+</table>
+</div>
+
+<h3>Rules that follow</h3>
+<ul>
+  <li><strong>Edit a caller file only at a milestone boundary, in every repo.</strong> That is after <code>/release-milestone</code> and before <code>/start-milestone</code>, when no milestone or issue branch is open. This covers the migration PR, a new input, and Registry's pin bump. If you edit a caller in the middle of a milestone, each open branch has the old file, and the review skips its PRs.</li>
+  <li><strong>In a repo with no milestone branches,</strong> edit a caller when no other PR is open, or update the open branches from <code>main</code> after the merge.</li>
+  <li><strong>Dependabot ignores <code>unibrain1/devkit</code> in Registry.</strong> Its bump PR targets <code>main</code> at a random time, which breaks the rule above.</li>
+  <li><strong>Hotfix PRs are safe.</strong> A hotfix branch starts from <code>main</code>, so its pins match <code>main</code>.</li>
+  <li><strong>Keep the caller interface stable.</strong> Give each new input a default value, so callers do not need an edit. A caller edit costs one skipped review in each repo.</li>
+  <li><strong>Keep job names stable.</strong> A reusable job shows as <code>&lt;caller job&gt; / &lt;reusable job&gt;</code>. Branch protection and Registry commands use these names, for example <code>pr-to-milestone-review</code>. A rename in devkit breaks required checks in all repos at once.</li>
+  <li><strong>Test CI changes in a sandbox repo.</strong> A consumer PR that points its caller at a devkit branch has a caller that is different from <code>main</code>, so the review skips it. Use a small private repo, <code>unibrain1/devkit-sandbox</code>. You can change its <code>main</code> at any time, so its caller on <code>main</code> can point at a devkit branch.</li>
+</ul>
+
+<h2 id="day">A day with devkit</h2>
+
+<h3>Morning: normal work in a private repo</h3>
+<ol>
+  <li>You open Claude Code in TeamCroc. Within 10 minutes after your first message, Claude Code gets the newest <code>flow</code> from devkit <code>main</code>.</li>
+  <li>You run <code>/flow:start-issue 42</code>. The command reads the test and lint commands from TeamCroc's <code>.claude/project.md</code>.</li>
+  <li>The same file has a <code>vault</code> key, so <code>/flow:start-issue</code> searches the vault for decisions and notes about the issue. It shows you the matches in the plan.</li>
+  <li>You run <code>/commit-push-pr</code>. The PR starts TeamCroc's callers. GitHub runs <code>node-site.yml</code> and <code>claude-review.yml</code> from devkit <code>main</code>. The callers match <code>main</code>, so the review runs. The review in CI has no Baalda tools, so it skips each vault step.</li>
+  <li>You run <code>/flow:finish-issue 42</code>. It appends each decision that the issue made to the TeamCroc hub note.</li>
+  <li>An idea for later comes up. You run <code>/brain:capture</code>, and the idea goes to <code>Inbox/</code> in the vault, not into the repo.</li>
+</ol>
+
+<h3>Scenario A: you change a Claude command</h3>
+<p>In TeamCroc, you see that <code>/flow:finish-issue</code> does not delete the local issue branch.</p>
+<ol>
+  <li>Open <code>~/Developer/Tools/devkit</code>. Make a branch. Edit <code>plugins/flow/commands/finish-issue.md</code>.</li>
+  <li>Test the edit before the merge. In TeamCroc, start <code>claude --plugin-dir ~/Developer/Tools/devkit/plugins/flow</code>. This session loads your local copy. Run the command.</li>
+  <li>Open a devkit PR. <code>self-test.yml</code> checks that the plugin loads. Merge.</li>
+  <li>Every private repo gets the change in its next session. To get it now, run <code>claude plugin marketplace update devkit</code>, then <code>/reload-plugins</code>.</li>
+  <li>Claude reviews in private-repo CI also use the new <code>flow</code> on their next run.</li>
+  <li>Registry and its contributors keep the old version until the next milestone boundary bump.</li>
+</ol>
+<p>The main-match rule does not apply here. The rule covers workflow files only. It does not cover <code>.claude/</code> files or plugins. To undo a bad change, revert the devkit PR.</p>
+
+<h3>Scenario B: you change a CI workflow</h3>
+<p>You want the review to post a new type of finding as an inline comment, like Registry #2442 and MyGunLog #620.</p>
+<div class="tbl">
+<table>
+  <tr><th>Step</th><th>Today</th><th>With devkit</th></tr>
+  <tr><td>1. Edit</td><td>Edit Registry's 1,052-line <code>claude-code-review.yml</code> on a branch.</td><td>Edit <code>claude-review.yml</code> on a devkit branch.</td></tr>
+  <tr><td>2. Test</td><td>The PR that edits the file skips the review. You cannot see the change work before the merge.</td><td>Point the <code>devkit-sandbox</code> caller on <code>main</code> at your devkit branch. Open a test PR in the sandbox. The caller matches <code>main</code>, so the review runs your new logic.</td></tr>
+  <tr><td>3. Merge</td><td>Merge to the milestone branch. Copy it to <code>main</code> for the parity rule.</td><td>Merge the devkit PR. Set the sandbox caller back to <code>@main</code>.</td></tr>
+  <tr><td>4. Other repos</td><td>Make the same change in MyGunLog, where the first PR again skips the review.</td><td>All private repos run the new logic on their next PR event. No repo PRs, and no skipped reviews.</td></tr>
+  <tr><td>5. Registry</td><td>Done in step 3</td><td>At the next milestone boundary, tag devkit. Open one PR to Registry <code>main</code> that changes the <code>ref</code> in <code>.claude/settings.json</code> and the <code>@vX.Y.Z</code> in each caller. The review skips this PR one time. Merge. The next <code>/start-milestone</code> branches from this <code>main</code>.</td></tr>
+</table>
+</div>
+
+<h3>Afternoon: a Registry contributor</h3>
+<ol>
+  <li>The contributor clones Registry and starts Claude Code. They accept the folder trust prompt.</li>
+  <li>Claude Code gets <code>flow</code> at the tag that Registry pins. The contributor uses <code>/flow:start-issue</code> and gets the same tested version that Registry's CI uses.</li>
+  <li>Registry's <code>project.md</code> has a <code>vault</code> key, but the contributor has no Baalda tools. Each vault step skips with no error.</li>
+  <li>Their PR targets the milestone branch. The caller on that branch matches <code>main</code>, because the pin changed only at the boundary. The review runs.</li>
+</ol>
+
+<h3>Evening: release a milestone</h3>
+<ol>
+  <li>You run <code>/flow:release-milestone</code> in TeamCroc. It merges, tags, and publishes the release.</li>
+  <li>Its vault step writes a review note in <code>Reviews/</code> and sets the new status in the TeamCroc hub note.</li>
+  <li>Tomorrow, <code>/flow:start-milestone</code> reads that hub note first, so the next milestone starts from the last review.</li>
+</ol>
+
+<h2 id="rollout">Rollout plan</h2>
+
+<div class="callout">
+  <span class="label">Rule for active repos</span>
+  <ul>
+    <li><strong>CI freeze during the build:</strong> merge Registry #2513 first. Then record the base SHAs in <code>docs/sources.md</code>. From that point until devkit tags <code>v0.1.0</code>, make no changes in <code>.github/</code>, <code>.claude/</code>, or <code>scripts/</code> in Registry and MyGunLog. Other work in those repos continues.</li>
+    <li><strong>After <code>v0.1.0</code>, before a repo migrates:</strong> make a change to shared CI or a shared command in devkit first. Then copy it into the repo by hand if the repo needs it before its migration.</li>
+    <li><strong>After a repo migrates:</strong> a change to shared CI or a shared command goes to devkit first. A change that is only for the project stays in the project.</li>
+    <li>Each repo moves its CI between milestones, when no milestone or issue branch is open (see <a href="#main-match">section 8</a>). For Registry, this is also after #2513 merges.</li>
+  </ul>
+</div>
+
+<div class="phase"><div class="n">1</div><div>
+  <h3>Build devkit</h3>
+  <ul>
+    <li>Create <code>unibrain1/devkit</code> (public). Record the base SHAs of Registry and MyGunLog. The CI freeze starts.</li>
+    <li>Extract <code>flow</code> from Registry. Replace hard-coded project facts with lookups in <code>.claude/project.md</code>.</li>
+    <li>Compare each command with the copies in MyGunLog, TheSommelier, HomeLab, and Monitoring. Show you each generic extra before it is merged.</li>
+    <li>Move the five global agents into <code>flow</code>. Compare them with the Registry versions first.</li>
+    <li>Make the four reusable workflows. Tag <code>v0.1.0</code>. The CI freeze ends.</li>
+    <li>Create <code>unibrain1/devkit-sandbox</code> (private), with one caller of each shared workflow.</li>
+  </ul>
+</div></div>
+<div class="phase"><div class="n">2</div><div>
+  <h3>Pilot: TeamCroc and Registry</h3>
+  <ul>
+    <li>TeamCroc moves fully on <code>main</code>. It is the simplest case: private, Node, Cloudflare, no CI work in progress.</li>
+    <li>Registry moves its plugin first, on a tag. Its CI moves at a milestone boundary, when no CI PR is open. The migration PR edits the Claude workflow files, so the review skips that PR one time.</li>
+    <li>Do the checks in <a href="#verify">section 11</a>. Fix the design from the results. Tag <code>v1.0.0</code>.</li>
+    <li>The pilot has no vault steps, so a vault problem does not mix with the CI checks.</li>
+  </ul>
+</div></div>
+<div class="phase"><div class="n">3</div><div>
+  <h3>Other repos with Claude config</h3>
+  <p>BurgessMachineWorks and CCS-Website first, because they match TeamCroc. Then Monitoring, TheSommelier, Fireboard, mock-brevo, HomeLab, and BurgessGunWorks. MyGunLog goes last. At the end, delete <code>~/.claude/agents</code> and the duplicate global skills.</p>
+</div></div>
+<div class="phase"><div class="n">4</div><div>
+  <h3>Second brain (v1.1)</h3>
+  <p>Start after the pilot tags <code>v1.0.0</code>. It can run at the same time as phase 3. Add the vault steps to <code>flow</code>, add the <code>brain</code> plugin, and test them in TeamCroc first. Then add the <code>vault</code> key to each repo. Tag <code>v1.1.0</code>. The steps are in <a href="#brain">section 13</a>.</p>
+</div></div>
+
+<h3>Migration steps for one repo</h3>
+<ol>
+  <li>Wait for a milestone boundary. Check that no milestone or issue branch is open.</li>
+  <li>Check <code>git status</code> and make a branch from <code>main</code>.</li>
+  <li>Add <code>.claude/project.md</code>. Add the <code>vault</code> key only after phase 4 starts.</li>
+  <li>Add the marketplace and <code>flow</code> to <code>.claude/settings.json</code>. Copy the allowlist template.</li>
+  <li>Delete each project command, agent, skill, and script that <code>flow</code> now provides.</li>
+  <li>Replace the Claude CI workflows with callers.</li>
+  <li>Run the project's lint and tests. Open a PR. The Claude review skips this PR because it edits the Claude workflow files. Check that the other callers pass.</li>
+  <li>Merge. On the next PR, check that the Claude review runs.</li>
+</ol>
+
+<h2 id="verify">Verify in the pilot</h2>
+<p>The docs do not answer these questions.</p>
+<ul class="verify">
+  <li><strong>Tag and main on one machine.</strong> Registry pins a tag and TeamCroc uses <code>main</code>. Claude Code may keep one copy of the <code>devkit</code> marketplace per machine. If so, the last project you open sets the version for all. Fallback: register the repo under two names, <code>devkit</code> for <code>main</code> and <code>devkit-stable</code> for tags.</li>
+  <li><strong>Ref change triggers a reload.</strong> Check that a new <code>ref</code> in Registry's settings loads the new tag without a manual <code>marketplace update</code>.</li>
+  <li><strong>Plugin in CI.</strong> Check that <code>claude-code-action</code> loads <code>flow</code> through its <code>plugin_marketplaces</code> and <code>plugins</code> inputs. The docs do not show a ref. Fallback: check out devkit and load the plugin from a local path.</li>
+  <li><strong>Which file the action compares.</strong> Check that <code>claude-code-action</code> compares the caller file in the consumer repo, not the devkit reusable file. If it compares the devkit file, the review behaves differently, and section 8 needs a new design.</li>
+  <li><strong>Devkit's own PRs.</strong> Check whether a devkit PR that changes <code>claude-review.yml</code> can review itself through a local <code>./</code> caller. If it cannot, the sandbox repo is the only test path, and a human reviews such PRs.</li>
+  <li><strong><code>--plugin-dir</code> next to the installed plugin.</strong> Check which copy of <code>flow</code> runs when the local copy and <code>flow@devkit</code> are both present.</li>
+  <li><strong>Contributor first run.</strong> Clone Registry as a new user. Accept the trust prompt. Check that <code>/flow:start-issue</code> works.</li>
+</ul>
+
+<h2 id="later">Not in v1</h2>
+<p>Add a part only when a real need shows up. The second brain is not on this list. It is planned for v1.1. See <a href="#brain">section 13</a>.</p>
+<div class="tbl">
+<table>
+  <tr><th>Part</th><th>Add it when</th></tr>
+  <tr><td>A stack plugin (<code>php</code>, <code>node</code>, <code>python</code>, <code>infra</code>)</td><td>Two or more repos need the same stack item, and you copied it by hand one time</td></tr>
+  <tr><td>A shared stack CI workflow</td><td>Same rule: a second repo needs the same CI</td></tr>
+  <tr><td>Version pins for more repos</td><td>A <code>main</code> change breaks private repos more than once. Or a second repo gets outside contributors.</td></tr>
+  <tr><td>Renovate</td><td>More than two repos pin a tag, and the manual plugin bump becomes work</td></tr>
+  <tr><td>Infra and device repos</td><td>You next work in DryFireTimer, ESPHome, or Arduino</td></tr>
+</table>
+</div>
+
+<h2 id="brain">Second brain (v1.1)</h2>
+<p>This part ships in v1.1, after the pilot (rollout phase 4). The Baalda vault <code>UniBrain</code> is the second brain. It holds what a repo does not: why you made a choice, ideas you parked, open questions, and status across milestones. Claude Code reaches it through the Baalda MCP server, which is in the user settings, so every session on your machine has the tools.</p>
+<p>The vault uses PARA folders (<code>Projects/</code>, <code>Areas/</code>, <code>Resources/</code>, <code>Archive/</code>), plus <code>Inbox/</code>, <code>Daily/</code>, <code>People/</code>, and <code>Reviews/</code>. Each project has a hub note with the same name as its folder, for example <code>Projects/The Sommelier/The Sommelier.md</code>. The Sommelier is the trial project, imported on 2026-10-26.</p>
+<ul>
+  <li><strong>The repo wins for code facts.</strong> A hub links to the repo and does not copy its README. Doc snapshots in a project's <code>Docs/</code> folder name their source commit.</li>
+  <li><strong>The vault is personal.</strong> Contributors and CI have no access to it.</li>
+</ul>
+
+<h3>Where each part goes</h3>
+<div class="tbl">
+<table>
+  <tr><th>Part</th><th>Home</th></tr>
+  <tr><td>Vault steps in the milestone and issue commands</td><td>The <code>flow</code> commands. One edit reaches every repo.</td></tr>
+  <tr><td>Link from a repo to its hub note</td><td>One key in <code>.claude/project.md</code>: <code>- vault: `Projects/MyGunLog/MyGunLog.md`</code>. Commands read it on demand, like the other project facts.</td></tr>
+  <tr><td><code>/brain</code> (search and load context) and <code>/capture</code> (save to Inbox)</td><td>A second plugin, <code>brain@devkit</code>, turned on only in <code>~/.claude/settings.json</code>. Projects do not turn it on, so contributors do not get it.</td></tr>
+  <tr><td>Rules for sessions outside a project</td><td><code>~/.claude/CLAUDE.md</code>. A plugin cannot ship a CLAUDE.md.</td></tr>
+</table>
+</div>
+
+<h3>Vault steps in <code>flow</code></h3>
+<div class="tbl">
+<table>
+  <tr><th>Command</th><th>Vault step</th></tr>
+  <tr><td><code>/flow:start-milestone</code></td><td>Read the hub note. Write the milestone goal to it.</td></tr>
+  <tr><td><code>/flow:start-issue</code></td><td>Search the vault for related decisions and notes.</td></tr>
+  <tr><td><code>/flow:finish-issue</code></td><td>Append each decision the issue made to the hub.</td></tr>
+  <tr><td><code>/flow:release-milestone</code></td><td>Write a review note in <code>Reviews/</code>. Update the hub status.</td></tr>
+</table>
+</div>
+
+<h3>Each vault step is optional</h3>
+<p>Registry is public, has outside contributors, and runs <code>flow</code> in CI. None of these has Baalda access. Each vault step starts with this guard:</p>
+<pre><code>If .claude/project.md has no vault key, or the Baalda tools are not available,
+skip this step. Do not stop the command.</code></pre>
+<p>A vault step never blocks a command. If a vault write fails, the command reports it and continues.</p>
+
+<h3>Sensitive notes</h3>
+<p>Health, legal and biography notes stay in <code>UniBrain</code>, in <code>Areas/Health/</code> and <code>Areas/Personal/</code>. A second vault costs money, so it waits until there is a need.</p>
+<ul>
+  <li><strong>No technical limit.</strong> Baalda sets access for each person, not for each Claude session. Every session connects as you, so every session can read these notes. A hook cannot split one vault, because <code>search_notes</code> searches the whole vault.</li>
+  <li><strong>Written rule.</strong> The <code>~/.claude/CLAUDE.md</code> text below tells sessions not to open these folders unless you ask. The <code>AGENTS.md</code> files in the two folders say the same.</li>
+  <li><strong>Claude apps.</strong> If you connect Baalda to the Claude desktop or mobile app, that app can read these notes too.</li>
+</ul>
+<p><strong>Upgrade path.</strong> If you pay for a second vault later, move these notes to a <code>Private</code> vault. Then a <code>PreToolUse</code> hook on <code>mcp__baalda__.*</code> can block calls with the <code>Private</code> vault ID, except in sessions in the folders you allow. The <code>brain</code> plugin can ship that hook.</p>
+
+<h3>Token cost</h3>
+<ul>
+  <li>Commands read the vault on demand. No hook loads a hub note at session start.</li>
+  <li>Keep each hub note to about one screen. Put long material in linked notes.</li>
+</ul>
+
+<h3>Proposed user-level text</h3>
+<p>These changes are proposals. Nothing in <code>~/.claude/</code> is changed yet.</p>
+<p><code>~/.claude/settings.json</code>, added keys:</p>
+<pre><code>{
+  "extraKnownMarketplaces": {
+    "devkit": {
+      "source": { "source": "github", "repo": "unibrain1/devkit", "ref": "main" },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": { "brain@devkit": true }
+}</code></pre>
+<p>Registry registers the same marketplace name at project scope, on a tag. This is the same risk as the first check in <a href="#verify">section 11</a>. If that check fails, use the <code>devkit-stable</code> fallback for Registry.</p>
+<p><code>~/.claude/CLAUDE.md</code>, new section:</p>
+<pre><code>## Second brain
+
+- The Baalda vault `UniBrain` is the second brain. Use the `baalda` MCP tools for it.
+- Read the vault root `AGENTS.md` before you write to the vault.
+- Write to the vault only through the MCP tools. Do not write files in
+  `~/Documents/Baalda Vaults/UniBrain`.
+- Read vault notes on demand. Do not load a note at session start.
+- The repo is the source for code facts. Do not copy a README into the vault.
+- Do not read or search `Areas/Health/` or `Areas/Personal/` unless Jim asks
+  for it in this session. Do not copy their content into other notes.</code></pre>
+
+<h3>What the vault holds for devkit</h3>
+<p>A hub note, <code>Projects/Devkit/Devkit.md</code>. It holds the status, the decisions in <a href="#decide">section 14</a>, and the pilot results from the checks in "Verify in the pilot". It links to this doc and does not copy it.</p>
+
+<h3>Rollout</h3>
+<ol>
+  <li>Finish the pilot without vault steps, so a vault problem does not mix with the CI checks.</li>
+  <li>Add the <code>vault</code> key to <code>project.md</code> in TeamCroc. Add the vault steps to <code>flow</code>. Test them in TeamCroc.</li>
+  <li>Check that Registry CI and a contributor session skip the vault steps with no error.</li>
+  <li>Add the <code>vault</code> key to each other repo when it migrates.</li>
+  <li>Tag <code>v1.1.0</code>.</li>
+</ol>
+
+<h3>Check before you build</h3>
+<ul class="verify">
+  <li><strong>Tool detection.</strong> Baalda tools load on demand through tool search. Check that a command can find out if the tools are present, and load them, without a long search. On 2026-10-26, one session on this machine had no Baalda tools, while another session had them. The guard rule must cover this case.</li>
+  <li><strong>Plugin with no MCP.</strong> Check that <code>brain@devkit</code> works with the user-scope Baalda server and does not need its own <code>.mcp.json</code>.</li>
+  <li><strong>Local folder and MCP writes.</strong> The Baalda app keeps a local copy of the vault. In the trial, a file write to that folder at the same time as an MCP move gave a conflict copy. Commands write through MCP only.</li>
+</ul>
+
+<h2 id="decide">Decisions</h2>
+<p>Jim made these decisions on 2026-10-26.</p>
+<div class="tbl">
+<table>
+  <tr><th>Question</th><th>Decision</th></tr>
+  <tr><td>Second brain release</td><td>v1.1, after the pilot. Rollout phase 4.</td></tr>
+  <tr><td>Repo name</td><td><code>unibrain1/devkit</code>. Plugin IDs: <code>flow@devkit</code>, <code>brain@devkit</code>.</td></tr>
+  <tr><td>Plugin name</td><td><code>flow</code>. Commands: <code>/flow:start-issue</code> and the others.</td></tr>
+  <tr><td>Secret scanner for private repos</td><td>trufflehog. Two repos use it now, and it needs no license.</td></tr>
+  <tr><td>Active CI work</td><td>A short freeze in Registry and MyGunLog, from the base SHAs to <code>v0.1.0</code>. Registry #2513 merges first. After <code>v0.1.0</code>, shared changes go to devkit first.</td></tr>
+  <tr><td>Vault skills</td><td>A second plugin, <code>brain@devkit</code>, turned on only in <code>~/.claude/settings.json</code>.</td></tr>
+  <tr><td>Sensitive notes</td><td>Stay in <code>UniBrain</code> for now, under a written rule. A second vault costs money. Section 13 has the upgrade path.</td></tr>
+</table>
+</div>
+</main>
+</div>
