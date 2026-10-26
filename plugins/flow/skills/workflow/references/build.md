@@ -129,7 +129,7 @@ Each change type has a standing test obligation. Do not negotiate coverage per i
 - Never test a branch that a real user cannot reach.
 - Each new test must fail with the change reverted. `/flow:execute-plan` records this.
 - Run the `test` command before the PR opens. Report the real output.
-- If the project defines a narrower test command, use it for unit-only changes. Read it from `CLAUDE.md`.
+- During an issue, run the `test_quick` command for fast feedback. If the key is missing, run `test`. The full `test` command always runs before the PR opens.
 
 ## Definition of done
 

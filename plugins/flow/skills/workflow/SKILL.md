@@ -18,6 +18,7 @@ Read `.claude/project.md` before any step. Read one value with `flow-project-fac
 | Key | Use |
 | --- | --- |
 | `test`, `lint` | Required. Run before each commit and review. |
+| `test_quick` | Optional. A faster test set during an issue. If it is missing, use `test`. |
 | `verify` | Full verification. Run before a milestone review and release. |
 | `deploy` | Deploy procedure. Ask the user if the key is missing. |
 | `plans` | Plan folder. Git-ignored. Holds `issues/` and `releases/`. |

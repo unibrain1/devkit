@@ -1,0 +1,18 @@
+# Labels that the flow method uses (flow:workflow skill, references/github.md).
+# One label per line: name<TAB>color<TAB>description. flow-labels reads it.
+bug	d73a4a	Something is not working
+enhancement	a2eeef	New feature or request
+triage	e11d48	Captured, not planned yet
+signal:owner	1d76db	A named user or owner asked for it
+signal:analytics	0e8a16	Logs or usage data show a gap
+signal:operator	fbca04	Your own friction as operator of the system. Weakest signal
+signal:defect	b70b81	Broken against its own stated behavior
+signal:forced	d93f0b	Security advisory, end of life, or platform change. Bypasses the theme test
+signal:discovered	de3aeb	Found while working on another issue
+status:ready	0e8a16	In the open milestone, with acceptance criteria, no branch yet
+status:blocked	d93f0b	Waits on something outside the repo. Set by hand
+gate-critical	b60205	A standing gate depends on it. Bypasses the theme test
+stale	fbca04	180 days or more with no rescue activity. Warning before close
+stale-no-demand	ededed	Closed after the stale warning. A new signal reopens it
+help-wanted	128a0c	Open to an occasional contributor. Reviewed before merge
+component: security	d62728	Security work. Exempt from age-out

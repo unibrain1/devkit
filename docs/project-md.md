@@ -33,6 +33,7 @@ Scripts read a value with `flow-project-fact <key>`.
 | Key | Need | Use |
 | --- | --- | --- |
 | `test` | Necessary | The command that runs the tests. |
+| `test_quick` | Optional | A faster test set for work in progress. Commands use it during an issue, if present. Else they use `test`. |
 | `lint` | Necessary | The command that runs the linter or static analysis. |
 | `format` | Optional | The command that formats the code. |
 | `verify` | Optional | The full verification command before a review or release. |

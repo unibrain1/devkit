@@ -12,7 +12,8 @@ With `--check`, do Step 1 and Step 2 only. Report the state. Change nothing.
 
 ## Hard constraints
 
-1. Do not write a file before the user approves the exact content or diff.
+1. Do not write a file or create a label before the user approves the exact
+   content, diff, or list.
 2. Do not change text in CLAUDE.md outside the flow markers.
 3. Do not commit, push, or make a branch. The user decides how to commit.
 
@@ -28,8 +29,9 @@ With `--check`, do Step 1 and Step 2 only. Report the state. Change nothing.
 1. Run `flow-project-fact --file`. Then check if that file exists.
 2. If it exists, run `flow-project-check`. Keep its output for the report.
 3. Run `flow-claude-block --status`. Keep the output.
+4. Run `flow-labels --missing`. Keep the list of missing labels.
 
-If `$ARGUMENTS` has `--check`, report the three results and stop.
+If `$ARGUMENTS` has `--check`, report the four results and stop.
 
 ## Step 3: Create `.claude/project.md`
 
@@ -63,13 +65,24 @@ Do this step only if Step 2 did not report `current`.
 4. Ask for approval. If the user approves, run `flow-claude-block --apply`.
    If not, skip this step.
 
-## Step 5: Report
+## Step 5: Create the missing labels
+
+Do this step only if Step 2 found missing labels.
+
+1. Show the missing labels as a table: name, color, description.
+2. Tell the user that the flow commands use these labels, and that this
+   step never changes a label that exists.
+3. Ask for approval. If the user approves, run `flow-labels --create`.
+   If not, skip this step.
+
+## Step 6: Report
 
 Print a short report:
 
 - `.claude/project.md`: created, already present, or skipped.
 - `flow-project-check`: passed, or the errors.
 - CLAUDE.md block: added, updated from rev N, already current, or skipped.
+- Labels: created (with the count), none missing, or skipped.
 - Skipped steps: each step that you skipped, with the reason.
 - Next: tell the user to review the changes with `git diff` and to commit
   them.

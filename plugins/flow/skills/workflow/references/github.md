@@ -13,6 +13,8 @@ gh api "repos/$(flow-repo)/issues?milestone=<number>&state=open"
 
 ## Labels
 
+`/flow:setup` creates the missing labels from `templates/labels.tsv`, after the user approves the list. Run `flow-labels --missing` to see them.
+
 | Label | Meaning |
 | --- | --- |
 | `signal:owner`, `signal:analytics`, `signal:operator`, `signal:defect`, `signal:forced`, `signal:discovered` | Signal. Exactly one per issue. See `capture.md`. |

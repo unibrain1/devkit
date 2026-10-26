@@ -47,7 +47,7 @@ check "no project.md exits 2" 2 "is missing. Create it."
 project_md_write "$REPO" 'test: `make test`' 'lint: `make lint`'
 check "only necessary keys exits 0" 0 ""
 
-project_md_write "$REPO" 'test: `t`' 'lint: `l`' 'format: `f`' 'verify: `v`' \
+project_md_write "$REPO" 'test: `t`' 'test_quick: `q`' 'lint: `l`' 'format: `f`' 'verify: `v`' \
     'deploy: see docs/DEPLOY.md' 'standards: `a b`' 'plans: `p`' \
     'release_notes: `r/{version}.md`' 'ledger: `l.md`' 'private_paths: `p x`' \
     'milestone_setup: `s`' 'issue_checks: `i`' 'milestone_checks: `m`' \
