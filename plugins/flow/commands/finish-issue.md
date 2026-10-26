@@ -212,7 +212,14 @@ Do Steps 4 to 5 in order: 4, 4.5, 4.6, 4.7, 4.8, 5. Each step ends with
 "Go to Step N" or "Stop". Never skip a step. Step 5 (the merge) runs only
 after Step 4.8 records the user's `Merge` answer.
 
-**If all checks pass** — go to Step 4.5.
+**If all checks pass** — record the commit that the checks passed on. Then
+go to Step 4.5.
+
+```bash
+gh pr view <pr-number> --repo <repo> --json headRefOid --jq .headRefOid
+```
+
+Keep the output as `<reviewed-sha>`. Step 5 merges only this commit.
 
 **If any check fails:**
 
@@ -384,11 +391,18 @@ If Step 4.8 did not run, or the answer was not `Merge`, stop. Do not merge.
 Tell the user to type `/flow:finish-issue <issue-number>` again.
 
 ```bash
-gh pr merge <pr-number> --squash --delete-branch
+gh pr merge <pr-number> --squash --delete-branch --match-head-commit <reviewed-sha>
 ```
 
-This squash-merges into `<base-branch>` and deletes the issue branch (both
-local and remote).
+This squash-merges into `<base-branch>` and deletes the remote issue branch.
+`--match-head-commit` makes the merge fail if the PR head is not
+`<reviewed-sha>` (Step 4). A commit pushed after the checks passed cannot
+land without CI and review.
+
+If the merge fails because the head moved, stop. Do not merge. Tell the user
+that a commit landed after the checks passed. Tell them to type
+`/flow:finish-issue <issue-number>` again, so that Step 3 waits for CI on
+the new commit.
 
 ### Step 6: Close the GitHub issue and its combine group
 
@@ -495,11 +509,22 @@ Stop. Report the error. Do not merge or rebase. Tell the user to make the
 local branch match `origin`, then type `/flow:finish-issue <issue-number>`
 again.
 
-Clean up the local issue branch if it still exists:
+Clean up the local issue branch if it still exists. A squash merge never
+makes the branch an ancestor of the base branch, so `git branch -d` always
+refuses it. Delete it with `-D`, but only after GitHub confirms the merge:
 
 ```bash
-git branch -d <issue-branch> 2>/dev/null
+if git show-ref --verify --quiet "refs/heads/<issue-branch>"; then
+  if [ "$(gh pr view <pr-number> --repo <repo> --json state --jq .state)" = "MERGED" ]; then
+    git branch -D <issue-branch>
+  else
+    echo "PR #<pr-number> is not MERGED. Keep local branch <issue-branch>."
+  fi
+fi
 ```
+
+Record the result for Step 9: "local branch deleted", "local branch kept
+(PR not merged)", or "no local branch".
 
 ### Step 8: Update draft release notes and delete the plan file
 
@@ -596,7 +621,7 @@ Output a summary:
   write "no open ledger items for these files". On a failure, write
   "Ledger: could not query". If Step 6.5 was skipped, write "Ledger:
   skipped".
-- Branch `<issue-branch>` — deleted
+- Branch `<issue-branch>` — remote deleted. Local: the Step 7 result
 - Release notes updated at `<release-notes-file>`
 - Now on `<milestone-branch>`
 

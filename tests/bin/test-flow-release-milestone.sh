@@ -59,7 +59,17 @@ case "$*" in
         cat "$S/mergeable" ;;
     "pr view $want_pr --json mergeCommit --jq .mergeCommit.oid")
         cat "$S/merge_sha" ;;
-    "pr merge $want_pr --merge --delete-branch")
+    "pr view $want_pr --json headRefOid --jq .headRefOid")
+        git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9" ;;
+    "pr merge $want_pr --merge --delete-branch --match-head-commit "*)
+        # Real gh refuses the merge when the head moved. Do the same.
+        all_args="$*"
+        want_head="${all_args##* }"
+        have_head="$(git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9")"
+        if [ "$want_head" != "$have_head" ]; then
+            echo "stub gh: head is $have_head, not $want_head" >&2
+            exit 1
+        fi
         rm -rf "$S/merger"
         git clone -q "$STUB_ORIGIN" "$S/merger" || exit 1
         (
@@ -83,7 +93,9 @@ case "$*" in
     "api repos/example-org/example-repo/milestones/7 --jq .title")
         echo "v9.9.9: Test milestone" ;;
     "api repos/example-org/example-repo/milestones/7 -X PATCH -f state=closed")
-        echo closed > "$S/milestone_state" ;;
+        [ -f "$S/close_ignored" ] || echo closed > "$S/milestone_state" ;;
+    "api repos/example-org/example-repo/milestones/7 --jq .state")
+        cat "$S/milestone_state" 2>/dev/null || echo open ;;
     "release view v9.9.9 --repo example-org/example-repo")
         [ -f "$S/release_notes" ] || exit 1 ;;
     "release create v9.9.9 --repo example-org/example-repo --title example-repo v9.9.9 --notes-file "*" --verify-tag --draft")
@@ -161,6 +173,7 @@ check_released() {
     local tag_sha merge_sha
     [ "$(cat "$STATE/pr_state")" = "MERGED" ] || { echo "PR not merged"; return 1; }
     [ "$(grep -c '^pr merge' "$STATE/calls")" -eq 1 ] || { echo "pr merge not called exactly once"; return 1; }
+    grep -qE '^pr merge .* --match-head-commit [0-9a-f]{40}$' "$STATE/calls" || { echo "pr merge without --match-head-commit"; return 1; }
     [ "$(cat "$STATE/release_notes" 2>/dev/null)" = "$NOTES_TEXT" ] || { echo "release notes content wrong"; return 1; }
     [ "$(cat "$STATE/milestone_state" 2>/dev/null)" = "closed" ] || { echo "milestone not closed"; return 1; }
     tag_sha="$(git -C "$ORIGIN" rev-parse "${VERSION}^{commit}" 2>/dev/null)" || { echo "tag not on origin"; return 1; }
@@ -378,6 +391,68 @@ if [ "$STATUS10" -eq 2 ] && [ -z "$LEFTOVER" ] && [ ! -f "$STATE/release_notes" 
 else
     fail "Case 10: git show fails during restore -> exit 2" "exit: $STATUS10 (want 2)" \
         "left behind: [$LEFTOVER]" "output: [$OUT10]"
+fi
+
+# --- Case R1: --reviewed-sha is the PR head -> full release -------------
+setup_case caseR1
+REVIEWED="$(git -C "$ORIGIN" rev-parse "refs/heads/milestone/${VERSION}")"
+OUTR1="$(run_release --reviewed-sha "$REVIEWED" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSR1=$?
+WHYR1="$(check_released)"
+if [ "$STATUSR1" -eq 0 ] && [ -z "$WHYR1" ]; then
+    pass "Case R1: reviewed SHA is the head -> released"
+else
+    fail "Case R1: reviewed SHA is the head" "exit: $STATUSR1 (want 0)" "check: $WHYR1" "output: [$OUTR1]"
+fi
+
+# --- Case R2: a commit lands after the review -> exit 1, nothing changes ---
+setup_case caseR2
+REVIEWED="$(git -C "$ORIGIN" rev-parse "refs/heads/milestone/${VERSION}")"
+(
+    cd "$WORK" || exit 1
+    git checkout -q "milestone/${VERSION}"
+    echo late > late.txt
+    git add late.txt
+    git commit -q -m "late commit after review"
+    git push -q origin "milestone/${VERSION}"
+    git checkout -q main
+)
+BEFORER2="$(git -C "$ORIGIN" for-each-ref)"
+OUTR2="$(run_release --reviewed-sha "$REVIEWED" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSR2=$?
+AFTERR2="$(git -C "$ORIGIN" for-each-ref)"
+if [ "$STATUSR2" -eq 1 ] && [ "$BEFORER2" = "$AFTERR2" ] \
+    && [[ "$OUTR2" == *"not the reviewed commit"* ]] && ! grep -q '^pr merge' "$STATE/calls"; then
+    pass "Case R2: commit after review -> exit 1, nothing pushed or merged"
+else
+    fail "Case R2: commit after review" "exit: $STATUSR2 (want 1)" "output: [$OUTR2]"
+fi
+
+# --- Case R3: rerun after Step 6 pushed the notes removal -> released ----
+setup_case caseR3
+REVIEWED="$(git -C "$ORIGIN" rev-parse "refs/heads/milestone/${VERSION}")"
+echo CONFLICTING > "$STATE/mergeable"
+run_release --reviewed-sha "$REVIEWED" "$VERSION" "$PR" "$MS" >/dev/null 2>&1
+STATUSR3A=$?
+echo MERGEABLE > "$STATE/mergeable"
+OUTR3="$(run_release --reviewed-sha "$REVIEWED" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSR3=$?
+WHYR3="$(check_released)"
+if [ "$STATUSR3A" -eq 2 ] && [ "$STATUSR3" -eq 0 ] && [ -z "$WHYR3" ]; then
+    pass "Case R3: rerun with the script's own notes removal on top -> released"
+else
+    fail "Case R3: rerun after notes removal" "exits: $STATUSR3A $STATUSR3 (want 2 0)" "check: $WHYR3" "output: [$OUTR3]"
+fi
+
+# --- Case R4: the milestone does not close -> exit 2 ---------------------
+setup_case caseR4
+touch "$STATE/close_ignored"
+OUTR4="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSR4=$?
+if [ "$STATUSR4" -eq 2 ] && [[ "$OUTR4" == *"not 'closed'"* ]]; then
+    pass "Case R4: milestone still open after the close call -> exit 2"
+else
+    fail "Case R4: milestone still open after the close call" "exit: $STATUSR4 (want 2)" "output: [$OUTR4]"
 fi
 
 harness_report
