@@ -123,9 +123,13 @@ checks in Steps 2–4 cannot run. The script checked them before the merge.
   vetted.
 
 ```bash
-gh pr view <number> --json mergeable,mergeStateStatus,statusCheckRollup
+gh pr view <number> --json mergeable,mergeStateStatus,statusCheckRollup,headRefOid
 flow-check-blocking-findings <number> --include-important
 ```
+
+Record `headRefOid` as `<reviewed-sha>`. It is the commit that the review
+and CI passed. Step 6 gives it to the release script, which refuses to
+merge any other commit.
 
 - **Exit 0** — clean, proceed.
 - **Exit 1** — an unresolved Blocking or Important finding exists. **Stop.**
@@ -285,8 +289,12 @@ the merge, which cannot be undone by re-running the command.
 Run it with the Bash tool `timeout: 600000`:
 
 ```bash
-flow-release-milestone <version> <pr-number> <milestone-number>
+flow-release-milestone --reviewed-sha <reviewed-sha> <version> <pr-number> <milestone-number>
 ```
+
+If the script exits 1 with "not the reviewed commit", a commit landed on the
+milestone branch after the review. Stop. Nothing changed. End with plain
+text: run `/clear`, then type `/flow:review-milestone <version>`.
 
 This runs, in order: refuse to continue if local `main` carries commits
 that `origin/main` does not have; save the release notes to

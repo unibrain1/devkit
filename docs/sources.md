@@ -44,6 +44,17 @@ with the Registry agents.
 
 ## Other repos read for comparison
 
-Phase 1 step 4 compares the commands in TheSommelier, HomeLab, and
-Monitoring with the Registry versions. These repos are not frozen. When step
-4 reads a repo, it adds the SHA that it read here.
+Phase 1 step 4 compared the commands in these repos with the flow commands.
+These repos are not frozen.
+
+| Repo | Read at | Note |
+| --- | --- | --- |
+| unibrain1/MyGunLog | `320d01c` (base SHA) | 7 commands |
+| unibrain1/TheSommelier | local files, 2026-10-26 | 10 commands. Git-ignored since v3.1.1 (#102), so not in `main` (`c4292e4`). |
+| unibrain1/HomeLab | `f90f4f0` | 4 commands |
+| elan-registry/elan-registry-monitoring | `7b440bf` | 8 commands |
+
+Jim approved three extras on 2026-10-26: merge only the reviewed head
+(MyGunLog), delete the local issue branch after a squash merge (MyGunLog and
+TheSommelier, a bug in the Registry original), and read back the milestone
+state after the close (Monitoring).
