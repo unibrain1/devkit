@@ -183,6 +183,7 @@ td code { white-space: nowrap; }
     <li>A shared command never runs a stack script by name. It runs the command in an optional key, or it skips the step.</li>
     <li>The <code>flow</code> agents are generic. Stack rules stay in the project. See <a href="#plugin">section 4</a>.</li>
     <li>Scripts get the repo name from <code>gh</code>. No script names a repo.</li>
+    <li>No silent skips: an unknown key in <code>project.md</code> stops the command, and each command reports the steps that it skipped.</li>
   </ul>
 </div>
 
@@ -322,6 +323,11 @@ flowchart LR
 </table>
 </div>
 <p><strong>Optional-key guard.</strong> If an optional key is missing, the shared command skips that step with no error. A shared command never runs a stack script by name. Stack scripts, for example Registry's deploy sheet, fix scripts, and phpstan baseline check, stay in the project, and a key points to them.</p>
+<p><strong>No silent skips.</strong> A typo in a key name, for example <code>release_check</code>, must not look like "this project has no such check". Two rules prevent this:</p>
+<ul>
+  <li><strong>Unknown keys stop the command.</strong> In its first step, each shared command runs <code>flow-project-check</code>. The script compares each key in <code>project.md</code> with the known list. An unknown key stops the command, and the error names the nearest known key. A missing <code>test</code> or <code>lint</code> key also stops the command.</li>
+  <li><strong>Each command reports its skips.</strong> At the end, each shared command prints a "Skipped steps" list with the reason for each step, for example <code>release_checks: no key in .claude/project.md</code>. This shows a key that a migration lost.</li>
+</ul>
 <p>The <code>vault</code> key is optional. It gives the path of the project's hub note in the vault. A repo with no <code>vault</code> key gets no vault steps. In a public repo, the key shows only the note path, not the note.</p>
 <ul>
   <li><strong>No load in normal sessions.</strong> Claude Code loads CLAUDE.md in every session. It does not load this file. Each shared command reads the file in its first step. If the file is missing, the command stops and tells you to make it.</li>
