@@ -147,21 +147,27 @@ else
   echo "[dry-run] git rev-list --count origin/main..main  # expect: 0"
 fi
 
+# Exits 1 unless <commit> is the reviewed commit, or this script's own notes
+# removal directly on top of it (a rerun after Step 6). <where> names the
+# check in the message.
+require_reviewed() {
+  local commit="$1" where="$2" parent change
+  [ -z "$REVIEWED_SHA" ] && return 0
+  [ "$commit" = "$REVIEWED_SHA" ] && return 0
+  parent="$(git rev-parse --verify --quiet "${commit}^" || true)"
+  change="$(git diff-tree --no-commit-id --name-status -r "$commit" 2>/dev/null || true)"
+  if [ "$parent" = "$REVIEWED_SHA" ] && [ "$change" = "D	${NOTES_FILE}" ]; then
+    return 0
+  fi
+  echo "${where}: ${commit} is not the reviewed commit ${REVIEWED_SHA}. A commit landed after the review. Stop. Review the new commit, then run the release again." >&2
+  exit 1
+}
+
 # --- Check that the PR head is the reviewed commit ---
 # Runs before Step 6, so exit 1 still means that nothing changed.
 if [ -n "$REVIEWED_SHA" ] && [ "$PR_STATE" = "OPEN" ]; then
   step "Check the reviewed commit"
-  PR_HEAD="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
-  if [ "$PR_HEAD" != "$REVIEWED_SHA" ]; then
-    # A rerun after Step 6 finds this script's own notes removal on top of
-    # the reviewed commit. Accept that one commit, and nothing else.
-    head_parent="$(git rev-parse --verify --quiet "${PR_HEAD}^" || true)"
-    head_change="$(git diff-tree --no-commit-id --name-status -r "$PR_HEAD" 2>/dev/null || true)"
-    if [ "$head_parent" != "$REVIEWED_SHA" ] || [ "$head_change" != "D	${NOTES_FILE}" ]; then
-      echo "PR #${PR_NUMBER} head is ${PR_HEAD}, not the reviewed commit ${REVIEWED_SHA}. A commit landed after the review. Stop. Review the new commit, then run the release again." >&2
-      exit 1
-    fi
-  fi
+  require_reviewed "$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)" "PR #${PR_NUMBER} head"
 fi
 
 # --- Step 6: save release notes, delete the file, push to the milestone branch ---
@@ -171,11 +177,19 @@ if [ "$PR_STATE" = "MERGED" ]; then
 else
   run git checkout "$BRANCH"
   run git pull --ff-only origin "$BRANCH"
+  # The pull can bring a commit that landed after the check above. Check
+  # again on the local branch, before this script commits or pushes.
+  if [ "$DRY_RUN" -eq 0 ]; then
+    require_reviewed "$(git rev-parse HEAD)" "Local ${BRANCH} after the pull"
+  fi
   if [ "$DRY_RUN" -eq 1 ] || [ -f "$NOTES_FILE" ]; then
     run mkdir -p "$(dirname "$KEEP_NOTES")"
     run cp "$NOTES_FILE" "$KEEP_NOTES"
     run git rm "$NOTES_FILE"
     run git commit -m "chore: remove v${VERSION#v} release notes — published to GitHub Releases"
+    if [ "$DRY_RUN" -eq 0 ]; then
+      require_reviewed "$(git rev-parse HEAD)" "Notes removal commit"
+    fi
   else
     REMOVED_IN="$(notes_removal_commit)"
     if [ -z "$REMOVED_IN" ]; then

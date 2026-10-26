@@ -60,7 +60,21 @@ case "$*" in
     "pr view $want_pr --json mergeCommit --jq .mergeCommit.oid")
         cat "$S/merge_sha" ;;
     "pr view $want_pr --json headRefOid --jq .headRefOid")
-        git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9" ;;
+        git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9"
+        # push_after_head_check: a commit lands right after this answer,
+        # before the script pulls (the race that the second check closes).
+        if [ -f "$S/push_after_head_check" ]; then
+            rm -rf "$S/racer"
+            git clone -q "$STUB_ORIGIN" "$S/racer" || exit 1
+            (
+                cd "$S/racer" || exit 1
+                git checkout -q milestone/v9.9.9
+                echo race > race.txt
+                git add race.txt
+                git commit -q -m "commit during the release"
+                git push -q origin milestone/v9.9.9
+            ) || exit 1
+        fi ;;
     "pr merge $want_pr --merge --delete-branch --match-head-commit "*)
         # Real gh refuses the merge when the head moved. Do the same.
         all_args="$*"
@@ -453,6 +467,20 @@ if [ "$STATUSR4" -eq 2 ] && [[ "$OUTR4" == *"not 'closed'"* ]]; then
     pass "Case R4: milestone still open after the close call -> exit 2"
 else
     fail "Case R4: milestone still open after the close call" "exit: $STATUSR4 (want 2)" "output: [$OUTR4]"
+fi
+
+# --- Case R5: a push lands between the head check and the pull -> exit 1 --
+setup_case caseR5
+REVIEWED="$(git -C "$ORIGIN" rev-parse "refs/heads/milestone/${VERSION}")"
+touch "$STATE/push_after_head_check"
+OUTR5="$(run_release --reviewed-sha "$REVIEWED" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSR5=$?
+RACE_HEAD="$(git -C "$ORIGIN" log -1 --format=%s "refs/heads/milestone/${VERSION}")"
+if [ "$STATUSR5" -eq 1 ] && [[ "$OUTR5" == *"after the pull"* ]] \
+    && [ "$RACE_HEAD" = "commit during the release" ] && ! grep -q '^pr merge' "$STATE/calls"; then
+    pass "Case R5: push during the release -> exit 1 after the pull, nothing pushed or merged"
+else
+    fail "Case R5: push during the release" "exit: $STATUSR5 (want 1)" "origin head: $RACE_HEAD" "output: [$OUTR5]"
 fi
 
 harness_report
