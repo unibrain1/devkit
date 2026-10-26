@@ -100,4 +100,23 @@ fi
 "$SCRIPT" >/dev/null 2>&1
 if [ "$?" -eq 2 ]; then pass "no argument -> usage error"; else fail "no argument -> usage error"; fi
 
+# A CLAUDE.md link to a file outside the repo must never be written.
+OUTSIDE="$TMPROOT/outside.txt"
+printf 'keep me\n' > "$OUTSIDE"
+rm -f CLAUDE.md
+ln -s "$OUTSIDE" CLAUDE.md
+"$SCRIPT" --apply >/dev/null 2>&1
+link_rc=$?
+if [ "$link_rc" -eq 2 ] && [ "$(cat "$OUTSIDE")" = "keep me" ] && [ -L CLAUDE.md ]; then
+    pass "CLAUDE.md symlink -> exit 2, target not written"
+else
+    fail "CLAUDE.md symlink -> exit 2, target not written" "rc: $link_rc" "target: [$(cat "$OUTSIDE")]"
+fi
+rm -f CLAUDE.md
+if ! ls .CLAUDE.md.flow.* >/dev/null 2>&1; then
+    pass "no temp file left in the repo"
+else
+    fail "no temp file left in the repo"
+fi
+
 harness_report

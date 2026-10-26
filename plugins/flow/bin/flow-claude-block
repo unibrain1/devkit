@@ -18,8 +18,9 @@
 # Exit codes:
 #   0  --status: the block is current. --diff, --apply: done.
 #   1  --status: the block is old or missing, or there is no CLAUDE.md.
-#   2  Usage error, not in a git repo, or the markers in CLAUDE.md are
-#      broken (a begin with no end, or more than one block).
+#   2  Usage error, not in a git repo, CLAUDE.md is a symbolic link, or the
+#      markers in CLAUDE.md are broken (a begin with no end, or more than one
+#      block).
 
 set -euo pipefail
 
@@ -51,6 +52,13 @@ fi
 
 claude_md="${top}/CLAUDE.md"
 
+# A cloned repo can make CLAUDE.md a link to a file outside the repo, for
+# example a shell profile. --apply must never write through such a link.
+if [ -L "$claude_md" ]; then
+    echo "${prog}: ${claude_md} is a symbolic link. Replace it with a regular file, then run again." >&2
+    exit 2
+fi
+
 begins=0
 ends=0
 have_rev=""
@@ -80,7 +88,9 @@ if [ "$mode" = "--status" ]; then
     exit 0
 fi
 
-new_file="$(mktemp)"
+# The temp file is in the repo, so the final mv is a rename on one file
+# system and replaces the path itself.
+new_file="$(mktemp "${top}/.CLAUDE.md.flow.XXXXXX")"
 trap 'rm -f "$new_file"' EXIT
 
 if [ "$begins" -eq 1 ]; then
@@ -109,5 +119,10 @@ if [ "$mode" = "--diff" ]; then
     exit 0
 fi
 
-cp "$new_file" "$claude_md"
+if [ -f "$claude_md" ]; then
+    chmod "$(stat -f '%Lp' "$claude_md" 2>/dev/null || stat -c '%a' "$claude_md")" "$new_file"
+else
+    chmod 644 "$new_file"
+fi
+mv "$new_file" "$claude_md"
 echo "${prog}: wrote flow block rev ${want_rev} to ${claude_md}."
