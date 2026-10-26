@@ -1,0 +1,14 @@
+extends: default
+
+rules:
+  # Workflow files use long run lines and URLs.
+  line-length: disable
+  # GitHub Actions uses the key "on", which YAML 1.1 reads as a boolean.
+  truthy:
+    check-keys: false
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
+
+ignore: |
+  node_modules/

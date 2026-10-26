@@ -1,0 +1,26 @@
+# Dependabot bumps the pinned actions and the CI lint tools one time for all
+# repos (design section 6). Callers in other repos pick up the change from
+# devkit main, or from the next tag for Registry.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: America/Los_Angeles
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: America/Los_Angeles
+    groups:
+      lint-tools:
+        patterns: ["*"]

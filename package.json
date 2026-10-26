@@ -1,0 +1,13 @@
+{
+  "name": "devkit-dev-tools",
+  "private": true,
+  "description": "Lint and validation tools for devkit CI. Not a published package.",
+  "scripts": {
+    "lint:md": "markdownlint-cli2",
+    "validate:plugin": "claude plugin validate . && claude plugin validate plugins/flow"
+  },
+  "devDependencies": {
+    "@anthropic-ai/claude-code": "2.1.296",
+    "markdownlint-cli2": "0.24.0"
+  }
+}

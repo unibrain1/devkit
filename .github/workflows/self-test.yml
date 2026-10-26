@@ -1,0 +1,110 @@
+# devkit's own CI. Branch protection on main requires the jobs "lint" and
+# "test". Keep the job names stable: a rename breaks the required checks.
+name: self-test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The claude CLI only validates files here. It needs no network calls.
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+  DISABLE_TELEMETRY: "1"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install lint tools
+        # No install scripts run, except the one for the claude CLI, which
+        # gets its native binary. That package comes from Anthropic, and the
+        # lockfile pins its version and integrity hash.
+        run: |
+          npm ci --ignore-scripts
+          node node_modules/@anthropic-ai/claude-code/install.cjs
+
+      - name: Action pins
+        run: .github/scripts/check-action-pins.sh
+
+      - name: actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/$tarball" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color
+
+      - name: shellcheck
+        run: |
+          shellcheck --version | head -n 2
+          shellcheck plugins/flow/bin/flow-* plugins/flow/bin/lib/*.sh \
+            plugins/flow/hooks/*.sh tests/*.sh tests/*/*.sh .github/scripts/*.sh
+
+      - name: yamllint
+        run: |
+          python3 -m pip install --user --quiet yamllint==1.38.0
+          python3 -m yamllint --strict .
+
+      - name: markdownlint
+        run: npx --no-install markdownlint-cli2
+
+      - name: JSON
+        run: |
+          status=0
+          while IFS= read -r -d '' file; do
+            jq empty "$file" || { echo "Invalid JSON: $file" >&2; status=1; }
+          done < <(find . -name '*.json' -not -path './node_modules/*' -print0)
+          exit "$status"
+
+      - name: Plugin manifests
+        run: |
+          npx --no-install claude plugin validate .
+          npx --no-install claude plugin validate plugins/flow
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runs the scripts on bash 3.2, the version on a stock Mac.
+        os: [ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Git identity for test repos
+        run: |
+          git config --global user.name "devkit CI"
+          git config --global user.email "devkit-ci@users.noreply.github.com"
+          git config --global init.defaultBranch main
+
+      - name: Tests
+        run: bash tests/run.sh

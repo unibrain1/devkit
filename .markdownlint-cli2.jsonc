@@ -1,0 +1,16 @@
+// markdownlint-cli2 settings for devkit. CI runs: npx markdownlint-cli2
+{
+  "config": {
+    "default": true,
+    // Prose wraps at about 80 columns, but tables and long links cannot.
+    "MD013": false,
+    // Command files repeat headings such as "Report" in different steps.
+    "MD024": { "siblings_only": true },
+    // Skill and command files start with YAML front matter, not a heading.
+    "MD041": false
+  },
+  "globs": ["**/*.md"],
+  // plugins/brain/ is a copy of the skill in the Claude apps. It ships in
+  // v1.1 (rollout phase 4). Lint it then.
+  "ignores": ["node_modules/**", "plugins/brain/**"]
+}
