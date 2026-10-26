@@ -376,9 +376,9 @@ flowchart LR
 <p><strong><code>/flow:setup</code>.</strong> A plugin has no install step, so a command does the job. You run it one time in each repo, and again after a devkit release that changes the block:</p>
 <ul>
   <li>It creates <code>.claude/project.md</code> from a template and asks for the <code>test</code> and <code>lint</code> commands.</li>
-  <li>It shows the CLAUDE.md block as a diff and writes it only after you approve. The block is between <code>&lt;!-- flow:begin vX.Y.Z --&gt;</code> and <code>&lt;!-- flow:end --&gt;</code>. On a later run, it replaces only the text between the markers.</li>
+  <li>It shows the CLAUDE.md block as a diff and writes it only after you approve. The block is between <code>&lt;!-- flow:begin rev N --&gt;</code> and <code>&lt;!-- flow:end --&gt;</code>. <code>N</code> is the block revision in the <code>flow</code> template. It changes only when the block text changes, because the plugin has no version field to compare. On a later run, setup replaces only the text between the markers.</li>
 </ul>
-<p><strong>SessionStart check.</strong> A <code>flow</code> hook checks that <code>project.md</code> exists and that the block has the current version. If one is wrong, it prints one line: "Run /flow:setup". If both are correct, it prints nothing.</p>
+<p><strong>SessionStart check.</strong> A <code>flow</code> hook checks that <code>project.md</code> exists and that the block has the current revision. If one is wrong, it prints one line: "Run /flow:setup". If both are correct, it prints nothing.</p>
 
 <h3>Command names</h3>
 <p>Plugin commands have a prefix: <code>/flow:start-issue</code>, <code>@agent-flow:code-reviewer</code>. If a project has its own command with the same base name, <code>/start-issue</code> runs the project copy. Each migration must therefore delete the old project copies.</p>
