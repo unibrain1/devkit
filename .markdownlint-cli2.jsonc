@@ -10,5 +10,7 @@
     "MD041": false
   },
   "globs": ["**/*.md"],
-  "ignores": ["node_modules/**"]
+  // plugins/brain/ is a copy of the skill in the Claude apps. It ships in
+  // v1.1 (rollout phase 4). Lint it then.
+  "ignores": ["node_modules/**", "plugins/brain/**"]
 }

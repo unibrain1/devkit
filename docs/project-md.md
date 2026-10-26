@@ -55,6 +55,7 @@ Scripts read a value with `flow-project-fact <key>`.
   | The whole script | The script prints `Step skipped.` and exits 10. No script uses 10 for another meaning. |
   | One check in the script | The script prints `<check> skipped.` and goes on. Example: `private_paths` in `flow-commit-push-pr`. |
   | Work that cannot run without it | The script stops with exit 2 and names the key. Example: `release_notes` and `plans` in `flow-release-milestone`. |
+
 - A check command (`*_checks`, `milestone_setup`) that exits non-zero stops
   the shared command.
 
