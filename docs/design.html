@@ -184,6 +184,8 @@ td code { white-space: nowrap; }
     <li>The <code>flow</code> agents are generic. Stack rules stay in the project. See <a href="#plugin">section 4</a>.</li>
     <li>Scripts get the repo name from <code>gh</code>. No script names a repo.</li>
     <li>No silent skips: an unknown key in <code>project.md</code> stops the command, and each command reports the steps that it skipped.</li>
+    <li>The method moves into <code>flow</code>: a <code>flow:workflow</code> skill, the <code>hotfix</code> skill, and <code>/flow:setup</code>, which adds a short marked block to CLAUDE.md. See <a href="#plugin">section 4</a>.</li>
+    <li>The Registry commands <code>sprint-status</code> and <code>groom-tests</code> are not in <code>flow</code>. <code>groom-tests</code> stays in Registry.</li>
   </ul>
 </div>
 
@@ -261,10 +263,12 @@ flowchart LR
 │                               # asd-ste100 from upstream, pinned to a commit SHA.
 ├── plugins/flow/
 │   ├── .claude-plugin/plugin.json
-│   ├── commands/               # start-issue, finish-issue, start-milestone, ...
+│   ├── commands/               # setup, start-issue, finish-issue, start-milestone, ...
 │   ├── agents/                 # code-reviewer, senior-architect, ...
+│   ├── skills/                 # workflow (the method), hotfix
+│   ├── templates/              # project.md, the CLAUDE.md block
 │   ├── bin/                    # Generic workflow scripts from Registry scripts/
-│   └── hooks/hooks.json        # Generic guard hooks only
+│   └── hooks/hooks.json        # Guard hooks, and the SessionStart setup check
 ├── plugins/brain/              # /brain, /capture. User scope only. v1.1.
 │   ├── .claude-plugin/plugin.json
 │   └── skills/
@@ -283,7 +287,8 @@ flowchart LR
 <h2 id="plugin">The flow plugin</h2>
 <p>One plugin holds everything that is not specific to one tech stack:</p>
 <ul>
-  <li>The milestone and issue commands from Registry.</li>
+  <li>The milestone and issue commands from Registry, and <code>/flow:setup</code>.</li>
+  <li>The method: a <code>flow:workflow</code> skill, and the <code>hotfix</code> skill.</li>
   <li>The generic agents: code-reviewer, silent-failure-hunter, senior-architect, and the others. See "Generic agents" below.</li>
   <li>The generic workflow scripts in <code>bin/</code>. Claude Code puts a plugin's <code>bin/</code> on the command path, so commands call the scripts by name.</li>
   <li>Optional vault steps in four commands. See <a href="#brain">section 13</a>.</li>
@@ -361,6 +366,20 @@ flowchart LR
   <li><strong>End of a milestone.</strong> <code>/flow:release-milestone</code> deletes the <code>milestone/*</code> branch after the merge. If the branch stays, the count stays too.</li>
 </ul>
 
+<h3>The method and setup</h3>
+<p>The Registry commands refer to Registry's <code>ISSUE_WORKFLOW.md</code> and to workflow sections in its CLAUDE.md. Other projects do not have these docs, and a plugin cannot ship a CLAUDE.md. So <code>flow</code> carries the method in three parts:</p>
+<ul>
+  <li><strong><code>flow:workflow</code> skill.</strong> The full method, from <code>ISSUE_WORKFLOW.md</code>, Registry's CLAUDE.md, and its rules <code>planning-docs.md</code> and <code>ci-workflows.md</code>. Examples: the four loops, the plan gate, the review rules, the cleanup ledger, backlog age-out, the <code>gh</code> gotchas, and the main-match rule. Commands refer to its sections by name. Claude loads it on demand, so it adds no context to a normal session.</li>
+  <li><strong><code>hotfix</code> skill.</strong> The hotfix procedure. Its deploy step reads the <code>deploy</code> key.</li>
+  <li><strong>A marked block in CLAUDE.md.</strong> About 10 lines: the branch model, the command order, the hand-off rule, and a pointer to the skill. It loads in every session, so the order and the hand-off rule are always present. Each command also states the hand-off rule in its last step, so a session without the block behaves correctly.</li>
+</ul>
+<p><strong><code>/flow:setup</code>.</strong> A plugin has no install step, so a command does the job. You run it one time in each repo, and again after a devkit release that changes the block:</p>
+<ul>
+  <li>It creates <code>.claude/project.md</code> from a template and asks for the <code>test</code> and <code>lint</code> commands.</li>
+  <li>It shows the CLAUDE.md block as a diff and writes it only after you approve. The block is between <code>&lt;!-- flow:begin rev N --&gt;</code> and <code>&lt;!-- flow:end --&gt;</code>. <code>N</code> is the block revision in the <code>flow</code> template. It changes only when the block text changes, because the plugin has no version field to compare. On a later run, setup replaces only the text between the markers.</li>
+</ul>
+<p><strong>SessionStart check.</strong> A <code>flow</code> hook checks that <code>project.md</code> exists and that the block has the current revision. If one is wrong, it prints one line: "Run /flow:setup". If both are correct, it prints nothing.</p>
+
 <h3>Command names</h3>
 <p>Plugin commands have a prefix: <code>/flow:start-issue</code>, <code>@agent-flow:code-reviewer</code>. If a project has its own command with the same base name, <code>/start-issue</code> runs the project copy. Each migration must therefore delete the old project copies.</p>
 
@@ -368,7 +387,7 @@ flowchart LR
 <div class="tbl">
 <table>
   <tr><th>File</th><th>Purpose</th></tr>
-  <tr><td><code>CLAUDE.md</code></td><td>Describes the code. A plugin cannot ship a CLAUDE.md. Devkit adds nothing to it.</td></tr>
+  <tr><td><code>CLAUDE.md</code></td><td>Describes the code. A plugin cannot ship a CLAUDE.md. Devkit adds only one marked block, through <code>/flow:setup</code>.</td></tr>
   <tr><td><code>.claude/project.md</code></td><td>Project facts for the shared commands, and the optional <code>vault</code> key. Read on demand.</td></tr>
   <tr><td><code>.claude/settings.json</code></td><td>Marketplace and plugin, permission allowlist, project hooks</td></tr>
   <tr><td><code>.claude/skills/</code>, <code>rules/</code>, <code>hooks/</code></td><td>Stack and project items. Examples: Registry's <code>userspice-*</code>, <code>phpstan-on-edit.sh</code>, and <code>check-deploy-sheet-fresh.sh</code>. HomeLab's Ansible skills.</td></tr>
@@ -572,7 +591,8 @@ jobs:
 <ol>
   <li>Wait for a milestone boundary. Check that no milestone or issue branch is open.</li>
   <li>Check <code>git status</code> and make a branch from <code>main</code>.</li>
-  <li>Add <code>.claude/project.md</code>. Add the <code>vault</code> key only after phase 4 starts.</li>
+  <li>Run <code>/flow:setup</code>. It adds <code>.claude/project.md</code> and the CLAUDE.md block. Add the <code>vault</code> key only after phase 4 starts.</li>
+  <li>Delete the parts of CLAUDE.md and the project docs that the <code>flow:workflow</code> skill now holds. Keep the project-only text.</li>
   <li>Move the stack rules from the project agents to <code>.claude/rules/</code>.</li>
   <li>Add the marketplace and <code>flow</code> to <code>.claude/settings.json</code>. Copy the allowlist template.</li>
   <li>Delete each project command, agent, skill, and script that <code>flow</code> now provides.</li>
