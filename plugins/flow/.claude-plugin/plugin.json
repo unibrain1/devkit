@@ -1,0 +1,10 @@
+{
+  "name": "flow",
+  "description": "Milestone and issue workflow: commands, generic agents, skills, workflow scripts, and guard hooks. Project facts come from .claude/project.md.",
+  "author": {
+    "name": "unibrain1",
+    "url": "https://github.com/unibrain1"
+  },
+  "homepage": "https://github.com/unibrain1/devkit",
+  "repository": "https://github.com/unibrain1/devkit"
+}

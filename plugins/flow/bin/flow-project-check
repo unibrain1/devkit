@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# Checks .claude/project.md before a shared command uses it. An optional key
+# that is missing makes its step skip, so a typo in a key name ("release_check")
+# would silently turn off a check. This script makes that typo an error.
+#
+# Usage: flow-project-check
+#
+# Checks:
+#   - The file exists.
+#   - Each key is a known key. An unknown key is an error, and the message
+#     names the nearest known key.
+#   - The necessary keys (test, lint) are present.
+#
+# Exit codes:
+#   0  The file is valid.
+#   1  One or more problems. Each problem is printed on stderr.
+#   2  Usage error, not in a git repo, or the file is missing.
+
+set -euo pipefail
+
+# Keep in step with docs/project-md.md.
+KNOWN_KEYS="test lint format verify deploy standards plans release_notes ledger private_paths milestone_setup issue_checks milestone_checks release_checks vault"
+REQUIRED_KEYS="test lint"
+
+if [ "$#" -ne 0 ]; then
+    echo "Usage: $(basename "$0")" >&2
+    exit 2
+fi
+
+if ! file="$("$(dirname "${BASH_SOURCE[0]}")/flow-project-fact" --file)"; then
+    exit 2
+fi
+
+if [ ! -f "$file" ]; then
+    echo "$(basename "$0"): ${file} is missing. Create it. See https://github.com/unibrain1/devkit/blob/main/docs/project-md.md" >&2
+    exit 2
+fi
+
+# Prints the known key with the smallest edit distance to $1.
+nearest_key() {
+    printf '%s\n' "$KNOWN_KEYS" | tr ' ' '\n' | awk -v want="$1" '
+        function dist(a, b,    i, j, la, lb, d, c) {
+            la = length(a); lb = length(b)
+            for (i = 0; i <= la; i++) d[i, 0] = i
+            for (j = 0; j <= lb; j++) d[0, j] = j
+            for (i = 1; i <= la; i++)
+                for (j = 1; j <= lb; j++) {
+                    c = (substr(a, i, 1) == substr(b, j, 1)) ? 0 : 1
+                    d[i, j] = d[i-1, j] + 1
+                    if (d[i, j-1] + 1 < d[i, j]) d[i, j] = d[i, j-1] + 1
+                    if (d[i-1, j-1] + c < d[i, j]) d[i, j] = d[i-1, j-1] + c
+                }
+            return d[la, lb]
+        }
+        { k = dist(want, $0); if (best == "" || k < bestd) { best = $0; bestd = k } }
+        END { print best }'
+}
+
+problems=0
+keys="$(sed -nE 's/^[[:space:]]*-[[:space:]]+([A-Za-z0-9_-]+):.*/\1/p' "$file")"
+
+for key in $keys; do
+    case " $KNOWN_KEYS " in
+        *" $key "*) ;;
+        *)
+            echo "$(basename "$0"): unknown key '${key}' in ${file}. Did you mean '$(nearest_key "$key")'?" >&2
+            problems=$((problems + 1))
+            ;;
+    esac
+done
+
+for key in $REQUIRED_KEYS; do
+    case " $(printf '%s' "$keys" | tr '\n' ' ') " in
+        *" $key "*) ;;
+        *)
+            echo "$(basename "$0"): necessary key '${key}' is missing in ${file}." >&2
+            problems=$((problems + 1))
+            ;;
+    esac
+done
+
+if [ "$problems" -gt 0 ]; then
+    exit 1
+fi

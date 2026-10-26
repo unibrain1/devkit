@@ -1,0 +1,62 @@
+#!/bin/bash
+#
+# Counts the milestones in progress and applies the milestone limit rule
+# (design section 4). A milestone is in progress when its milestone/* branch
+# exists on origin. Open GitHub milestones are plans, not work in progress,
+# so they do not count: Registry had 13 open milestones and no branch.
+#
+# Usage: flow-milestone-count [--check]
+#   (none)   Print the number of milestone/* branches on origin.
+#   --check  Also apply the limit: 1 for a private repo, 2 for a public repo.
+#
+# Exit codes:
+#   0  Count printed. With --check, the repo is under its limit.
+#   1  With --check, the repo is at or over its limit. The count is printed
+#      on stdout and the reason on stderr.
+#   2  Usage error, or git or gh failed.
+
+set -euo pipefail
+
+check=false
+case "${1:-}" in
+    "") ;;
+    --check) check=true ;;
+    *)
+        echo "Usage: $(basename "$0") [--check]" >&2
+        exit 2
+        ;;
+esac
+
+if ! heads="$(git ls-remote --heads origin 'milestone/*' 2>/dev/null)"; then
+    echo "$(basename "$0"): git ls-remote failed for origin." >&2
+    exit 2
+fi
+
+if [ -z "$heads" ]; then
+    count=0
+    branches=""
+else
+    count="$(printf '%s\n' "$heads" | wc -l | tr -d ' ')"
+    branches="$(printf '%s\n' "$heads" | sed 's|.*refs/heads/||' | tr '\n' ' ')"
+fi
+
+printf '%s\n' "$count"
+
+if [ "$check" = false ]; then
+    exit 0
+fi
+
+if ! visibility="$("$(dirname "${BASH_SOURCE[0]}")/flow-repo" --visibility)"; then
+    exit 2
+fi
+
+if [ "$visibility" = "PUBLIC" ]; then
+    limit=2
+else
+    limit=1
+fi
+
+if [ "$count" -ge "$limit" ]; then
+    echo "$(basename "$0"): ${count} milestone in progress (${branches% }). The limit for a ${visibility} repo is ${limit}. Release a milestone before you start a new one." >&2
+    exit 1
+fi

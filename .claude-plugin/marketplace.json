@@ -1,0 +1,28 @@
+{
+  "name": "devkit",
+  "owner": {
+    "name": "unibrain1",
+    "url": "https://github.com/unibrain1"
+  },
+  "metadata": {
+    "description": "Shared Claude Code workflow for unibrain1 projects."
+  },
+  "plugins": [
+    {
+      "name": "flow",
+      "source": "./plugins/flow",
+      "description": "Milestone and issue workflow: commands, generic agents, skills, workflow scripts, and guard hooks."
+    },
+    {
+      "name": "asd-ste100",
+      "source": {
+        "source": "github",
+        "repo": "danyuchn/asd-ste100-skill",
+        "sha": "8da6b6340aa22faf46fd07db8efbdea010cd38d9"
+      },
+      "description": "Rewrite ambiguous English into ASD-STE100 Simplified Technical English. Third-party (MIT, danyuchn), pinned to a commit. See docs/sources.md.",
+      "homepage": "https://github.com/danyuchn/asd-ste100-skill",
+      "license": "MIT"
+    }
+  ]
+}

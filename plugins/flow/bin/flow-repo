@@ -1,0 +1,32 @@
+#!/bin/bash
+#
+# Prints the GitHub repo of the current checkout, so no flow script has to
+# name a repo. Asks gh, which resolves the origin remote.
+#
+# Usage: flow-repo [--visibility]
+#   (none)        Print owner/name, e.g. unibrain1/devkit.
+#   --visibility  Print PUBLIC, PRIVATE, or INTERNAL.
+#
+# Exit codes:
+#   0  Value printed on stdout.
+#   1  gh could not resolve the repo (no remote, no auth, or no network).
+#   2  Usage error.
+
+set -euo pipefail
+
+field="nameWithOwner"
+case "${1:-}" in
+    "") ;;
+    --visibility) field="visibility" ;;
+    *)
+        echo "Usage: $(basename "$0") [--visibility]" >&2
+        exit 2
+        ;;
+esac
+
+if ! value="$(gh repo view --json "$field" -q ".${field}" 2>/dev/null)" || [ -z "$value" ]; then
+    echo "$(basename "$0"): gh could not resolve the repo for $(pwd). Check the origin remote and gh auth status." >&2
+    exit 1
+fi
+
+printf '%s\n' "$value"

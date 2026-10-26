@@ -1,0 +1,310 @@
+#!/usr/bin/env bash
+# Commits, pushes, and opens (or updates) a draft PR — the mechanical part
+# of /commit-push-pr. The model writes the commit message and PR title/body
+# ahead of time and passes them in as files; this script does everything
+# else: branch-safety checks, staging, commit, push, and PR create/reuse.
+#
+# Usage:
+#   flow-commit-push-pr [--dry-run] --message-file <f> --title <t> \
+#       --body-file <f> [--base <ref>] [--branch <name>]
+#
+# Options:
+#   --dry-run        Print every command this script would run. Run none of
+#                     them, except read-only git queries needed to decide
+#                     what to print (e.g. current branch, existing PR check).
+#   --message-file    Path to a file holding the commit message.
+#   --title           PR title (a single argument, not a file).
+#   --body-file       Path to a file holding the PR body.
+#   --base            Base branch for the PR. Defaults to the output of
+#                     flow-resolve-base-branch (with any "origin/"
+#                     prefix stripped).
+#   --branch          Branch name to create when currently on a refused
+#                     branch (main/master/milestone/*). If omitted and the
+#                     current branch is refused, this script exits 1 instead
+#                     of guessing a name — the command is expected to have
+#                     branched already, or to pass --branch itself.
+#
+# Refuses to run (exit 1) when:
+#   - The current branch (after any --branch handling) is main, master, or
+#     matches milestone/*.
+#   - Any staged or to-be-staged path is under a private path. Private paths
+#     are private/gitignored-by-convention and must never enter a commit.
+#
+# Reads from .claude/project.md:
+#   private_paths  Space-separated list of private folders, e.g.
+#                  "docs/plans _noupload".
+#
+# Exit codes:
+#   0 = done (commit created, branch pushed, PR created or already existed)
+#   1 = refused (branch rule or forbidden path)
+#   2 = a git or gh command failed, or .claude/project.md is missing
+#   3 = base branch could not be resolved (flow-resolve-base-branch missing
+#       or exited 1) — the caller must ask the user rather than guess
+set -uo pipefail
+
+# An absolute path, because the script changes into the repo root below.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+DRY_RUN=0
+MESSAGE_FILE=""
+TITLE=""
+BODY_FILE=""
+BASE=""
+NEW_BRANCH=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        --message-file)
+            MESSAGE_FILE="${2:-}"
+            shift 2
+            ;;
+        --title)
+            TITLE="${2:-}"
+            shift 2
+            ;;
+        --body-file)
+            BODY_FILE="${2:-}"
+            shift 2
+            ;;
+        --base)
+            BASE="${2:-}"
+            shift 2
+            ;;
+        --branch)
+            NEW_BRANCH="${2:-}"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [ -z "$MESSAGE_FILE" ] || [ -z "$TITLE" ] || [ -z "$BODY_FILE" ]; then
+    echo "Usage: $0 [--dry-run] --message-file <f> --title <t> --body-file <f> [--base <ref>] [--branch <name>]" >&2
+    exit 1
+fi
+
+if [ ! -f "$MESSAGE_FILE" ]; then
+    echo "Refused: message file not found: $MESSAGE_FILE" >&2
+    exit 1
+fi
+if [ ! -f "$BODY_FILE" ]; then
+    echo "Refused: body file not found: $BODY_FILE" >&2
+    exit 1
+fi
+
+run() {
+    if [ "$DRY_RUN" -eq 1 ]; then
+        printf '[dry-run]'
+        printf ' %q' "$@"
+        printf '\n'
+        return 0
+    fi
+    "$@"
+}
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "Refused: not inside a git repository" >&2
+    exit 1
+}
+cd "$REPO_ROOT" || exit 2
+
+fact_status=0
+PRIVATE_PATHS_VALUE="$("${SCRIPT_DIR}/flow-project-fact" private_paths)" || fact_status=$?
+if [ "$fact_status" -eq 1 ]; then
+    # The key gates only the private-path check, so the commit goes on
+    # without it. The message keeps the skip visible (no silent skips).
+    echo "flow-commit-push-pr: no 'private_paths' key in .claude/project.md. Private-path check skipped." >&2
+    PRIVATE_PATHS_VALUE=""
+elif [ "$fact_status" -ne 0 ]; then
+    exit 2
+fi
+read -r -a PRIVATE_PATHS <<< "$PRIVATE_PATHS_VALUE"
+
+# --- Branch safety -----------------------------------------------------
+
+CURRENT_BRANCH="$(git branch --show-current)"
+
+is_refused_branch() {
+    case "$1" in
+        main|master|milestone/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if is_refused_branch "$CURRENT_BRANCH"; then
+    if [ -z "$NEW_BRANCH" ]; then
+        echo "Refused: current branch '$CURRENT_BRANCH' is main, master, or milestone/* — pass --branch <name> or branch first." >&2
+        exit 1
+    fi
+    if is_refused_branch "$NEW_BRANCH"; then
+        echo "Refused: --branch '$NEW_BRANCH' is itself main, master, or milestone/*." >&2
+        exit 1
+    fi
+    if ! run git checkout -b "$NEW_BRANCH"; then
+        echo "git checkout -b '$NEW_BRANCH' failed (branch may already exist)." >&2
+        exit 2
+    fi
+    CURRENT_BRANCH="$NEW_BRANCH"
+elif [ -n "$NEW_BRANCH" ] && [ "$NEW_BRANCH" != "$CURRENT_BRANCH" ]; then
+    if ! run git checkout -b "$NEW_BRANCH"; then
+        echo "git checkout -b '$NEW_BRANCH' failed (branch may already exist)." >&2
+        exit 2
+    fi
+    CURRENT_BRANCH="$NEW_BRANCH"
+fi
+
+# --- Staging -------------------------------------------------------------
+# Stage only the changed files that git status lists, never the whole tree.
+# `git add -A` is used with that explicit pathspec list so a rename's old
+# path is staged as a removal. Refuse if any listed path is forbidden.
+
+# is_forbidden_path <path> — true if the path must never be staged. A pure
+# function (it reads PRIVATE_PATHS, and does no I/O) so
+# tests/bin/test-flow-commit-push-pr.sh can source it and exercise the rule
+# directly, without needing a real forbidden path to exist in the working
+# tree (private folders are gitignored, and the flow guard hook already
+# blocks `git add -f` on them, so this script's own check is a
+# defense-in-depth backstop that is otherwise hard to trigger from a live
+# git status).
+is_forbidden_path() {
+    local private
+    for private in "${PRIVATE_PATHS[@]:-}"; do
+        [ -z "$private" ] && continue
+        case "$1" in
+            "${private%/}"/*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# parse_porcelain_z — read `git status --porcelain=v1 -z` on stdin and print
+# one changed path per line. The line format ("XY old -> new") is ambiguous
+# for renames and for paths with spaces. In -z mode a rename or copy entry is
+# "XY new" followed by a separate "old" field. Print both paths, so a move
+# into a forbidden directory is caught and the old path's removal is staged.
+# Pure (stdin only) so tests/hooks/test-commit-push-pr.sh can feed it input.
+parse_porcelain_z() {
+    local entry status orig
+    while IFS= read -r -d '' entry; do
+        status="${entry:0:2}"
+        printf '%s\n' "${entry:3}"
+        if [[ "$status" == R* || "$status" == C* ]]; then
+            IFS= read -r -d '' orig || break
+            printf '%s\n' "$orig"
+        fi
+    done
+}
+
+# The -z output goes to a temp file, not a variable: bash command
+# substitution drops NUL bytes, which would merge every record into one.
+# A file also keeps git's exit status, which a process substitution loses.
+STATUS_FILE="$(mktemp)" || { echo "mktemp failed" >&2; exit 2; }
+if ! git status --porcelain=v1 -z --untracked-files=all > "$STATUS_FILE"; then
+    rm -f "$STATUS_FILE"
+    echo "git status failed" >&2
+    exit 2
+fi
+
+CHANGED_FILES=()
+while IFS= read -r f; do
+    CHANGED_FILES+=("$f")
+done < <(parse_porcelain_z < "$STATUS_FILE")
+rm -f "$STATUS_FILE"
+
+FORBIDDEN=()
+for f in "${CHANGED_FILES[@]:-}"; do
+    [ -z "$f" ] && continue
+    is_forbidden_path "$f" && FORBIDDEN+=("$f")
+done
+
+if [ "${#FORBIDDEN[@]}" -gt 0 ]; then
+    echo "Refused: the following changed paths are under a private path (${PRIVATE_PATHS[*]}) and must not be staged:" >&2
+    printf '  %s\n' "${FORBIDDEN[@]}" >&2
+    exit 1
+fi
+
+TO_STAGE=()
+for f in "${CHANGED_FILES[@]:-}"; do
+    [ -z "$f" ] && continue
+    TO_STAGE+=("$f")
+done
+
+if [ "${#TO_STAGE[@]}" -eq 0 ]; then
+    echo "Nothing to stage (working tree clean)." >&2
+else
+    if ! run git add -A -- "${TO_STAGE[@]}"; then
+        echo "git add failed" >&2
+        exit 2
+    fi
+fi
+
+# --- Commit ----------------------------------------------------------------
+
+# A clean tree with commits already made is normal (the user ran /commit
+# first). Skip the commit and push what exists.
+if [ "${#TO_STAGE[@]}" -eq 0 ]; then
+    echo "Nothing to commit; pushing existing commits." >&2
+elif ! run git commit -F "$MESSAGE_FILE"; then
+    echo "git commit failed" >&2
+    exit 2
+fi
+
+# --- Push --------------------------------------------------------------
+
+if ! run git push -u origin "$CURRENT_BRANCH"; then
+    echo "git push failed" >&2
+    exit 2
+fi
+
+# --- Resolve base branch -------------------------------------------------
+
+if [ -z "$BASE" ]; then
+    if [ ! -x "${SCRIPT_DIR}/flow-resolve-base-branch" ]; then
+        echo "Cannot determine base branch: flow-resolve-base-branch is missing or not executable, and no --base was given." >&2
+        exit 3
+    fi
+    RESOLVED="$("${SCRIPT_DIR}/flow-resolve-base-branch")"
+    RESOLVE_STATUS=$?
+    if [ "$RESOLVE_STATUS" -ne 0 ] || [ -z "$RESOLVED" ]; then
+        echo "Cannot determine base branch: flow-resolve-base-branch exited $RESOLVE_STATUS." >&2
+        exit 3
+    fi
+    BASE="${RESOLVED#origin/}"
+fi
+
+# --- Create or reuse PR -------------------------------------------------
+
+# Reuse only an OPEN PR. `gh pr view <branch>` also returns a merged or
+# closed PR, so a reused branch name would report that old PR and open none.
+# `gh pr list` exits 0 with no output when there is no open PR, so a nonzero
+# exit is a real failure.
+if ! EXISTING_PR_URL="$(gh pr list --head "$CURRENT_BRANCH" --state open --json url --jq '.[0].url // empty')"; then
+    echo "gh pr list failed" >&2
+    exit 2
+fi
+
+if [ -n "$EXISTING_PR_URL" ]; then
+    echo "$EXISTING_PR_URL"
+    exit 0
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    printf '[dry-run] gh pr create --draft --base %q --head %q --title %q --body-file %q\n' \
+        "$BASE" "$CURRENT_BRANCH" "$TITLE" "$BODY_FILE"
+    exit 0
+fi
+
+PR_URL="$(gh pr create --draft --base "$BASE" --head "$CURRENT_BRANCH" --title "$TITLE" --body-file "$BODY_FILE")" || {
+    echo "gh pr create failed" >&2
+    exit 2
+}
+
+echo "$PR_URL"
+exit 0

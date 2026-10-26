@@ -1,0 +1,69 @@
+#!/bin/bash
+#
+# Prints one project fact from .claude/project.md, the per-repo file that
+# tells the shared flow commands how this project tests, lints, and where it
+# keeps its docs. Shared commands and scripts call this instead of naming a
+# stack command or a path, so one copy of each command works in every repo.
+#
+# Usage: flow-project-fact <key>
+#        flow-project-fact --file
+#   key     The fact name, e.g. test, lint, plans, release_notes.
+#   --file  Print the path of .claude/project.md and exit.
+#
+# project.md lines have the form:  - key: `value`
+# The value is the text between the first pair of backticks. A line with no
+# backticks ("- deploy: see docs/DEPLOY.md") prints the text after the colon.
+#
+# Exit codes:
+#   0  Key found. Value printed on stdout.
+#   1  Key not in the file. Nothing printed. For an optional key, the caller
+#      skips its step.
+#   2  Usage error, not in a git repo, or .claude/project.md is missing.
+
+set -euo pipefail
+
+if [ "$#" -ne 1 ] || [ -z "$1" ]; then
+    echo "Usage: $(basename "$0") <key> | --file" >&2
+    exit 2
+fi
+
+if ! top="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    echo "$(basename "$0"): not in a git repository." >&2
+    exit 2
+fi
+
+file="${top}/.claude/project.md"
+
+if [ "$1" = "--file" ]; then
+    printf '%s\n' "$file"
+    exit 0
+fi
+
+if [ ! -f "$file" ]; then
+    echo "$(basename "$0"): ${file} is missing. Create it. See https://github.com/unibrain1/devkit/blob/main/docs/project-md.md" >&2
+    exit 2
+fi
+
+key="$1"
+case "$key" in
+    *[!A-Za-z0-9_]*)
+        echo "$(basename "$0"): key '${key}' has a character other than A-Z, a-z, 0-9, or _." >&2
+        exit 2
+        ;;
+esac
+
+# First match wins, so a later duplicate line cannot silently override.
+line="$(grep -m1 -E "^[[:space:]]*-[[:space:]]+${key}:" "$file" || true)"
+if [ -z "$line" ]; then
+    exit 1
+fi
+
+rest="${line#*:}"
+if [[ "$rest" == *'`'*'`'* ]]; then
+    value="${rest#*\`}"
+    value="${value%%\`*}"
+else
+    value="$(printf '%s' "$rest" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+fi
+
+printf '%s\n' "$value"
