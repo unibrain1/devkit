@@ -1,0 +1,72 @@
+#!/bin/bash
+#
+# Compares the labels that the flow method uses (templates/labels.tsv) with
+# the labels in this repo, and creates the missing ones. Commands such as
+# new-issue and groom-backlog fail or mislabel issues when a label is absent,
+# so /flow:setup runs this once, after the user approves the list.
+#
+# Usage: flow-labels --missing | --create
+#   --missing  Print each missing label as name<TAB>color<TAB>description.
+#   --create   Create each missing label with gh. Existing labels are never
+#              changed, so a project keeps its own colors and descriptions.
+#
+# Exit codes:
+#   0  --missing: no label is missing. --create: done.
+#   1  --missing: one or more labels are missing (printed on stdout).
+#   2  Usage error, the template is missing, or gh failed.
+
+set -euo pipefail
+
+prog="$(basename "$0")"
+mode="${1:-}"
+case "$mode" in
+    --missing|--create) ;;
+    *)
+        echo "Usage: ${prog} --missing | --create" >&2
+        exit 2
+        ;;
+esac
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+template="${script_dir}/../templates/labels.tsv"
+if [ ! -f "$template" ]; then
+    echo "${prog}: template ${template} is missing." >&2
+    exit 2
+fi
+
+if ! repo="$("${script_dir}/flow-repo")"; then
+    exit 2
+fi
+
+if ! existing="$(gh label list --repo "$repo" --limit 1000 --json name --jq '.[].name')"; then
+    echo "${prog}: gh label list failed for ${repo}." >&2
+    exit 2
+fi
+
+missing="$(grep -vE '^(#|[[:space:]]*$)' "$template" | while IFS=$'\t' read -r name color description; do
+    # GitHub label names do not depend on case.
+    if ! printf '%s\n' "$existing" | grep -qixF -- "$name"; then
+        printf '%s\t%s\t%s\n' "$name" "$color" "$description"
+    fi
+done)"
+
+if [ "$mode" = "--missing" ]; then
+    if [ -z "$missing" ]; then
+        exit 0
+    fi
+    printf '%s\n' "$missing"
+    exit 1
+fi
+
+if [ -z "$missing" ]; then
+    echo "${prog}: no label is missing in ${repo}."
+    exit 0
+fi
+
+while IFS=$'\t' read -r name color description; do
+    if ! gh label create "$name" --repo "$repo" --color "$color" --description "$description" >/dev/null; then
+        echo "${prog}: gh label create failed for '${name}' in ${repo}." >&2
+        exit 2
+    fi
+    echo "${prog}: created '${name}' in ${repo}."
+done <<< "$missing"

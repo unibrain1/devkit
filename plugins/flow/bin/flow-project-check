@@ -20,7 +20,7 @@
 set -euo pipefail
 
 # Keep in step with docs/project-md.md.
-KNOWN_KEYS="test lint format verify deploy standards plans release_notes ledger private_paths milestone_setup issue_checks milestone_checks release_checks vault"
+KNOWN_KEYS="test test_quick lint format verify deploy standards plans release_notes ledger private_paths milestone_setup issue_checks milestone_checks release_checks vault"
 REQUIRED_KEYS="test lint"
 
 if [ "$#" -ne 0 ]; then
