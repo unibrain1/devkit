@@ -120,7 +120,9 @@ if [ "$mode" = "--diff" ]; then
 fi
 
 if [ -f "$claude_md" ]; then
-    chmod "$(stat -f '%Lp' "$claude_md" 2>/dev/null || stat -c '%a' "$claude_md")" "$new_file"
+    # GNU stat first: on Linux, "stat -f" is valid but means file system
+    # status, so a BSD-first order gives chmod the wrong text.
+    chmod "$(stat -c '%a' "$claude_md" 2>/dev/null || stat -f '%Lp' "$claude_md")" "$new_file"
 else
     chmod 644 "$new_file"
 fi
