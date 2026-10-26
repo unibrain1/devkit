@@ -31,6 +31,15 @@ in Registry and MyGunLog. Other work in those repos continues. See
 | --- | --- | --- | --- |
 | `asd-ste100` skill | [danyuchn/asd-ste100-skill](https://github.com/danyuchn/asd-ste100-skill) at [`8da6b63`](https://github.com/danyuchn/asd-ste100-skill/commit/8da6b6340aa22faf46fd07db8efbdea010cd38d9) (2026-10-26). | MIT, © 2026 Dustin Yuchen Teng | Listed in `.claude-plugin/marketplace.json` with upstream as the source, pinned to this SHA. No copy in devkit. `upstream-sync.yml` opens a PR when upstream moves. |
 
+Short parts of two flow agents are adapted from MIT-licensed projects. Each
+agent file names its source next to the adapted text. They came to devkit
+with the Registry agents.
+
+| Item | Source | License | Where |
+| --- | --- | --- | --- |
+| Test-first steps, failing-command rule | [mattpocock/skills](https://github.com/mattpocock/skills) (`tdd`) | MIT | `plugins/flow/agents/senior-test-engineer.md`, `software-developer.md` |
+| Implementation steps 4 and 5 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | MIT | `plugins/flow/agents/software-developer.md` |
+
 `context-audit` is not in devkit. Its origin is not known.
 
 ## Other repos read for comparison
