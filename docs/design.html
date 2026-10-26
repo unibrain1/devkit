@@ -323,7 +323,7 @@ flowchart LR
   <tr><td><code>release_notes</code></td><td>Optional</td><td>Path pattern for a milestone's release notes. <code>{version}</code> is the milestone version.</td></tr>
   <tr><td><code>ledger</code></td><td>Optional</td><td>A list of deferred cleanup items. Commands show the items for the files that an issue changes.</td></tr>
   <tr><td><code>private_paths</code></td><td>Optional</td><td>Paths that must never go into a commit. A guard hook and <code>commit-push-pr</code> block them.</td></tr>
-  <tr><td><code>milestone_setup</code>, <code>issue_checks</code>, <code>milestone_checks</code>, <code>release_checks</code></td><td>Optional</td><td>A project command that runs at that point in <code>start-milestone</code>, <code>finish-issue</code>, <code>finish-milestone</code>, or <code>release-milestone</code>. A non-zero exit stops the shared command.</td></tr>
+  <tr><td><code>milestone_setup</code>, <code>issue_checks</code>, <code>milestone_checks</code>, <code>release_checks</code></td><td>Optional</td><td>A project command that runs at that point in <code>start-milestone</code>, <code>finish-milestone</code>, or <code>release-milestone</code>. <code>issue_checks</code> runs in <code>execute-plan</code> and again in <code>finish-issue</code>. A non-zero exit stops the shared command.</td></tr>
   <tr><td><code>vault</code></td><td>Optional, v1.1</td><td>The hub note path in the vault. See section 13.</td></tr>
 </table>
 </div>
