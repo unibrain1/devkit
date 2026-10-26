@@ -142,7 +142,7 @@ td code { white-space: nowrap; }
     <tr><td>Updates</td><td>Private repos use <code>main</code>. Registry pins a tag.</td></tr>
     <tr><td>Project facts</td><td>A small reference file, <code>.claude/project.md</code>. Commands read it when they run. CLAUDE.md does not load it.</td></tr>
     <tr><td>Drifted commands</td><td>Registry version wins. Generic extras from other projects are merged in, with a review of each merge.</td></tr>
-    <tr><td>Extras in <code>flow</code></td><td>Global agents, milestone limit rule, <code>asd-ste100</code></td></tr>
+    <tr><td>Extras in <code>flow</code></td><td>Global agents, milestone limit rule. <code>asd-ste100</code> is a separate upstream plugin in the <code>devkit</code> marketplace.</td></tr>
     <tr><td>Scope</td><td>Repos that already have Claude config or Claude CI. Others join when you next work in them.</td></tr>
     <tr><td>Second brain</td><td>Ships in v1.1, after the pilot. The Baalda vault <code>UniBrain</code>. The <code>flow</code> commands have optional vault steps. Each step skips with no error when the repo has no <code>vault</code> key or the Baalda tools are not available. Sensitive notes stay in <code>UniBrain</code> for now, under a written rule. See <a href="#brain">section 13</a>.</td></tr>
   </table>
@@ -178,7 +178,7 @@ td code { white-space: nowrap; }
   <span class="label">Changes from draft 5</span>
   <p>Draft 6 fixes gaps that phase 1 found in the Registry code (base SHA <code>9c7a293</code>):</p>
   <ul>
-    <li><code>asd-ste100</code> comes from <code>~/.claude/skills/</code>, not from Registry. It is third-party (MIT), so <code>flow</code> keeps its LICENSE. <code>context-audit</code> is removed, because its origin is not known.</li>
+    <li><code>asd-ste100</code> does not come from Registry. The <code>devkit</code> marketplace lists the upstream plugin, pinned to a commit. Devkit keeps no copy. See "Upstream plugins" in <a href="#plugin">section 4</a>. <code>context-audit</code> is removed, because its origin is not known.</li>
     <li><code>.claude/project.md</code> has more keys: paths for plans, release notes, the cleanup ledger, private paths, coding standards, and four optional check keys. See <a href="#plugin">section 4</a>.</li>
     <li>A shared command never runs a stack script by name. It runs the command in an optional key, or it skips the step.</li>
     <li>The <code>flow</code> agents are generic. Stack rules stay in the project. See <a href="#plugin">section 4</a>.</li>
@@ -257,12 +257,12 @@ flowchart LR
 </div>
 <pre><code>unibrain1/devkit/
 ├── .claude-plugin/
-│   └── marketplace.json        # name: "devkit". Lists flow and brain by relative path.
+│   └── marketplace.json        # name: "devkit". flow (and brain in v1.1) by relative path.
+│                               # asd-ste100 from upstream, pinned to a commit SHA.
 ├── plugins/flow/
 │   ├── .claude-plugin/plugin.json
 │   ├── commands/               # start-issue, finish-issue, start-milestone, ...
 │   ├── agents/                 # code-reviewer, senior-architect, ...
-│   ├── skills/                 # asd-ste100
 │   ├── bin/                    # Generic workflow scripts from Registry scripts/
 │   └── hooks/hooks.json        # Generic guard hooks only
 ├── plugins/brain/              # /brain, /capture. User scope only. v1.1.
@@ -273,7 +273,8 @@ flowchart LR
 │   ├── claude-review.yml       # Reusable: PR review, milestone-aware
 │   ├── secrets-scan.yml        # Reusable: private repos
 │   ├── node-site.yml           # Reusable: 3 Cloudflare static sites
-│   └── self-test.yml           # devkit's own CI
+│   ├── self-test.yml           # devkit's own CI
+│   └── upstream-sync.yml       # devkit's own: weekly check of upstream plugin pins
 ├── templates/
 │   └── settings.json           # Starter permission allowlist, copied one time
 └── docs/
@@ -284,7 +285,6 @@ flowchart LR
 <ul>
   <li>The milestone and issue commands from Registry.</li>
   <li>The generic agents: code-reviewer, silent-failure-hunter, senior-architect, and the others. See "Generic agents" below.</li>
-  <li>The <code>asd-ste100</code> skill, from <code>~/.claude/skills/</code>. It is MIT-licensed third-party code (<code>danyuchn/asd-ste100-skill</code>), so <code>flow</code> keeps its LICENSE file.</li>
   <li>The generic workflow scripts in <code>bin/</code>. Claude Code puts a plugin's <code>bin/</code> on the command path, so commands call the scripts by name.</li>
   <li>Optional vault steps in four commands. See <a href="#brain">section 13</a>.</li>
 </ul>
@@ -345,6 +345,14 @@ flowchart LR
   <li>The five global agents in <code>~/.claude/agents</code> merge into this generic base.</li>
 </ul>
 
+<h3>Upstream plugins</h3>
+<p>A third-party skill that has its own plugin is not copied into devkit. The <code>devkit</code> marketplace lists it with its upstream repo as the source, pinned to a full commit SHA. In v0.1.0, this is <code>asd-ste100</code> from <code>danyuchn/asd-ste100-skill</code> (MIT).</p>
+<ul>
+  <li><strong>No copy.</strong> Nothing can drift, and the attribution and LICENSE stay with upstream. <code>docs/sources.md</code> records the pin.</li>
+  <li><strong>Turn it on.</strong> A project turns on <code>asd-ste100@devkit</code> next to <code>flow@devkit</code>. The skill name is <code>asd-ste100:asd-ste100</code>.</li>
+  <li><strong>Stay in sync.</strong> Each week, <code>upstream-sync.yml</code> compares upstream HEAD with the pin. If upstream moved, it opens a PR that changes the SHA and links the upstream diff. You read the diff and merge. A bad upstream change reaches no repo until you merge.</li>
+</ul>
+
 <h3>Milestone limit rule</h3>
 <p><code>/flow:start-milestone</code> counts the milestones in progress. A milestone is in progress when its <code>milestone/*</code> branch exists on <code>origin</code>. The command stops if a private repo already has 1 such branch, or a public repo already has 2.</p>
 <ul>
@@ -376,7 +384,7 @@ flowchart LR
       "autoUpdate": true
     }
   },
-  "enabledPlugins": { "flow@devkit": true }
+  "enabledPlugins": { "flow@devkit": true, "asd-ste100@devkit": true }
 }</code></pre>
 <p>A plugin cannot ship a permission allowlist. Each project copies <code>templates/settings.json</code> one time when it migrates, and then owns its copy.</p>
 
