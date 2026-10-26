@@ -114,14 +114,14 @@ td code { white-space: nowrap; }
 
 <main>
 <header class="doc">
-  <div class="eyebrow">Design doc · Draft 5 · Lean version</div>
+  <div class="eyebrow">Design doc · Draft 6 · Lean version</div>
   <h1>Devkit: one source for Claude workflows and CI</h1>
   <p class="lede">One public repo holds one Claude plugin and four reusable CI workflows. Private repos use the latest version. Registry pins a tag because it has outside contributors.</p>
   <div class="meta">
     <span><b>Owner</b> Jim Boone</span>
     <span><b>Date</b> 2026-10-26</span>
     <span><b>Status</b> Draft</span>
-    <span><b>Repo</b> <code>unibrain1/devkit</code> (public, not created yet)</span>
+    <span><b>Repo</b> <a href="https://github.com/unibrain1/devkit"><code>unibrain1/devkit</code></a> (public)</span>
   </div>
 </header>
 
@@ -142,7 +142,7 @@ td code { white-space: nowrap; }
     <tr><td>Updates</td><td>Private repos use <code>main</code>. Registry pins a tag.</td></tr>
     <tr><td>Project facts</td><td>A small reference file, <code>.claude/project.md</code>. Commands read it when they run. CLAUDE.md does not load it.</td></tr>
     <tr><td>Drifted commands</td><td>Registry version wins. Generic extras from other projects are merged in, with a review of each merge.</td></tr>
-    <tr><td>Extras in <code>flow</code></td><td>Global agents, milestone limit rule, <code>asd-ste100</code>, <code>context-audit</code></td></tr>
+    <tr><td>Extras in <code>flow</code></td><td>Global agents, milestone limit rule, <code>asd-ste100</code></td></tr>
     <tr><td>Scope</td><td>Repos that already have Claude config or Claude CI. Others join when you next work in them.</td></tr>
     <tr><td>Second brain</td><td>Ships in v1.1, after the pilot. The Baalda vault <code>UniBrain</code>. The <code>flow</code> commands have optional vault steps. Each step skips with no error when the repo has no <code>vault</code> key or the Baalda tools are not available. Sensitive notes stay in <code>UniBrain</code> for now, under a written rule. See <a href="#brain">section 13</a>.</td></tr>
   </table>
@@ -175,6 +175,18 @@ td code { white-space: nowrap; }
 </div>
 
 <div class="callout">
+  <span class="label">Changes from draft 5</span>
+  <p>Draft 6 fixes gaps that phase 1 found in the Registry code (base SHA <code>9c7a293</code>):</p>
+  <ul>
+    <li><code>asd-ste100</code> comes from <code>~/.claude/skills/</code>, not from Registry. It is third-party (MIT), so <code>flow</code> keeps its LICENSE. <code>context-audit</code> is removed, because its origin is not known.</li>
+    <li><code>.claude/project.md</code> has more keys: paths for plans, release notes, the cleanup ledger, private paths, coding standards, and four optional check keys. See <a href="#plugin">section 4</a>.</li>
+    <li>A shared command never runs a stack script by name. It runs the command in an optional key, or it skips the step.</li>
+    <li>The <code>flow</code> agents are generic. Stack rules stay in the project. See <a href="#plugin">section 4</a>.</li>
+    <li>Scripts get the repo name from <code>gh</code>. No script names a repo.</li>
+  </ul>
+</div>
+
+<div class="callout">
   <span class="label">Changes from draft 4</span>
   <p>Draft 5 records Jim's answers to the open decisions. <a href="#decide">Section 14</a> lists them.</p>
   <ul>
@@ -190,7 +202,7 @@ td code { white-space: nowrap; }
 <div class="tbl">
 <table>
   <tr><th>Group</th><th>Repos</th><th>Visibility</th><th>Claude config today</th></tr>
-  <tr><td>PHP / UserSpice / Docker</td><td>registry, Monitoring</td><td>registry public, Monitoring private</td><td>Registry: 17 commands, 13 agents, 6 skills, 4 hooks, 8 rules. Monitoring: 8 commands.</td></tr>
+  <tr><td>PHP / UserSpice / Docker</td><td>registry, Monitoring</td><td>registry public, Monitoring private</td><td>Registry: 17 commands, 13 agents, 5 skills, 4 hooks, 8 rules. Monitoring: 8 commands.</td></tr>
   <tr><td>Node web</td><td>MyGunLog, BurgessGunWorks, BurgessMachineWorks, TeamCroc, CCS-Website</td><td>all private</td><td>MyGunLog: 7 commands, 5 skills. Others: CI only, or 2 skills.</td></tr>
   <tr><td>Python / Docker tools</td><td>TheSommelier, Fireboard, GitHubDashboard, mock-brevo</td><td>Sommelier, Fireboard, mock-brevo public</td><td>TheSommelier: 10 commands, 6 skills. mock-brevo: 3 skills.</td></tr>
   <tr><td>Infra and devices</td><td>HomeLab, ESPHome, DryFireTimer, Arduino</td><td>all private</td><td>HomeLab: 4 commands, 6 agents, 3 skills. ESPHome: 1 skill.</td></tr>
@@ -249,7 +261,7 @@ flowchart LR
 │   ├── .claude-plugin/plugin.json
 │   ├── commands/               # start-issue, finish-issue, start-milestone, ...
 │   ├── agents/                 # code-reviewer, senior-architect, ...
-│   ├── skills/                 # asd-ste100, context-audit
+│   ├── skills/                 # asd-ste100
 │   ├── bin/                    # Generic workflow scripts from Registry scripts/
 │   └── hooks/hooks.json        # Generic guard hooks only
 ├── plugins/brain/              # /brain, /capture. User scope only. v1.1.
@@ -270,8 +282,8 @@ flowchart LR
 <p>One plugin holds everything that is not specific to one tech stack:</p>
 <ul>
   <li>The milestone and issue commands from Registry.</li>
-  <li>The generic agents: code-reviewer, silent-failure-hunter, senior-architect, and the others.</li>
-  <li>The <code>asd-ste100</code> and <code>context-audit</code> skills.</li>
+  <li>The generic agents: code-reviewer, silent-failure-hunter, senior-architect, and the others. See "Generic agents" below.</li>
+  <li>The <code>asd-ste100</code> skill, from <code>~/.claude/skills/</code>. It is MIT-licensed third-party code (<code>danyuchn/asd-ste100-skill</code>), so <code>flow</code> keeps its LICENSE file.</li>
   <li>The generic workflow scripts in <code>bin/</code>. Claude Code puts a plugin's <code>bin/</code> on the command path, so commands call the scripts by name.</li>
   <li>Optional vault steps in four commands. See <a href="#brain">section 13</a>.</li>
 </ul>
@@ -285,7 +297,31 @@ flowchart LR
 - format: `composer cs:fix`
 - verify: `scripts/run-verification-suite.sh`
 - deploy: see `docs/development/DEPLOYMENT.md`
+- standards: `docs/development/CODING_STANDARDS.md`
+- plans: `docs/plans`
+- release_notes: `docs/releases/RELEASE_NOTES_{version}.md`
+- ledger: `docs/development/CLEANUP_LEDGER.md`
+- private_paths: `docs/plans _noupload`
+- milestone_setup: `scripts/refresh-local-db.sh`
+- issue_checks: `scripts/check-baseline-hygiene.sh`
+- milestone_checks: `scripts/check-deploy-sheet-fresh.sh`
+- release_checks: `scripts/check-deploy-sheet-fresh.sh`
 - vault: `Projects/Elan Registry/Elan Registry.md`</code></pre>
+<div class="tbl">
+<table>
+  <tr><th>Key</th><th>Need</th><th>Use</th></tr>
+  <tr><td><code>test</code>, <code>lint</code></td><td>Necessary</td><td>Commands run them before a commit and before a review.</td></tr>
+  <tr><td><code>format</code>, <code>verify</code>, <code>deploy</code></td><td>Optional</td><td>Format, full verification, and the deploy guide.</td></tr>
+  <tr><td><code>standards</code></td><td>Optional</td><td>Coding standards files that the agents read. See "Generic agents".</td></tr>
+  <tr><td><code>plans</code></td><td>Optional</td><td>Folder for issue plan files. It must be git-ignored. With no key, the plan steps skip.</td></tr>
+  <tr><td><code>release_notes</code></td><td>Optional</td><td>Path pattern for a milestone's release notes. <code>{version}</code> is the milestone version.</td></tr>
+  <tr><td><code>ledger</code></td><td>Optional</td><td>A list of deferred cleanup items. Commands show the items for the files that an issue changes.</td></tr>
+  <tr><td><code>private_paths</code></td><td>Optional</td><td>Paths that must never go into a commit. A guard hook and <code>commit-push-pr</code> block them.</td></tr>
+  <tr><td><code>milestone_setup</code>, <code>issue_checks</code>, <code>milestone_checks</code>, <code>release_checks</code></td><td>Optional</td><td>A project command that runs at that point in <code>start-milestone</code>, <code>finish-issue</code>, <code>finish-milestone</code>, or <code>release-milestone</code>. A non-zero exit stops the shared command.</td></tr>
+  <tr><td><code>vault</code></td><td>Optional, v1.1</td><td>The hub note path in the vault. See section 13.</td></tr>
+</table>
+</div>
+<p><strong>Optional-key guard.</strong> If an optional key is missing, the shared command skips that step with no error. A shared command never runs a stack script by name. Stack scripts, for example Registry's deploy sheet, fix scripts, and phpstan baseline check, stay in the project, and a key points to them.</p>
 <p>The <code>vault</code> key is optional. It gives the path of the project's hub note in the vault. A repo with no <code>vault</code> key gets no vault steps. In a public repo, the key shows only the note path, not the note.</p>
 <ul>
   <li><strong>No load in normal sessions.</strong> Claude Code loads CLAUDE.md in every session. It does not load this file. Each shared command reads the file in its first step. If the file is missing, the command stops and tells you to make it.</li>
@@ -293,7 +329,15 @@ flowchart LR
   <li><strong>Readable by scripts too.</strong> Each line has the form <code>- key: `command`</code>. The scripts in <code>flow/bin/</code> get a value with one <code>sed</code> line, so no JSON file is needed.</li>
   <li><strong>One owner for each fact.</strong> If CLAUDE.md already lists the test command for normal work, keep it there. <code>project.md</code> holds only what the shared commands need. Do not copy text between the two files.</li>
 </ul>
-<p>Commands get the repo visibility from <code>gh repo view --json visibility</code>.</p>
+<p>Commands get the repo visibility and name from <code>gh repo view --json visibility,nameWithOwner</code>. No script in <code>flow/bin/</code> names a repo.</p>
+
+<h3>Generic agents</h3>
+<p>The Registry agents name PHP, UserSpice, and Registry files. The <code>flow</code> agents keep each role and review method, without stack rules:</p>
+<ul>
+  <li>Each agent reads CLAUDE.md, the files in the <code>standards</code> key, and the project's <code>.claude/rules/</code> for the files it reviews.</li>
+  <li>Stack rules move to the project. For Registry, the PHP and UserSpice text from its agents moves to <code>.claude/rules/</code> when Registry migrates.</li>
+  <li>The five global agents in <code>~/.claude/agents</code> merge into this generic base.</li>
+</ul>
 
 <h3>Milestone limit rule</h3>
 <p><code>/flow:start-milestone</code> counts the milestones in progress. A milestone is in progress when its <code>milestone/*</code> branch exists on <code>origin</code>. The command stops if a private repo already has 1 such branch, or a public repo already has 2.</p>
@@ -515,6 +559,7 @@ jobs:
   <li>Wait for a milestone boundary. Check that no milestone or issue branch is open.</li>
   <li>Check <code>git status</code> and make a branch from <code>main</code>.</li>
   <li>Add <code>.claude/project.md</code>. Add the <code>vault</code> key only after phase 4 starts.</li>
+  <li>Move the stack rules from the project agents to <code>.claude/rules/</code>.</li>
   <li>Add the marketplace and <code>flow</code> to <code>.claude/settings.json</code>. Copy the allowlist template.</li>
   <li>Delete each project command, agent, skill, and script that <code>flow</code> now provides.</li>
   <li>Replace the Claude CI workflows with callers.</li>
