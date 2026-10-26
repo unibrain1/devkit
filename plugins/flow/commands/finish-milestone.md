@@ -71,22 +71,22 @@ exists for `<short sha>`".
 
 Before any other action, create one TaskCreate task per step below:
 
-1. Verify the milestone branch exists
-2. Check for open issues still in the milestone
-3. Switch to milestone branch and ensure up to date
-3.5. Run the milestone checks
-3.6. Check for leftover plan files
-3.7. Run the verification command on the merged tree
-4. Gather all merged PRs targeting the milestone branch
-5. Get the full diff against main
-5.5. Verify milestone scope vs. release notes
-6. Finalize release notes
-6.5. Release retrospective — three questions
-9.5. Cross-PR security check
-9.7. Local multi-agent review
-9.8. Local milestone-level deep review — mirrors CI, runs pre-PR
-9.9. Fresh-checkout smoke test (if build/install steps changed)
-10. Push the milestone branch, output summary, and hand off to /flow:review-milestone
+- Step 1. Verify the milestone branch exists
+- Step 2. Check for open issues still in the milestone
+- Step 3. Switch to milestone branch and ensure up to date
+- Step 3.5. Run the milestone checks
+- Step 3.6. Check for leftover plan files
+- Step 3.7. Run the verification command on the merged tree
+- Step 4. Gather all merged PRs targeting the milestone branch
+- Step 5. Get the full diff against main
+- Step 5.5. Verify milestone scope vs. release notes
+- Step 6. Finalize release notes
+- Step 6.5. Release retrospective — three questions
+- Step 9.5. Cross-PR security check
+- Step 9.7. Local multi-agent review
+- Step 9.8. Local milestone-level deep review — mirrors CI, runs pre-PR
+- Step 9.9. Fresh-checkout smoke test (if build/install steps changed)
+- Step 10. Push the milestone branch, output summary, and hand off to /flow:review-milestone
 
 Set each task to `in_progress` when you begin it and `completed` on success.
 
