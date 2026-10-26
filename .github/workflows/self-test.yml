@@ -37,7 +37,12 @@ jobs:
           cache: npm
 
       - name: Install lint tools
-        run: npm ci --ignore-scripts
+        # No install scripts run, except the one for the claude CLI, which
+        # gets its native binary. That package comes from Anthropic, and the
+        # lockfile pins its version and integrity hash.
+        run: |
+          npm ci --ignore-scripts
+          node node_modules/@anthropic-ai/claude-code/install.cjs
 
       - name: Action pins
         run: .github/scripts/check-action-pins.sh
