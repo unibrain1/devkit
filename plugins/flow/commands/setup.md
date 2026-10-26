@@ -45,8 +45,11 @@ Do this step only if the file does not exist.
 3. Read the template at `${CLAUDE_PLUGIN_ROOT}/templates/project.md`.
    Replace `{{test}}` and `{{lint}}` with the confirmed values.
 4. Tell the user about the optional keys. Give the link
-   <https://github.com/unibrain1/devkit/blob/main/docs/project-md.md>. Ask
-   if the user wants to add one now. Add only keys that the user gives.
+   <https://github.com/unibrain1/devkit/blob/main/docs/project-md.md>.
+   Recommend `plans` and `release_notes`: the issue and milestone commands
+   stop without them. Propose `plans` as a git-ignored folder, and check
+   that `.gitignore` covers it. Ask if the user wants to add a key now. Add
+   only keys that the user gives.
 5. Show the full file content. Write it only after the user approves.
 6. Run `flow-project-check`. If it fails, show the error and fix the file
    with the user.

@@ -14,7 +14,7 @@ The `plans` key names the plans folder. The folder must be git-ignored.
 
 | Field | Values |
 | --- | --- |
-| Status | `Draft — pending approval`, `Approved`, `Implemented — pending commit/PR` |
+| Status | `Draft — pending approval`, `Approved — ready for /execute-plan`, `Implemented — pending commit/PR`. `flow-check-plan-state` matches the approved text exactly. |
 | Risk flag | `**Risk flag:** yes` or `**Risk flag:** no`. See `build.md`, "The plan gate". |
 | Milestone | The milestone name, or `none (hotfix)` |
 | PR base | The branch the PR targets. `main` for a hotfix. |

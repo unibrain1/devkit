@@ -16,3 +16,4 @@ stale	fbca04	180 days or more with no rescue activity. Warning before close
 stale-no-demand	ededed	Closed after the stale warning. A new signal reopens it
 help-wanted	128a0c	Open to an occasional contributor. Reviewed before merge
 component: security	d62728	Security work. Exempt from age-out
+in progress	0075ca	Work is actively underway
