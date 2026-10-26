@@ -24,11 +24,16 @@ After `v0.1.0`, add the marketplace and turn on the plugins:
 Each repo also needs a `.claude/project.md`. See
 [docs/project-md.md](docs/project-md.md).
 
-## Tests
+## Tests and lint
 
 ```sh
 bash tests/run.sh
 ```
+
+CI (`.github/workflows/self-test.yml`) also runs shellcheck, actionlint,
+yamllint, markdownlint, a JSON check, a check that each action is pinned to
+a full commit SHA, and `claude plugin validate`. Branch protection on `main`
+requires the jobs `lint` and `test`.
 
 ## Contributing
 
