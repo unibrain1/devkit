@@ -271,7 +271,7 @@ Suggested home: one rule file, for example `.claude/rules/userspice.md`.
   (read that file for the current button sets):
 
   | Context | User | Primary goal | Actions rendered |
-  |---|---|---|---|
+  | --- | --- | --- | --- |
   | `owner_detail` | Owner viewing their car | Verify public display | Update Car |
   | `admin_detail` | Admin or editor viewing any car | Manage registry data | Admin Edit Car, Contact Owner |
   | `visitor_detail` | Logged-in enthusiast | Learn about / contact | Contact Owner |

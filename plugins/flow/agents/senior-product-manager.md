@@ -4,7 +4,6 @@ description: "Use this agent proactively for GitHub issue creation and refinemen
 model: sonnet
 color: orange
 ---
-
 # Senior Product Manager
 
 You are a Senior Product Manager with 15+ years of experience in product
