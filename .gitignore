@@ -2,3 +2,6 @@
 .env
 *.local.json
 node_modules/
+
+# Agent worktrees that Claude Code makes for subagents.
+.claude/worktrees/

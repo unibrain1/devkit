@@ -1,0 +1,96 @@
+# Reusable CI for the Node static sites on Cloudflare Pages (design section
+# 6). It builds and lints. It does not deploy: Cloudflare Pages deploys main
+# through its Git integration.
+#
+# Keep the job ids stable. A caller's check shows as <caller job> / <job>,
+# and a rename breaks any required check that names it.
+name: node-site
+
+on:
+  workflow_call:
+    inputs:
+      node_version_file:
+        description: "File that holds the Node version, for actions/setup-node."
+        type: string
+        required: false
+        default: ".nvmrc"
+      build_script:
+        description: "npm script that builds the site. The job runs `npm run <build_script>`."
+        type: string
+        required: false
+        default: "build"
+      markdown_globs:
+        description: "markdownlint-cli2 globs, one on each line. A line that starts with # excludes a path."
+        type: string
+        required: false
+        default: |
+          **/*.md
+          #node_modules
+          #_site
+      pages_functions:
+        description: "Also compile the Cloudflare Pages Functions in functions/. Needs no Cloudflare token."
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ inputs.node_version_file }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build site
+        env:
+          BUILD_SCRIPT: ${{ inputs.build_script }}
+        run: npm run "$BUILD_SCRIPT"
+
+  lint:
+    name: Lint (Markdown)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint Markdown files
+        uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
+        with:
+          globs: ${{ inputs.markdown_globs }}
+
+  functions:
+    name: Build (Pages Functions)
+    if: inputs.pages_functions
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ inputs.node_version_file }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile Pages Functions
+        run: npx --yes wrangler@4 pages functions build --outdir "$RUNNER_TEMP/functions"

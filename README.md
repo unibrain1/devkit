@@ -6,7 +6,8 @@ This repo will hold:
 
 - `plugins/flow/` — the `flow` Claude Code plugin: milestone and issue
   commands, generic agents, workflow scripts in `bin/`, and guard hooks.
-- `.github/workflows/` — reusable CI workflows that project repos call.
+- `.github/workflows/` — reusable CI workflows that project repos call. See
+  [docs/ci-workflows.md](docs/ci-workflows.md).
 
 The design is in [docs/design.html](docs/design.html). The repo is in
 rollout phase 1 (build). Do not use it in a project before tag `v0.1.0`.
