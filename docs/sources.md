@@ -42,6 +42,24 @@ with the Registry agents.
 
 `context-audit` is not in devkit. Its origin is not known.
 
+## Global agents
+
+Phase 1 step 5 compared the five agents in `~/.claude/agents` with the flow
+versions. The flow versions were more complete. Jim approved these global
+lines on 2026-10-27:
+
+| Agent | Lines merged into flow |
+| --- | --- |
+| `senior-architect` | Design: plan for testability, consider security early, document trade-offs. A "When You're Uncertain" section. |
+| `senior-product-manager` | Call the architect also for dependency updates and configuration changes. |
+| `senior-test-engineer` | Debug step: check test data setup and teardown. Quality: tests are maintainable and easy to understand. |
+| `software-developer` | API: proper HTTP status codes, meaningful error messages. Database: consider performance. A "When You're Uncertain" section. |
+| `technical-documentation-writer` | Process step: assess consolidation. |
+
+The flow models stay as they are. The fixed label list, the word target,
+and capital MUST/NEVER rules are not merged. Phase 3 deletes
+`~/.claude/agents`.
+
 ## Other repos read for comparison
 
 Phase 1 step 4 compared the commands in these repos with the flow commands.

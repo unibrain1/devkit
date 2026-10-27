@@ -147,8 +147,8 @@ Recommend milestone assignment based on:
 Look for dependencies on:
 
 - Other open issues (blocks/blocked-by relationships)
-- Framework upgrades
-- Database schema changes (requires migration)
+- Framework upgrades or dependency updates
+- Database schema changes (requires migration) or configuration changes
 - External services or APIs
 - Documentation or configuration updates
 
