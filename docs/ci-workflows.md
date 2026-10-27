@@ -129,6 +129,16 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
+### Fork PRs in `claude.yml`
+
+`claude.yml` does not run on a fork PR. The first step checks the PR and
+stops with a notice. A comment run has the secrets, also on a fork PR.
+`claude-code-action` restores `.claude/`, `CLAUDE.md`, `.mcp.json`, and a
+few other startup files from the base branch before Claude starts. It does
+not restore `package.json` or other repo scripts. A tool in
+`extra_allowed_tools` that runs repo code would then run the fork's code
+with the secrets. An `@claude` mention on an issue is not affected.
+
 ## `secrets-scan.yml`
 
 A trufflehog scan of the commits in a pull request or a push. For private

@@ -11,6 +11,11 @@ name: Claude Code
 # A comment that contains "@claude deep-review" is skipped here: the
 # comment-deep-review job in claude-review.yml handles it, with its own
 # posting, verdict line, and gate.
+#
+# A fork PR is skipped. A comment run has the secrets, also on a fork PR.
+# claude-code-action restores .claude/, CLAUDE.md, and .mcp.json from the
+# base branch, but not package.json or other repo scripts. A tool that runs
+# repo code would then run the fork's code with the secrets.
 
 on:
   workflow_call:
@@ -66,13 +71,41 @@ jobs:
       id-token: write
       actions: read
     steps:
+      - name: Skip fork PRs
+        id: fork
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_PR: ${{ github.event.issue.pull_request && github.event.issue.number || '' }}
+          REVIEW_PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          PR_NUM="${REVIEW_PR:-$ISSUE_PR}"
+          if [ -z "$PR_NUM" ]; then
+            echo "fork=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! printf '%s' "$PR_NUM" | grep -qE '^[0-9]+$'; then
+            echo "::error::PR number '${PR_NUM}' is not numeric."
+            exit 1
+          fi
+          CROSS=$(gh pr view "$PR_NUM" --repo "$REPO" --json isCrossRepository -q .isCrossRepository)
+          if [ "$CROSS" = "false" ]; then
+            echo "fork=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::PR #${PR_NUM} comes from a fork. @claude does not run on a fork PR, because the job has secrets."
+            echo "fork=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.fork.outputs.fork == 'false'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
 
       - name: Run Claude Code
+        if: steps.fork.outputs.fork == 'false'
         id: claude
         uses: anthropics/claude-code-action@16f9f71ab9c490faf367f94dd294897edc25be33 # v1.0.261
         with:
