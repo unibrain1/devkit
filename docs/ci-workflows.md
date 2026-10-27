@@ -1,7 +1,14 @@
 # Reusable CI workflows
 
 devkit holds reusable GitHub Actions workflows. A project repo calls one
-with its own small caller file. See [design section 6](design.html#ci) for
+with its own small caller file.
+
+Each caller job must grant the permissions that the shared jobs need, as in
+the examples below. A new repo gives the workflow token read access only,
+and a called job cannot get more than its caller. Without the block, the
+run fails at startup with "This run likely failed because of a workflow
+file issue". `secrets-scan.yml` and `node-site.yml` need only read access,
+so their callers need no block. See [design section 6](design.html#ci) for
 the shared-CI design and [section 8](design.html#main-match) for the
 main-match rule that every caller must follow.
 
@@ -21,7 +28,7 @@ A Claude Code review on a pull request, and on demand from a comment.
 
 | Input | Type | Default | Use |
 | --- | --- | --- | --- |
-| `pr_number` | number | none, not required | The PR to review, for a manual `workflow_dispatch` run. |
+| `pr_number` | string | none, not required | The PR to review, for a manual `workflow_dispatch` run. |
 | `review_model` | string | `claude-sonnet-5` | Model for `pr-to-milestone-review`. |
 | `review_effort` | string | `medium` | Effort for `pr-to-milestone-review`. |
 | `milestone_model` | string | `claude-fable-5-1` | Model for `milestone-review` and `comment-deep-review`. |
@@ -51,6 +58,11 @@ on:
         required: false
 jobs:
   claude-review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
     uses: unibrain1/devkit/.github/workflows/claude-review.yml@main
     with:
       pr_number: ${{ inputs.pr_number }}
@@ -124,6 +136,12 @@ on:
     types: [submitted]
 jobs:
   claude:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
     uses: unibrain1/devkit/.github/workflows/claude.yml@main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

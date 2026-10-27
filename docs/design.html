@@ -447,12 +447,18 @@ on:
       pr_number: { type: number, required: false }
 jobs:
   claude-review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
     uses: unibrain1/devkit/.github/workflows/claude-review.yml@main
     with:
       pr_number: ${{ inputs.pr_number }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}</code></pre>
 <ul>
+  <li>Each caller job grants the permissions that the shared jobs need. A new repo gives the workflow token read access only, and a called job cannot get more than its caller. Without the block, the run fails at startup. <code>docs/ci-workflows.md</code> lists the block for each workflow.</li>
   <li>Callers pass each secret by name. <code>secrets: inherit</code> does not work across orgs, and the repos are in three orgs.</li>
   <li>Devkit keeps Registry's rule to pin third-party actions to full SHAs. Dependabot in devkit bumps them one time for all repos.</li>
   <li>The review workflow keeps Registry's fork-safety rules (#1688) and its Dependabot skip.</li>
@@ -624,7 +630,7 @@ jobs:
   <li><strong>Tag and main on one machine.</strong> Registry pins a tag and TeamCroc uses <code>main</code>. Claude Code may keep one copy of the <code>devkit</code> marketplace per machine. If so, the last project you open sets the version for all. Fallback: register the repo under two names, <code>devkit</code> for <code>main</code> and <code>devkit-stable</code> for tags.</li>
   <li><strong>Ref change triggers a reload.</strong> Check that a new <code>ref</code> in Registry's settings loads the new tag without a manual <code>marketplace update</code>.</li>
   <li><strong>Plugin in CI.</strong> Not in v0.1.0. The CI workflows do not load <code>flow</code>. See "<code>flow</code> in CI" in <a href="#later">section 12</a>.</li>
-  <li><strong>Which file the action compares.</strong> Check that <code>claude-code-action</code> compares the caller file in the consumer repo, not the devkit reusable file. If it compares the devkit file, the review behaves differently, and section 8 needs a new design.</li>
+  <li><strong>Which file the action compares.</strong> Check that <code>claude-code-action</code> compares the caller file in the consumer repo, not the devkit reusable file. If it compares the devkit file, the review behaves differently, and section 8 needs a new design. Checked in devkit-sandbox: <code>github.workflow_ref</code> in the reusable workflow names the caller file.</li>
   <li><strong>Devkit's own PRs.</strong> Check whether a devkit PR that changes <code>claude-review.yml</code> can review itself through a local <code>./</code> caller. If it cannot, the sandbox repo is the only test path, and a human reviews such PRs.</li>
   <li><strong><code>--plugin-dir</code> next to the installed plugin.</strong> Check which copy of <code>flow</code> runs when the local copy and <code>flow@devkit</code> are both present.</li>
   <li><strong>Contributor first run.</strong> Clone Registry as a new user. Accept the trust prompt. Check that <code>/flow:start-issue</code> works.</li>

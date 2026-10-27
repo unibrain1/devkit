@@ -97,10 +97,13 @@ name: Claude Code Review
 on:
   workflow_call:
     inputs:
+      # A string, not a number: on a pull_request event the caller passes
+      # an empty inputs.pr_number, and an empty value for a number input
+      # fails the run at startup. The ctx step accepts digits only.
       pr_number:
         description: "PR number to review (workflow_dispatch only)"
         required: false
-        type: number
+        type: string
       review_model:
         description: "Model for pr-to-milestone-review"
         required: false
