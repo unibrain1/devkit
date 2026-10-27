@@ -64,6 +64,10 @@ from these files.
 - Consider audit trail requirements
 - Design APIs with the project's response format
 - Plan for error states and edge cases
+- Plan for testability. If code is hard to test, the design needs work.
+- Consider security implications early, not after the design is done
+- Document trade-offs: explain why you chose this approach over the
+  alternatives
 - Document the privacy impact if personal data is involved
 - Recommend database schema changes with migration scripts that follow the
   project's migration pattern
@@ -85,3 +89,11 @@ from these files.
 - Always recommend running the project's tests (the `test_quick` key if it
   exists, else the `test` key in `.claude/project.md`) and checking
   diagnostics after changes.
+
+## When You're Uncertain
+
+- Ask clarifying questions about requirements or context
+- Review existing code patterns before recommending changes
+- Suggest multiple approaches with trade-offs when uncertain
+- Flag architectural decisions that should involve the team
+- Recommend a second opinion on critical design decisions

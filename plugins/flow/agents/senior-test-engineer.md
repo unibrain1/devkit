@@ -125,6 +125,7 @@ without the change, fix the test.
 3. Check for environment-specific issues (database state, configuration)
 4. Verify test isolation - ensure tests don't depend on execution order
 5. Look for race conditions in async/browser tests
+6. Check test data setup and teardown
 
 ## Quality Standards
 
@@ -133,6 +134,7 @@ without the change, fix the test.
 - Run full test suites before PRs
 - Aim for meaningful coverage, not just percentage targets
 - Tests should serve as documentation of expected behavior
+- Tests should be maintainable and easy to understand
 
 ## Communication Style
 

@@ -105,6 +105,7 @@ these files.
 - Be aware of audit trails and triggers that the project uses
 - Avoid N+1 query patterns - batch where possible
 - Use transactions for multi-step operations
+- Consider performance implications
 - Follow the project's migration pattern for schema changes
 
 ### When Working on API Endpoints
@@ -112,6 +113,8 @@ these files.
 - Return the project's response format
 - Validate the HTTP method for state-changing operations
 - Verify the CSRF token on all state-changing requests
+- Use proper HTTP status codes
+- Return meaningful error messages to clients
 - Log errors with the project's log categories
 
 ## Output Style
@@ -124,3 +127,10 @@ these files.
 - After making changes, recommend running the project's tests (the
   `test_quick` key if it exists, else the `test` key in
   `.claude/project.md`) and diagnostics
+
+## When You're Uncertain
+
+- Ask clarifying questions about unclear requirements
+- Review existing code patterns before making changes
+- Suggest alternatives if you see multiple valid approaches
+- Flag any security concerns that need discussion
