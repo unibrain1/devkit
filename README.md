@@ -8,6 +8,23 @@ This repo will hold:
   commands, generic agents, workflow scripts in `bin/`, and guard hooks.
 - `.github/workflows/` — reusable CI workflows that project repos call. See
   [docs/ci-workflows.md](docs/ci-workflows.md).
+- `plugins/brain/skills/` — skills for the Claude desktop and phone apps.
+  They are not a Claude Code plugin yet. Upload each one as a zip at
+  claude.ai → Settings → Customize → Skills.
+
+## Brain skill zips
+
+Each push to `main` that changes `plugins/brain/skills/` runs
+`release-skills.yml`. It replaces the release `skills-latest` with one zip
+for each skill. Get the zips:
+
+```sh
+gh release download skills-latest -R unibrain1/devkit -p '*.zip' --clobber
+```
+
+To build them locally, run `.github/scripts/package-skills.sh`. It writes
+`dist/<skill>.zip`, and git ignores `dist/`. The script first checks the
+claude.ai upload rules, for example no `<` or `>` in the description.
 
 The design is in [docs/design.html](docs/design.html). The repo is in
 rollout phase 1 (build). Do not use it in a project before tag `v0.1.0`.

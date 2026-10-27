@@ -81,6 +81,9 @@ jobs:
           done < <(find . -name '*.json' -not -path './node_modules/*' -print0)
           exit "$status"
 
+      - name: Brain skills (claude.ai upload rules)
+        run: .github/scripts/package-skills.sh --check
+
       - name: Plugin manifests
         run: |
           npx --no-install claude plugin validate .
