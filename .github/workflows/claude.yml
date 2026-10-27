@@ -16,6 +16,12 @@ name: Claude Code
 # claude-code-action restores .claude/, CLAUDE.md, and .mcp.json from the
 # base branch, but not package.json or other repo scripts. A tool that runs
 # repo code would then run the fork's code with the secrets.
+#
+# The text for Claude goes through --append-system-prompt in claude_args.
+# claude-code-action v1.0.261 has no custom_instructions input. It warns
+# "Unexpected input" and drops the text (seen in devkit-sandbox). toJSON
+# gives one quoted line. The action splits claude_args like a shell, so a
+# "$" in extra_instructions does not survive.
 
 on:
   workflow_call:
@@ -118,11 +124,4 @@ jobs:
             --model ${{ inputs.model }}
             --allowedTools
             "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh issue comment:*),Bash(gh issue view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
-          custom_instructions: |
-            Read `CLAUDE.md`, `.claude/project.md`, and the files in
-            `.claude/rules/` that apply to the changed files. Apply what
-            they say.
-
-            ${{ inputs.extra_instructions != '' && format('## Project instructions
-
-            {0}', inputs.extra_instructions) || '' }}
+            --append-system-prompt ${{ toJSON(format('Read .claude/project.md when a task needs project facts. CLAUDE.md and the files in .claude/rules/ hold the project rules. Apply them.{0}', inputs.extra_instructions != '' && format(' Project instructions: {0}', inputs.extra_instructions) || '')) }}
