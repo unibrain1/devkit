@@ -101,8 +101,10 @@ jobs:
         if: steps.fork.outputs.fork == 'false'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Keep the checkout credentials. claude-code-action runs its own
+          # git fetch of the PR head, and in a private repo that fetch
+          # needs them (seen in devkit-sandbox).
           fetch-depth: 1
-          persist-credentials: false
 
       - name: Run Claude Code
         if: steps.fork.outputs.fork == 'false'
