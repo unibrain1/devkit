@@ -1,0 +1,93 @@
+name: Claude Code
+
+# A reusable workflow for @claude mentions. A caller repo names its own file
+# .github/workflows/claude.yml and calls this with `uses:`.
+#
+# Gate all event types to OWNER, MEMBER, or COLLABORATOR. A public repo with
+# an ungated trigger would let any GitHub user spend the OAuth quota.
+# CONTRIBUTOR (any past merged-PR author) is deliberately excluded — it is
+# too broad a trust surface for a public repo.
+#
+# A comment that contains "@claude deep-review" is skipped here: the
+# comment-deep-review job in claude-review.yml handles it, with its own
+# posting, verdict line, and gate.
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: "Model for the @claude job"
+        required: false
+        type: string
+        default: claude-sonnet-5
+      extra_allowed_tools:
+        description: "Comma-separated tools to add to --allowedTools"
+        required: false
+        type: string
+        default: ""
+      extra_instructions:
+        description: "Text added to the prompt under 'Project instructions'"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  claude:
+    if: |
+      (
+        github.event_name == 'issue_comment' &&
+        contains(github.event.comment.body, '@claude') &&
+        !contains(github.event.comment.body, '@claude deep-review') &&
+        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR')
+      ) ||
+      (
+        github.event_name == 'pull_request_review_comment' &&
+        contains(github.event.comment.body, '@claude') &&
+        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR')
+      ) ||
+      (
+        github.event_name == 'pull_request_review' &&
+        contains(github.event.review.body, '@claude') &&
+        (github.event.review.author_association == 'OWNER' || github.event.review.author_association == 'MEMBER' || github.event.review.author_association == 'COLLABORATOR')
+      ) ||
+      (
+        github.event_name == 'issues' &&
+        (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
+        (github.event.issue.author_association == 'OWNER' || github.event.issue.author_association == 'MEMBER' || github.event.issue.author_association == 'COLLABORATOR')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@16f9f71ab9c490faf367f94dd294897edc25be33 # v1.0.261
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          additional_permissions: |
+            actions: read
+          claude_args: >-
+            --model ${{ inputs.model }}
+            --allowedTools
+            "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh issue comment:*),Bash(gh issue view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+          custom_instructions: |
+            Read `CLAUDE.md`, `.claude/project.md`, and the files in
+            `.claude/rules/` that apply to the changed files. Apply what
+            they say.
+
+            ${{ inputs.extra_instructions != '' && format('## Project instructions
+
+            {0}', inputs.extra_instructions) || '' }}
