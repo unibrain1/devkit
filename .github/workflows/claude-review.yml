@@ -302,7 +302,7 @@ jobs:
             - `CLAUDE.md`
             - `.claude/project.md`
             - Each file in `.claude/rules/` that applies to the changed
-              files
+              files. List them with the Glob tool, not `ls`.
 
             Work through this directly yourself — only `Bash`, `Read`,
             `Grep`, and `Glob` tools are available here, no agent-
@@ -754,7 +754,7 @@ jobs:
             - `CLAUDE.md`
             - `.claude/project.md`
             - Each file in `.claude/rules/` that applies to the changed
-              files
+              files. List them with the Glob tool, not `ls`.
 
             Work through the tasks below yourself. Only `Bash`, `Read`,
             `Grep`, and `Glob` are available here. There is no agent
@@ -1230,7 +1230,7 @@ jobs:
             - `CLAUDE.md`
             - `.claude/project.md`
             - Each file in `.claude/rules/` that applies to the changed
-              files
+              files. List them with the Glob tool, not `ls`.
 
             Work through the tasks below yourself. Only `Bash`, `Read`,
             `Grep`, and `Glob` are available here. There is no agent

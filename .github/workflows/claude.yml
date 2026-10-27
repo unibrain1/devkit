@@ -16,6 +16,13 @@ name: Claude Code
 # claude-code-action restores .claude/, CLAUDE.md, and .mcp.json from the
 # base branch, but not package.json or other repo scripts. A tool that runs
 # repo code would then run the fork's code with the secrets.
+#
+# No extra_instructions input, unlike claude-review.yml. In
+# claude-code-action v1.0.261, tag mode takes no added text: a prompt input
+# switches the action to agent mode, custom_instructions is not an input,
+# and --append-system-prompt had no effect in devkit-sandbox. Tag mode
+# already tells Claude to follow CLAUDE.md, so project text for @claude goes
+# in CLAUDE.md or .claude/rules/.
 
 on:
   workflow_call:
@@ -27,11 +34,6 @@ on:
         default: claude-sonnet-5
       extra_allowed_tools:
         description: "Comma-separated tools to add to --allowedTools"
-        required: false
-        type: string
-        default: ""
-      extra_instructions:
-        description: "Text added to the prompt under 'Project instructions'"
         required: false
         type: string
         default: ""
@@ -101,8 +103,10 @@ jobs:
         if: steps.fork.outputs.fork == 'false'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Keep the checkout credentials. claude-code-action runs its own
+          # git fetch of the PR head, and in a private repo that fetch
+          # needs them (seen in devkit-sandbox).
           fetch-depth: 1
-          persist-credentials: false
 
       - name: Run Claude Code
         if: steps.fork.outputs.fork == 'false'
@@ -116,11 +120,3 @@ jobs:
             --model ${{ inputs.model }}
             --allowedTools
             "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh issue comment:*),Bash(gh issue view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
-          custom_instructions: |
-            Read `CLAUDE.md`, `.claude/project.md`, and the files in
-            `.claude/rules/` that apply to the changed files. Apply what
-            they say.
-
-            ${{ inputs.extra_instructions != '' && format('## Project instructions
-
-            {0}', inputs.extra_instructions) || '' }}

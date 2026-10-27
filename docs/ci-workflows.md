@@ -112,7 +112,10 @@ or a collaborator.
 | --- | --- | --- | --- |
 | `model` | string | `claude-sonnet-5` | Model for the `claude` job. |
 | `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools`. |
-| `extra_instructions` | string | `""` | Text added to the prompt, under the heading "Project instructions". |
+
+`claude.yml` has no `extra_instructions` input. In `claude-code-action`
+v1.0.261, tag mode takes no added text. Put project text for `@claude` in
+CLAUDE.md or `.claude/rules/`. The action tells Claude to follow CLAUDE.md.
 
 ### Secret
 
