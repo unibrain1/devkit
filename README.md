@@ -23,7 +23,9 @@ After `v0.1.0`, add the marketplace and turn on the plugins:
 ```
 
 Each repo also needs a `.claude/project.md`. See
-[docs/project-md.md](docs/project-md.md).
+[docs/project-md.md](docs/project-md.md). Copy
+[templates/settings.json](templates/settings.json) to `.claude/settings.json`
+one time. See [docs/settings-template.md](docs/settings-template.md).
 
 ## Tests and lint
 
