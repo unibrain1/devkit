@@ -1,0 +1,51 @@
+# Publishes the zips of the brain skills for the claude.ai upload. Each push
+# to main that changes plugins/brain/skills/ replaces the release
+# "skills-latest" with new zips at the new commit. That release is never
+# marked "Latest", so the v* releases keep that label.
+#
+# Download: gh release download skills-latest -R unibrain1/devkit -p '*.zip'
+name: release-skills
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - plugins/brain/skills/**
+      - .github/scripts/package-skills.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-skills
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Package skills
+        run: .github/scripts/package-skills.sh
+
+      - name: Replace release skills-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        # Delete and create again, so the tag moves to this commit. An
+        # upload with --clobber would keep the tag on the old commit.
+        run: |
+          gh release delete skills-latest --cleanup-tag --yes || true
+          gh release create skills-latest dist/*.zip \
+            --target "$GITHUB_SHA" \
+            --title "Brain skills (latest)" \
+            --latest=false \
+            --notes "Zips of plugins/brain/skills at ${GITHUB_SHA::7}. Upload each zip at claude.ai -> Settings -> Customize -> Skills. An upload replaces the skill as a new version."
