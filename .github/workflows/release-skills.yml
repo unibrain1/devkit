@@ -1,7 +1,8 @@
 # Publishes the zips of the brain skills for the claude.ai upload. Each push
 # to main that changes plugins/brain/skills/ replaces the release
-# "skills-latest" with new zips at the new commit. That release is never
-# marked "Latest", so the v* releases keep that label.
+# "skills-latest" with new zips at the new commit. It is a pre-release:
+# GitHub never marks a pre-release "Latest", even when it is the only release.
+# --latest=false did not stop that.
 #
 # Download: gh release download skills-latest -R unibrain1/devkit -p '*.zip'
 name: release-skills
@@ -12,6 +13,7 @@ on:
     paths:
       - plugins/brain/skills/**
       - .github/scripts/package-skills.sh
+      - .github/workflows/release-skills.yml
   workflow_dispatch:
 
 permissions:
@@ -47,5 +49,5 @@ jobs:
           gh release create skills-latest dist/*.zip \
             --target "$GITHUB_SHA" \
             --title "Brain skills (latest)" \
-            --latest=false \
+            --prerelease \
             --notes "Zips of plugins/brain/skills at ${GITHUB_SHA::7}. Upload each zip at claude.ai -> Settings -> Customize -> Skills. An upload replaces the skill as a new version."
