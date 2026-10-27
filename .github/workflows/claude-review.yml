@@ -189,6 +189,24 @@ jobs:
           HEAD_REF=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefName -q .headRefName)
           TITLE=$(gh pr view "$PR_NUM" --repo "$REPO" --json title -q .title)
 
+          # A fork PR must not run here. A pull_request run from a fork gets no
+          # secrets, but a workflow_dispatch or issue_comment run does. The
+          # fork could then run its own code with them, for example a hook in
+          # its .claude/settings.json.
+          CROSS=$(gh pr view "$PR_NUM" --repo "$REPO" --json isCrossRepository -q .isCrossRepository)
+          if [ "$CROSS" != "false" ]; then
+            echo "::error::PR #${PR_NUM} comes from a fork. This job has secrets, so it does not review a fork PR. A person must review it."
+            exit 1
+          fi
+
+          # Check out this exact commit, not the moving PR ref. A push after
+          # this step then cannot change the code that the review sees.
+          HEAD_OID=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefOid -q .headRefOid)
+          if [[ ! "$HEAD_OID" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::gh pr view did not give a 40-character hex head SHA for PR #${PR_NUM}."
+            exit 1
+          fi
+
           # BASE, HEAD_REF, and TITLE are attacker-controlled on a fork PR. A
           # bare `echo "key=$VALUE" >> $GITHUB_OUTPUT` lets a value with a
           # newline forge another output — including pr_number, which the
@@ -199,6 +217,7 @@ jobs:
           DELIM="ghadelim_$(openssl rand -hex 16)"
           {
             echo "pr_number=${PR_NUM}"
+            echo "head_sha=${HEAD_OID}"
             echo "base_ref<<${DELIM}"
             echo "${BASE}"
             echo "${DELIM}"
@@ -214,19 +233,25 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: refs/pull/${{ steps.ctx.outputs.pr_number }}/head
+          ref: ${{ steps.ctx.outputs.head_sha }}
           persist-credentials: false
 
-      # The checkout is refs/pull/<n>/head, so HEAD is the PR head commit.
+      # The checkout is the head SHA from the ctx step.
       # The verdict line names this SHA, and the flow scripts accept only a
       # verdict for the current head.
       - name: Record head SHA
         id: head
+        env:
+          WANT_SHA: ${{ steps.ctx.outputs.head_sha }}
         run: |
           set -euo pipefail
           HEAD_SHA=$(git rev-parse HEAD)
           if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::git rev-parse HEAD did not give a 40-character hex SHA. Cannot record a verdict for this run."
+            exit 1
+          fi
+          if [ "$HEAD_SHA" != "$WANT_SHA" ]; then
+            echo "::error::The checkout is ${HEAD_SHA}, not the PR head ${WANT_SHA}. Cannot record a verdict for this run."
             exit 1
           fi
           echo "sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
@@ -242,7 +267,7 @@ jobs:
           # from the prompt input.
           claude_args: >-
             --allowedTools
-            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Bash(cat:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --model ${{ inputs.review_model }}
             --effort ${{ inputs.review_effort }}
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary_markdown","findings"],"properties":{"summary_markdown":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","location","title","detail"],"properties":{"severity":{"type":"string","enum":["blocking","important","note","suggestion"]},"location":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}}}}'
@@ -691,7 +716,7 @@ jobs:
           # Do NOT set track_progress — see pr-to-milestone-review above.
           claude_args: >-
             --allowedTools
-            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(cat:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --model ${{ inputs.milestone_model }}
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary_markdown","findings"],"properties":{"summary_markdown":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","location","title","detail"],"properties":{"severity":{"type":"string","enum":["blocking","important","note","suggestion"]},"location":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}}}}'
           prompt: |
@@ -749,9 +774,7 @@ jobs:
 
             ## Read the merged issue list
 
-            ```bash
-            cat merged-prs.txt
-            ```
+            Read the file `merged-prs.txt` with the Read tool.
 
             The file lists issue PRs squash-merged into this milestone
             branch.
@@ -1078,9 +1101,28 @@ jobs:
           HEAD_REF=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefName -q .headRefName)
           TITLE=$(gh pr view "$PR_NUM" --repo "$REPO" --json title -q .title)
 
+          # A fork PR must not run here. A pull_request run from a fork gets no
+          # secrets, but a workflow_dispatch or issue_comment run does. The
+          # fork could then run its own code with them, for example a hook in
+          # its .claude/settings.json.
+          CROSS=$(gh pr view "$PR_NUM" --repo "$REPO" --json isCrossRepository -q .isCrossRepository)
+          if [ "$CROSS" != "false" ]; then
+            echo "::error::PR #${PR_NUM} comes from a fork. This job has secrets, so it does not review a fork PR. A person must review it."
+            exit 1
+          fi
+
+          # Check out this exact commit, not the moving PR ref. A push after
+          # this step then cannot change the code that the review sees.
+          HEAD_OID=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefOid -q .headRefOid)
+          if [[ ! "$HEAD_OID" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::gh pr view did not give a 40-character hex head SHA for PR #${PR_NUM}."
+            exit 1
+          fi
+
           DELIM="ghadelim_$(openssl rand -hex 16)"
           {
             echo "pr_number=${PR_NUM}"
+            echo "head_sha=${HEAD_OID}"
             echo "base_ref<<${DELIM}"
             echo "${BASE}"
             echo "${DELIM}"
@@ -1096,18 +1138,28 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: refs/pull/${{ steps.ctx.outputs.pr_number }}/head
+          ref: ${{ steps.ctx.outputs.head_sha }}
           persist-credentials: false
 
       - name: Collect merged issue PR list
         id: merged-prs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BASE_BRANCH: ${{ steps.ctx.outputs.base_ref }}
+          HEAD_BRANCH: ${{ steps.ctx.outputs.head_ref }}
         run: |
-          echo "Merged PRs against ${BASE_BRANCH}:" > merged-prs.txt
+          # Only a milestone PR has issue PRs merged into its head branch. For
+          # another PR, a list of recent merges into its base is noise.
+          case "$HEAD_BRANCH" in
+            milestone/*) ;;
+            *)
+              echo "Not a milestone PR, so there is no merged issue PR list." > merged-prs.txt
+              cat merged-prs.txt
+              exit 0
+              ;;
+          esac
+          echo "Merged issue PRs against ${HEAD_BRANCH}:" > merged-prs.txt
           if ! gh pr list \
-            --base "$BASE_BRANCH" \
+            --base "$HEAD_BRANCH" \
             --state merged \
             --limit 100 \
             --json number,title,mergedAt,author \
@@ -1120,14 +1172,20 @@ jobs:
           echo "Collected ${PR_COUNT} merged PRs"
           cat merged-prs.txt
 
-      # The checkout is refs/pull/<n>/head, so HEAD is the PR head commit.
+      # The checkout is the head SHA from the ctx step.
       - name: Record head SHA
         id: head
+        env:
+          WANT_SHA: ${{ steps.ctx.outputs.head_sha }}
         run: |
           set -euo pipefail
           HEAD_SHA=$(git rev-parse HEAD)
           if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::git rev-parse HEAD did not give a 40-character hex SHA. Cannot record a verdict for this run."
+            exit 1
+          fi
+          if [ "$HEAD_SHA" != "$WANT_SHA" ]; then
+            echo "::error::The checkout is ${HEAD_SHA}, not the PR head ${WANT_SHA}. Cannot record a verdict for this run."
             exit 1
           fi
           echo "sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
@@ -1139,7 +1197,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: >-
             --allowedTools
-            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(cat:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --model ${{ inputs.milestone_model }}
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary_markdown","findings"],"properties":{"summary_markdown":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","location","title","detail"],"properties":{"severity":{"type":"string","enum":["blocking","important","note","suggestion"]},"location":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}}}}'
           prompt: |
@@ -1188,11 +1246,9 @@ jobs:
 
             ## Read the merged PR list
 
-            ```bash
-            cat merged-prs.txt
-            ```
+            Read the file `merged-prs.txt` with the Read tool.
 
-            The file lists PRs recently merged into this PR's base branch.
+            For a milestone PR, the file lists the issue PRs merged into the milestone branch. For another PR, it says that there is no list. Then skip the checks that need the list.
 
             ## Your tasks
 
