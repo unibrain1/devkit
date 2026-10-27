@@ -187,6 +187,7 @@ td code { white-space: nowrap; }
     <li>The method moves into <code>flow</code>: a <code>flow:workflow</code> skill, the <code>hotfix</code> skill, and <code>/flow:setup</code>, which adds a short marked block to CLAUDE.md. See <a href="#plugin">section 4</a>.</li>
     <li>The Registry commands <code>sprint-status</code> and <code>groom-tests</code> are not in <code>flow</code>. <code>groom-tests</code> stays in Registry.</li>
     <li>An optional <code>test_quick</code> key for fast tests during an issue. <code>/flow:setup</code> creates the labels that the method uses, after you approve the list.</li>
+    <li>The shared CI workflows do not load <code>flow</code>. The review keeps the caller name <code>claude-code-review.yml</code> and gets an on-demand deep review. <code>node-site.yml</code> builds and lints, and does not deploy. See <a href="#ci">section 6</a>.</li>
   </ul>
 </div>
 
@@ -422,6 +423,7 @@ flowchart LR
 </table>
 </div>
 <p>"Opt-in" means that a private repo adds the caller file only if it wants the review.</p>
+<p><code>node-site.yml</code> builds and lints a static site: <code>npm ci</code>, <code>npm run build</code>, and markdownlint. An optional input builds Cloudflare Pages Functions. It does not deploy. Cloudflare Pages deploys <code>main</code> through its Git integration.</p>
 
 <h3>Public repos: repo settings, not workflow files</h3>
 <p>GitHub gives these free to public repos. You turn them on in each repo's settings, so they need no workflow file and no maintenance:</p>
@@ -433,19 +435,30 @@ flowchart LR
 <p>Registry's own <code>codeql-analysis.yml</code> can stay or change to default setup. Release automation stays in the projects that have it (mock-brevo and Monitoring).</p>
 
 <h3>A caller</h3>
-<pre><code>name: Claude review
+<pre><code># .github/workflows/claude-code-review.yml
+name: Claude Code Review
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, synchronize, ready_for_review, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number: { type: number, required: false }
 jobs:
-  review:
+  claude-review:
     uses: unibrain1/devkit/.github/workflows/claude-review.yml@main
+    with:
+      pr_number: ${{ inputs.pr_number }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}</code></pre>
 <ul>
   <li>Callers pass each secret by name. <code>secrets: inherit</code> does not work across orgs, and the repos are in three orgs.</li>
   <li>Devkit keeps Registry's rule to pin third-party actions to full SHAs. Dependabot in devkit bumps them one time for all repos.</li>
   <li>The review workflow keeps Registry's fork-safety rules (#1688) and its Dependabot skip.</li>
+  <li>Each repo names its review caller <code>.github/workflows/claude-code-review.yml</code>, the same name as today. The flow scripts use this name. The reusable workflow gets the caller path from <code>github.workflow_ref</code>, so it names no file.</li>
+  <li>The review has three jobs: <code>pr-to-milestone-review</code> for issue PRs and ad hoc PRs, <code>milestone-review</code> for <code>milestone/*</code> to <code>main</code> or the <code>deep-review</code> label, and <code>comment-deep-review</code> for a "@claude deep-review" comment from OWNER or COLLABORATOR.</li>
+  <li>The CI workflows do not load <code>flow</code>. The prompts read CLAUDE.md, <code>.claude/project.md</code>, and <code>.claude/rules/</code>. Two optional inputs, <code>extra_allowed_tools</code> and <code>extra_instructions</code>, hold project text that does not fit in those files. Both are empty by default.</li>
 </ul>
 
 <h2 id="updates">Versions and updates</h2>
@@ -505,7 +518,7 @@ jobs:
   <li>You open Claude Code in TeamCroc. Within 10 minutes after your first message, Claude Code gets the newest <code>flow</code> from devkit <code>main</code>.</li>
   <li>You run <code>/flow:start-issue 42</code>. The command reads the test and lint commands from TeamCroc's <code>.claude/project.md</code>.</li>
   <li>The same file has a <code>vault</code> key, so <code>/flow:start-issue</code> searches the vault for decisions and notes about the issue. It shows you the matches in the plan.</li>
-  <li>You run <code>/commit-push-pr</code>. The PR starts TeamCroc's callers. GitHub runs <code>node-site.yml</code> and <code>claude-review.yml</code> from devkit <code>main</code>. The callers match <code>main</code>, so the review runs. The review in CI has no Baalda tools, so it skips each vault step.</li>
+  <li>You run <code>/commit-push-pr</code>. The PR starts TeamCroc's callers. GitHub runs <code>node-site.yml</code> and <code>claude-review.yml</code> from devkit <code>main</code>. The callers match <code>main</code>, so the review runs. The review in CI does not load <code>flow</code>, so it has no vault steps.</li>
   <li>You run <code>/flow:finish-issue 42</code>. It appends each decision that the issue made to the TeamCroc hub note.</li>
   <li>An idea for later comes up. You run <code>/brain:capture</code>, and the idea goes to <code>Inbox/</code> in the vault, not into the repo.</li>
 </ol>
@@ -610,7 +623,7 @@ jobs:
 <ul class="verify">
   <li><strong>Tag and main on one machine.</strong> Registry pins a tag and TeamCroc uses <code>main</code>. Claude Code may keep one copy of the <code>devkit</code> marketplace per machine. If so, the last project you open sets the version for all. Fallback: register the repo under two names, <code>devkit</code> for <code>main</code> and <code>devkit-stable</code> for tags.</li>
   <li><strong>Ref change triggers a reload.</strong> Check that a new <code>ref</code> in Registry's settings loads the new tag without a manual <code>marketplace update</code>.</li>
-  <li><strong>Plugin in CI.</strong> Check that <code>claude-code-action</code> loads <code>flow</code> through its <code>plugin_marketplaces</code> and <code>plugins</code> inputs. The docs do not show a ref. Fallback: check out devkit and load the plugin from a local path.</li>
+  <li><strong>Plugin in CI.</strong> Not in v0.1.0. The CI workflows do not load <code>flow</code>. See "<code>flow</code> in CI" in <a href="#later">section 12</a>.</li>
   <li><strong>Which file the action compares.</strong> Check that <code>claude-code-action</code> compares the caller file in the consumer repo, not the devkit reusable file. If it compares the devkit file, the review behaves differently, and section 8 needs a new design.</li>
   <li><strong>Devkit's own PRs.</strong> Check whether a devkit PR that changes <code>claude-review.yml</code> can review itself through a local <code>./</code> caller. If it cannot, the sandbox repo is the only test path, and a human reviews such PRs.</li>
   <li><strong><code>--plugin-dir</code> next to the installed plugin.</strong> Check which copy of <code>flow</code> runs when the local copy and <code>flow@devkit</code> are both present.</li>
@@ -626,6 +639,7 @@ jobs:
   <tr><td>A shared stack CI workflow</td><td>Same rule: a second repo needs the same CI</td></tr>
   <tr><td>Version pins for more repos</td><td>A <code>main</code> change breaks private repos more than once. Or a second repo gets outside contributors.</td></tr>
   <tr><td>Renovate</td><td>More than two repos pin a tag, and the manual plugin bump becomes work</td></tr>
+  <tr><td><code>flow</code> in CI</td><td>A CI job needs a flow agent or command. The <code>plugin_marketplaces</code> input of <code>claude-code-action</code> v1.0.261 takes only a URL that ends in <code>.git</code>, or a local path, so a URL always loads devkit <code>main</code>. A tagged repo must check out devkit at its tag and load <code>flow</code> from a local path.</td></tr>
   <tr><td>Infra and device repos</td><td>You next work in DryFireTimer, ESPHome, or Arduino</td></tr>
 </table>
 </div>
@@ -661,7 +675,7 @@ jobs:
 </div>
 
 <h3>Each vault step is optional</h3>
-<p>Registry is public, has outside contributors, and runs <code>flow</code> in CI. None of these has Baalda access. Each vault step starts with this guard:</p>
+<p>Registry is public and has outside contributors. A contributor's session has no Baalda access. Each vault step starts with this guard:</p>
 <pre><code>If .claude/project.md has no vault key, or the Baalda tools are not available,
 skip this step. Do not stop the command.</code></pre>
 <p>A vault step never blocks a command. If a vault write fails, the command reports it and continues.</p>
