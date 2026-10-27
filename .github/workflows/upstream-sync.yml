@@ -1,0 +1,98 @@
+# devkit's own: each week, compare the upstream plugin pins in the
+# marketplace with upstream HEAD (design section 4, "Upstream plugins"). If
+# upstream moved, open a PR that changes the SHA and links the upstream diff.
+# A person reads the diff and merges. A bad upstream change reaches no repo
+# until then.
+#
+# A PR that GITHUB_TOKEN opens does not start pull_request workflows. So this
+# job starts self-test on the branch with workflow_dispatch. Its checks land
+# on the head commit, which is what the required checks look at.
+# The repo setting "Allow GitHub Actions to create and approve pull requests"
+# must be on.
+name: upstream-sync
+
+on:
+  schedule:
+    # Monday 13:00 UTC, after the Dependabot run.
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: sync
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check pins
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          moved="$(.github/scripts/upstream-sync.sh)"
+          if [ -z "$moved" ]; then
+            echo "Every upstream pin is current."
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # One branch name for one set of new SHAs. A second run in the same
+          # state finds the open PR and stops.
+          key="$(printf '%s' "$moved" | awk -F'\t' 'NF { printf "%s%s-%s", (NR > 1 ? "-" : ""), $1, substr($4, 1, 7) }')"
+          branch="upstream-sync/${key}"
+
+          body="$RUNNER_TEMP/pr-body.md"
+          {
+            echo "Upstream moved for these pinned plugins:"
+            echo ""
+            while IFS=$'\t' read -r name repo old new; do
+              [ -z "$name" ] && continue
+              echo "- \`${name}\` (${repo}): \`${old:0:7}\` to \`${new:0:7}\`. Diff: https://github.com/${repo}/compare/${old}...${new}"
+            done <<< "$moved"
+            echo ""
+            echo "Read each upstream diff before you merge. This PR changes \`.claude-plugin/marketplace.json\` and \`docs/sources.md\`."
+            echo "If the license changed upstream, update \`docs/sources.md\` too."
+          } > "$body"
+
+          {
+            echo "moved=true"
+            echo "branch=${branch}"
+            echo "body=${body}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open PR
+        if: steps.check.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.check.outputs.branch }}
+          BODY: ${{ steps.check.outputs.body }}
+        run: |
+          set -euo pipefail
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            echo "A PR for ${BRANCH} is open already."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -am "chore(marketplace): bump upstream plugin pins"
+          git push --force origin "$BRANCH"
+
+          gh pr create --base main --head "$BRANCH" \
+            --title "chore(marketplace): bump upstream plugin pins" \
+            --body-file "$BODY"
+          gh workflow run self-test.yml --ref "$BRANCH"
