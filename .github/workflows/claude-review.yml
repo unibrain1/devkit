@@ -1,6 +1,6 @@
 name: Claude Code Review
 
-# A reusable workflow. A caller repo names its own file
+# A reusable workflow (devkit self-review test). A caller repo names its own file
 # .github/workflows/claude-code-review.yml and calls this with `uses:`. Keep
 # that caller file name: the flow scripts and branch protection use it
 # (design docs/design.html#ci).
