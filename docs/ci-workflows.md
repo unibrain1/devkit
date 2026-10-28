@@ -95,6 +95,20 @@ warning, so the PR that edits the caller is not stuck. A person reviews
 that PR. The flow scripts still find no verdict line for it. Edit a caller
 only at a milestone boundary (design section 8).
 
+### devkit's own caller
+
+devkit has its own `.github/workflows/claude-code-review.yml`. It calls
+`./.github/workflows/claude-review.yml`, the copy in the same commit, not
+`@main`. So a PR that changes `claude-review.yml` gets a review from its
+own changed copy. The caller file stays the same as `main`, so the action
+does not skip. A PR that changes the caller file itself skips one time, as
+in every repo. The secret `CLAUDE_CODE_OAUTH_TOKEN` is set in devkit. A
+fork PR gets no review (see "Fork PRs").
+
+The devkit caller has no `issue_comment` trigger, so devkit has no
+`@claude deep-review` comment. devkit is public, and CodeQL flags a
+comment run that checks out PR code as a critical alert.
+
 ## `claude.yml`
 
 A Claude Code reply to an `@claude` mention, from the repo owner, a member,

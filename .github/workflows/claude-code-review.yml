@@ -1,0 +1,28 @@
+# devkit's own caller. It calls the reusable workflow from the same commit
+# (./), so a PR that changes claude-review.yml is reviewed by its own
+# changed copy. A PR that changes this file skips the review one time
+# (self-referential guard).
+# No issue_comment trigger: devkit is public, and CodeQL flags a comment run
+# that checks out PR code as critical (PR #26). So devkit has no
+# "@claude deep-review" comment.
+name: Claude Code Review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        type: number
+        required: false
+jobs:
+  claude-review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+    uses: ./.github/workflows/claude-review.yml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
