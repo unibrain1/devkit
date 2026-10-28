@@ -14,7 +14,7 @@ Both repos pin `anthropics/claude-code-action@16f9f71ab9c490faf367f94dd294897edc
 ## CI freeze
 
 The freeze started on 2026-10-26, when this file recorded the base SHAs. It
-ends when devkit tags `v0.1.0`.
+ended on 2026-10-28, when devkit tagged `v0.1.0`.
 
 During the freeze, make no changes in `.github/`, `.claude/`, or `scripts/`
 in Registry and MyGunLog. Other work in those repos continues. See
@@ -23,7 +23,7 @@ in Registry and MyGunLog. Other work in those repos continues. See
 | Event | Date | Link |
 | --- | --- | --- |
 | Freeze start | 2026-10-26 | this file |
-| Freeze end (`v0.1.0`) | unknown | — |
+| Freeze end (`v0.1.0`) | 2026-10-28 | [`v0.1.0`](https://github.com/unibrain1/devkit/releases/tag/v0.1.0) |
 
 ## Third-party and global sources
 
