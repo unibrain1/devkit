@@ -108,7 +108,7 @@ on:
         description: "Model for pr-to-milestone-review"
         required: false
         type: string
-        default: claude-sonnet-5
+        default: claude-sonnet-5-5
       review_effort:
         description: "Effort for pr-to-milestone-review"
         required: false

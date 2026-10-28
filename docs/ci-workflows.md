@@ -29,7 +29,7 @@ A Claude Code review on a pull request, and on demand from a comment.
 | Input | Type | Default | Use |
 | --- | --- | --- | --- |
 | `pr_number` | string | none, not required | The PR to review, for a manual `workflow_dispatch` run. |
-| `review_model` | string | `claude-sonnet-5` | Model for `pr-to-milestone-review`. |
+| `review_model` | string | `claude-sonnet-5-5` | Model for `pr-to-milestone-review`. |
 | `review_effort` | string | `medium` | Effort for `pr-to-milestone-review`. |
 | `milestone_model` | string | `claude-fable-5-1` | Model for `milestone-review` and `comment-deep-review`. |
 | `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. |
@@ -110,7 +110,7 @@ or a collaborator.
 
 | Input | Type | Default | Use |
 | --- | --- | --- | --- |
-| `model` | string | `claude-sonnet-5` | Model for the `claude` job. |
+| `model` | string | `claude-sonnet-5-5` | Model for the `claude` job. |
 | `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools`. |
 
 `claude.yml` has no `extra_instructions` input. In `claude-code-action`
