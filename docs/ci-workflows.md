@@ -105,6 +105,10 @@ does not skip. A PR that changes the caller file itself skips one time, as
 in every repo. The secret `CLAUDE_CODE_OAUTH_TOKEN` is set in devkit. A
 fork PR gets no review (see "Fork PRs").
 
+The devkit caller has no `issue_comment` trigger, so devkit has no
+`@claude deep-review` comment. devkit is public, and CodeQL flags a
+comment run that checks out PR code as a critical alert.
+
 ## `claude.yml`
 
 A Claude Code reply to an `@claude` mention, from the repo owner, a member,
