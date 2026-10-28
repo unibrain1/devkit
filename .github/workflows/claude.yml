@@ -31,7 +31,7 @@ on:
         description: "Model for the @claude job"
         required: false
         type: string
-        default: claude-sonnet-5
+        default: claude-sonnet-5-5
       extra_allowed_tools:
         description: "Comma-separated tools to add to --allowedTools"
         required: false
