@@ -28,6 +28,9 @@ One fact on each line, in this form:
 
 Scripts read a value with `flow-project-fact <key>`.
 
+If `.gitignore` ignores `.claude/*`, add `!.claude/project.md` next to the
+other exceptions. Else git does not see the file.
+
 ## Keys
 
 | Key | Need | Use |
@@ -83,8 +86,8 @@ To add a key, add it to this table and to `KNOWN_KEYS` in
 # Project facts for devkit commands
 
 - test: `docker compose exec -u www-data app composer test:full`
-- lint: `composer phpstan`
-- format: `composer cs:fix`
+- test_quick: `composer test:quick`
+- lint: `composer check`
 - verify: `scripts/run-verification-suite.sh`
 - deploy: see `docs/development/DEPLOYMENT.md`
 - standards: `docs/development/CODING_STANDARDS.md`
