@@ -6,7 +6,10 @@
 # PR, so a bad upstream change reaches no repo until a person merges it
 # (design section 4, "Upstream plugins").
 #
-# Only GitHub sources with a "sha" key count. A plugin with a relative path
+# Only pinned GitHub sources count: a "github" source, or a "url" source
+# with an https://github.com/<owner>/<repo> URL, each with a "sha" key. The
+# marketplace uses "url" sources, because Claude Code clones a "github"
+# plugin source over SSH only. A plugin with a relative path
 # (./plugins/flow) is ours and has no pin.
 #
 # Usage: .github/scripts/upstream-sync.sh [marketplace.json] [sources.md]
@@ -33,8 +36,12 @@ for f in "$marketplace" "$sources"; do
 done
 
 pins="$(jq -r '.plugins[]
-    | select((.source | type) == "object" and .source.source == "github" and (.source.sha // "") != "")
-    | [.name, .source.repo, .source.sha] | @tsv' "$marketplace")"
+    | select((.source | type) == "object" and (.source.sha // "") != "")
+    | (if .source.source == "github" then .source.repo
+       elif .source.source == "url" and (.source.url | test("^https://github\\.com/[^/]+/[^/]+$"))
+       then (.source.url | sub("^https://github\\.com/"; "") | sub("\\.git$"; ""))
+       else empty end) as $repo
+    | [.name, $repo, .source.sha] | @tsv' "$marketplace")"
 
 if [ -z "$pins" ]; then
     echo "upstream-sync: no pinned upstream plugin in $marketplace." >&2

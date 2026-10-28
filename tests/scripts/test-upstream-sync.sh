@@ -45,11 +45,17 @@ printf '%s' "$json" | jq -r "$filter"
 STUB
 chmod +x "$STUBDIR/gh"
 
-# fixtures <dir>: writes a marketplace with one local and one pinned plugin,
-# and a sources.md with the pin row and one unrelated row.
+# fixtures <dir> [github|url]: writes a marketplace with one local and one
+# pinned plugin, and a sources.md with the pin row and one unrelated row.
+# The pin uses a "github" source (default) or an HTTPS "url" source.
 fixtures() {
-    local dir="$1"
+    local dir="$1" kind="${2:-github}" src
     mkdir -p "$dir"
+    if [ "$kind" = "url" ]; then
+        src='"source": "url", "url": "https://github.com/danyuchn/asd-ste100-skill.git"'
+    else
+        src='"source": "github", "repo": "danyuchn/asd-ste100-skill"'
+    fi
     cat > "$dir/marketplace.json" <<EOF
 {
   "name": "devkit",
@@ -61,8 +67,7 @@ fixtures() {
     {
       "name": "asd-ste100",
       "source": {
-        "source": "github",
-        "repo": "danyuchn/asd-ste100-skill",
+        $src,
         "sha": "$OLD"
       }
     }
@@ -148,5 +153,28 @@ fi
 # 6. Missing file: exit 1.
 PATH="$STUBDIR:$PATH" FAKE_HEAD=$NEW "$SCRIPT" "$TMPROOT/none.json" "$TMPROOT/none.md" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 1 ]; then pass "missing file: exit 1"; else fail "missing file" "exit: $rc (want 1)"; fi
+
+# 7. Moved pin in a GitHub "url" source: same output, SHA and URL kept right.
+d="$TMPROOT/urlmoved"; fixtures "$d" url
+out="$(FAKE_HEAD=$NEW run "$d")"; rc=$?
+want="$(printf 'asd-ste100\tdanyuchn/asd-ste100-skill\t%s\t%s' "$OLD" "$NEW")"
+if [ "$rc" -eq 0 ] && [ "$out" = "$want" ] \
+    && [ "$(jq -r '.plugins[1].source.sha' "$d/marketplace.json")" = "$NEW" ] \
+    && [ "$(jq -r '.plugins[1].source.url' "$d/marketplace.json")" = "https://github.com/danyuchn/asd-ste100-skill.git" ]; then
+    pass "url source: moved pin found, SHA updated, URL kept"
+else
+    fail "url source" "exit: $rc" "stdout: [$out]" "$(cat "$d/marketplace.json")"
+fi
+
+# 8. A "url" source that is not on GitHub: no pin, exit 0, no output.
+d="$TMPROOT/urlother"; mkdir -p "$d"
+printf '{"plugins": [{"name": "x", "source": {"source": "url", "url": "https://gitlab.com/a/b.git", "sha": "%s"}}]}\n' "$OLD" > "$d/marketplace.json"
+: > "$d/sources.md"
+out="$(FAKE_HEAD=$NEW run "$d")"; rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+    pass "non-GitHub url source: skipped"
+else
+    fail "non-GitHub url source" "exit: $rc" "stdout: [$out]"
+fi
 
 harness_report

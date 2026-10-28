@@ -35,9 +35,12 @@ After `v0.1.0`, add the marketplace and turn on the plugins:
 
 ```text
 /plugin marketplace add unibrain1/devkit
-/plugin install flow@devkit
-/plugin install asd-ste100@devkit
+/plugin install flow@devkit --scope project
+/plugin install asd-ste100@devkit --scope project
 ```
+
+Install at project scope. A user-scope install loads `flow` in every repo
+(design section 5).
 
 Each repo also needs a `.claude/project.md`. See
 [docs/project-md.md](docs/project-md.md). Copy
