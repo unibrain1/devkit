@@ -150,6 +150,18 @@ td code { white-space: nowrap; }
 </div>
 
 <div class="callout">
+  <span class="label">Changes from draft 6</span>
+  <p>Draft 7 records the pilot with TeamCroc and Registry (rollout phase 2):</p>
+  <ul>
+    <li>One <code>devkit</code> marketplace entry for each machine. Each launch loads the <code>ref</code> of the project that you open. No <code>devkit-stable</code>. See <a href="#updates">section 7</a>.</li>
+    <li>Install <code>flow</code> at project scope only. See <a href="#project">section 5</a>.</li>
+    <li><code>asd-ste100</code> uses an HTTPS <code>url</code> source. See "Upstream plugins" in <a href="#plugin">section 4</a>.</li>
+    <li>devkit reviews its own PRs, except a PR that changes <code>claude-review.yml</code>. See <a href="#verify">section 11</a>.</li>
+    <li><a href="#verify">Section 11</a> records the pilot results.</li>
+  </ul>
+</div>
+
+<div class="callout">
   <span class="label">Changes from draft 1</span>
   <p>Draft 1 was too heavy for one developer. Draft 2 removes these parts:</p>
   <ul>
@@ -359,6 +371,7 @@ flowchart LR
 <ul>
   <li><strong>No copy.</strong> Nothing can drift, and the attribution and LICENSE stay with upstream. <code>docs/sources.md</code> records the pin.</li>
   <li><strong>Turn it on.</strong> A project turns on <code>asd-ste100@devkit</code> next to <code>flow@devkit</code>. The skill name is <code>asd-ste100:asd-ste100</code>.</li>
+  <li><strong>Source type.</strong> The entry uses a <code>url</code> source with the HTTPS clone URL and the <code>sha</code>, not a <code>github</code> source. Claude Code clones a <code>github</code> plugin source over SSH only, so the install fails on a network that blocks SSH to github.com. <code>upstream-sync.yml</code> reads both source types.</li>
   <li><strong>Stay in sync.</strong> Each week, <code>upstream-sync.yml</code> compares upstream HEAD with the pin. If upstream moved, it opens a PR that changes the SHA and links the upstream diff. You read the diff and merge. A bad upstream change reaches no repo until you merge.</li>
 </ul>
 
@@ -410,6 +423,7 @@ flowchart LR
   },
   "enabledPlugins": { "flow@devkit": true, "asd-ste100@devkit": true }
 }</code></pre>
+<p>Install <code>flow</code> at project scope: <code>claude plugin install flow@devkit --scope project</code>. A user-scope install loads <code>flow</code> in every repo, and a <code>ref</code> change in another project can leave it with no cache. If <code>/plugin</code> shows <code>flow</code> at user scope, uninstall it there.</p>
 <p>A plugin cannot ship a permission allowlist. Each project copies <code>templates/settings.json</code> one time when it migrates, and then owns its copy.</p>
 
 <h2 id="ci">Shared CI</h2>
@@ -487,6 +501,9 @@ jobs:
 
 <h3>When a new version reaches your machine</h3>
 <p>With <code>autoUpdate: true</code>, Claude Code checks for updates after the first message of a session, after a random delay of up to 10 minutes. The running session keeps the old version until <code>/reload-plugins</code> or the next launch. To get the new version at once, run <code>claude plugin marketplace update devkit</code>.</p>
+
+<h3>One machine, two refs</h3>
+<p>Claude Code keeps one <code>devkit</code> entry for each machine, under the name in <code>marketplace.json</code>. When a session starts, it points that entry at the project's <code>ref</code> and loads that version. A session open in another project then shows "plugins changed, run /reload-plugins". With two projects open, run <code>/reload-plugins</code> only in the project that you opened last. A second name such as <code>devkit-stable</code> does not work: Claude Code ignores a settings key that is not the same as the name in <code>marketplace.json</code>, and gives no error.</p>
 
 <h2 id="main-match">The main-match rule</h2>
 <p>In every repo, a Claude workflow on a branch must match the copy on <code>main</code>, or it does not run. This is not a Registry rule. It comes from GitHub and from <code>claude-code-action</code>:</p>
@@ -627,13 +644,13 @@ jobs:
 <h2 id="verify">Verify in the pilot</h2>
 <p>The docs do not answer these questions.</p>
 <ul class="verify">
-  <li><strong>Tag and main on one machine.</strong> Registry pins a tag and TeamCroc uses <code>main</code>. Claude Code may keep one copy of the <code>devkit</code> marketplace per machine. If so, the last project you open sets the version for all. Fallback: register the repo under two names, <code>devkit</code> for <code>main</code> and <code>devkit-stable</code> for tags.</li>
-  <li><strong>Ref change triggers a reload.</strong> Check that a new <code>ref</code> in Registry's settings loads the new tag without a manual <code>marketplace update</code>.</li>
-  <li><strong>Plugin in CI.</strong> Not in v0.1.0. The CI workflows do not load <code>flow</code>. See "<code>flow</code> in CI" in <a href="#later">section 12</a>.</li>
-  <li><strong>Which file the action compares.</strong> Check that <code>claude-code-action</code> compares the caller file in the consumer repo, not the devkit reusable file. If it compares the devkit file, the review behaves differently, and section 8 needs a new design. Checked in devkit-sandbox: <code>github.workflow_ref</code> in the reusable workflow names the caller file.</li>
-  <li><strong>Devkit's own PRs.</strong> Check whether a devkit PR that changes <code>claude-review.yml</code> can review itself through a local <code>./</code> caller. If it cannot, the sandbox repo is the only test path, and a human reviews such PRs.</li>
-  <li><strong><code>--plugin-dir</code> next to the installed plugin.</strong> Check which copy of <code>flow</code> runs when the local copy and <code>flow@devkit</code> are both present.</li>
-  <li><strong>Contributor first run.</strong> Clone Registry as a new user. Accept the trust prompt. Check that <code>/flow:start-issue</code> works.</li>
+  <li><strong>Tag and main on one machine.</strong> Registry pins a tag and TeamCroc uses <code>main</code>. Claude Code may keep one copy of the <code>devkit</code> marketplace per machine. If so, the last project you open sets the version for all. Fallback: register the repo under two names, <code>devkit</code> for <code>main</code> and <code>devkit-stable</code> for tags.<br><em>Result: fail.</em> One entry for each machine. Opening Registry pointed it from <code>main</code> to <code>v0.1.1</code>, and a user-scope <code>flow</code> lost its cache. The fallback does not work: the name comes from <code>marketplace.json</code>, and a session ignores a settings key that does not match it. See "One machine, two refs" in <a href="#updates">section 7</a>.</li>
+  <li><strong>Ref change triggers a reload.</strong> Check that a new <code>ref</code> in Registry's settings loads the new tag without a manual <code>marketplace update</code>.<br><em>Result: pass.</em> A session start points the entry at the new <code>ref</code> and checks it out (<code>v0.1.0</code>, then <code>v0.1.1</code>). A running session shows "plugins changed, run /reload-plugins".</li>
+  <li><strong>Plugin in CI.</strong> Not in v0.1.0. The CI workflows do not load <code>flow</code>. See "<code>flow</code> in CI" in <a href="#later">section 12</a>.<br><em>Result: not applicable in v0.1.x.</em></li>
+  <li><strong>Which file the action compares.</strong> Check that <code>claude-code-action</code> compares the caller file in the consumer repo, not the devkit reusable file. If it compares the devkit file, the review behaves differently, and section 8 needs a new design. Checked in devkit-sandbox: <code>github.workflow_ref</code> in the reusable workflow names the caller file.<br><em>Result: pass.</em> TeamCroc #17 and Registry #2546 edited the caller: the action skipped, and the Gate passed with the guard warning.</li>
+  <li><strong>Devkit's own PRs.</strong> Check whether a devkit PR that changes <code>claude-review.yml</code> can review itself through a local <code>./</code> caller. If it cannot, the sandbox repo is the only test path, and a human reviews such PRs.<br><em>Result: it cannot.</em> The action requires a reusable workflow in the same repo to match the default branch (devkit #27). devkit keeps its local caller (devkit #26), so its other PRs get the review. The Gate warns on both skip cases.</li>
+  <li><strong><code>--plugin-dir</code> next to the installed plugin.</strong> Check which copy of <code>flow</code> runs when the local copy and <code>flow@devkit</code> are both present.<br><em>Result: the local copy runs,</em> with no error in <code>/plugin</code>.</li>
+  <li><strong>Contributor first run.</strong> Clone Registry as a new user. Accept the trust prompt. Check that <code>/flow:start-issue</code> works.<br><em>Result: <code>flow</code> pass, <code>asd-ste100</code> fail.</em> <code>/flow:start-issue</code> is listed and <code>/flow:setup --check</code> passes. <code>asd-ste100</code> did not install: its <code>github</code> source cloned over SSH, and SSH to github.com timed out. An HTTPS <code>url</code> source installs. See "Upstream plugins" in <a href="#plugin">section 4</a>.</li>
 </ul>
 
 <h2 id="later">Not in v1</h2>
@@ -713,7 +730,7 @@ skip this step. Do not stop the command.</code></pre>
   },
   "enabledPlugins": { "brain@devkit": true }
 }</code></pre>
-<p>Registry registers the same marketplace name at project scope, on a tag. This is the same risk as the first check in <a href="#verify">section 11</a>. If that check fails, use the <code>devkit-stable</code> fallback for Registry.</p>
+<p>Registry registers the same marketplace name at project scope, on a tag. This is the same risk as the first check in <a href="#verify">section 11</a>. The check failed, and <code>devkit-stable</code> does not work. "One machine, two refs" in <a href="#updates">section 7</a> gives the rule. <code>brain@devkit</code> at user scope has the same cache risk as a user-scope <code>flow</code>. Test it in phase 4.</p>
 <p><code>~/.claude/CLAUDE.md</code>, new section:</p>
 <pre><code>## Second brain
 

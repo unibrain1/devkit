@@ -99,10 +99,15 @@ only at a milestone boundary (design section 8).
 
 devkit has its own `.github/workflows/claude-code-review.yml`. It calls
 `./.github/workflows/claude-review.yml`, the copy in the same commit, not
-`@main`. So a PR that changes `claude-review.yml` gets a review from its
-own changed copy. The caller file stays the same as `main`, so the action
-does not skip. A PR that changes the caller file itself skips one time, as
-in every repo. The secret `CLAUDE_CODE_OAUTH_TOKEN` is set in devkit. A
+`@main`. Each devkit PR gets the review. Two kinds of PR skip it:
+
+- A PR that changes the caller file, as in every repo.
+- A PR that changes `claude-review.yml`. `claude-code-action` requires a
+  reusable workflow in the same repo to match the default branch
+  (devkit #27). So devkit cannot review a change to its own review. Test
+  such a change in `unibrain1/devkit-sandbox`, and a person reviews it.
+
+In both cases the Gate passes with the self-referential guard warning. The secret `CLAUDE_CODE_OAUTH_TOKEN` is set in devkit. A
 fork PR gets no review (see "Fork PRs").
 
 The devkit caller has no `issue_comment` trigger, so devkit has no

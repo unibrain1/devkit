@@ -631,18 +631,25 @@ jobs:
             echo "::warning::Could not parse a workflow path from github.workflow_ref ('${WF_REF}'). Skipping the self-referential guard."
           fi
 
+          # The action also refuses when a reusable workflow that the caller
+          # calls from its own repo (uses: ./...) differs from the default
+          # branch. Only devkit calls this file that way (devkit #27), so
+          # this file's own path is a second candidate.
           if [ -n "$WF_PATH" ] && [ -n "$DEFAULT_BRANCH" ]; then
-            # Fail closed: a lookup that errors gives an empty string, and
-            # an empty string on either side disqualifies the warning path.
-            # Only a real, successfully-fetched mismatch counts.
-            MAIN_BLOB=$(gh api "repos/${REPO}/contents/${WF_PATH}?ref=${DEFAULT_BRANCH}" --jq .sha 2>/dev/null || true)
-            HEAD_BLOB=$(gh api "repos/${REPO}/contents/${WF_PATH}?ref=${HEAD_SHA}" --jq .sha 2>/dev/null || true)
-            if [ -z "$EXECUTION_FILE" ] && [ -n "$HEAD_SHA" ] \
-               && [ -n "$MAIN_BLOB" ] && [ -n "$HEAD_BLOB" ] \
-               && [ "$MAIN_BLOB" != "$HEAD_BLOB" ]; then
-              echo "::warning::No review posted — the action produced no execution file, and ${WF_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy (self-referential guard). This PR must be reviewed by a person; the workflow change takes effect once merged."
-              exit 0
-            fi
+            for P in "$WF_PATH" .github/workflows/claude-review.yml; do
+              # Fail closed: a lookup that errors gives an empty string, and
+              # an empty string on either side disqualifies the warning path.
+              # Only a real, successfully-fetched mismatch counts. In a
+              # caller repo with no copy of this file, both lookups fail.
+              MAIN_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${DEFAULT_BRANCH}" --jq .sha 2>/dev/null || true)
+              HEAD_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${HEAD_SHA}" --jq .sha 2>/dev/null || true)
+              if [ -z "$EXECUTION_FILE" ] && [ -n "$HEAD_SHA" ] \
+                 && [ -n "$MAIN_BLOB" ] && [ -n "$HEAD_BLOB" ] \
+                 && [ "$MAIN_BLOB" != "$HEAD_BLOB" ]; then
+                echo "::warning::No review posted — the action produced no execution file, and ${P} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy (self-referential guard). This PR must be reviewed by a person; the workflow change takes effect once merged."
+                exit 0
+              fi
+            done
           fi
           echo "::error::No review verdict. The review did not run, or it returned no valid structured output. Investigate before merging."
           exit 1

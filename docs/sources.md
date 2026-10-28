@@ -29,7 +29,7 @@ in Registry and MyGunLog. Other work in those repos continues. See
 
 | Item | Source | License | How devkit uses it |
 | --- | --- | --- | --- |
-| `asd-ste100` skill | [danyuchn/asd-ste100-skill](https://github.com/danyuchn/asd-ste100-skill) at [`8da6b63`](https://github.com/danyuchn/asd-ste100-skill/commit/8da6b6340aa22faf46fd07db8efbdea010cd38d9) (2026-10-26). | MIT, © 2026 Dustin Yuchen Teng | Listed in `.claude-plugin/marketplace.json` with upstream as the source, pinned to this SHA. No copy in devkit. `upstream-sync.yml` opens a PR when upstream moves. |
+| `asd-ste100` skill | [danyuchn/asd-ste100-skill](https://github.com/danyuchn/asd-ste100-skill) at [`8da6b63`](https://github.com/danyuchn/asd-ste100-skill/commit/8da6b6340aa22faf46fd07db8efbdea010cd38d9) (2026-10-26). | MIT, © 2026 Dustin Yuchen Teng | Listed in `.claude-plugin/marketplace.json` with upstream as an HTTPS `url` source, pinned to this SHA. A `github` source clones over SSH only (design section 4). No copy in devkit. `upstream-sync.yml` opens a PR when upstream moves. |
 
 Short parts of two flow agents are adapted from MIT-licensed projects. Each
 agent file names its source next to the adapted text. They came to devkit
