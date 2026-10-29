@@ -93,6 +93,9 @@ name: Claude Code Review
 # allowedTools for each review job has no package manager or linter. A
 # project's own lint and test suite already catches what they would catch.
 # extra_allowed_tools adds project-specific tools when a project needs them.
+# allowedTools has no git command (issue #29). git log, git show and git
+# diff can write a file with --output, and no deny rule blocks every
+# quoted spelling of that flag.
 
 on:
   workflow_call:
@@ -268,9 +271,11 @@ jobs:
           # @claude comment trigger) and stops the prompt from running
           # automatically. Omitting it lets the action detect agent mode
           # from the prompt input.
+          # --allowedTools has no git prefix (issue #29). The reason is in
+          # docs/ci-workflows.md, "No git read commands for Claude".
           claude_args: >-
             --allowedTools
-            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --model ${{ inputs.review_model }}
             --effort ${{ inputs.review_effort }}
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary_markdown","findings"],"properties":{"summary_markdown":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","location","title","detail"],"properties":{"severity":{"type":"string","enum":["blocking","important","note","suggestion"]},"location":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}}}}'
@@ -724,9 +729,11 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Do NOT set track_progress — see pr-to-milestone-review above.
+          # --allowedTools has no git prefix (issue #29). The reason is in
+          # docs/ci-workflows.md, "No git read commands for Claude".
           claude_args: >-
             --allowedTools
-            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --model ${{ inputs.milestone_model }}
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary_markdown","findings"],"properties":{"summary_markdown":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","location","title","detail"],"properties":{"severity":{"type":"string","enum":["blocking","important","note","suggestion"]},"location":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}}}}'
           prompt: |
@@ -1205,9 +1212,11 @@ jobs:
         uses: anthropics/claude-code-action@16f9f71ab9c490faf367f94dd294897edc25be33 # v1.0.261
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # --allowedTools has no git prefix (issue #29). The reason is in
+          # docs/ci-workflows.md, "No git read commands for Claude".
           claude_args: >-
             --allowedTools
-            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git diff --name-only:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --model ${{ inputs.milestone_model }}
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary_markdown","findings"],"properties":{"summary_markdown":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","location","title","detail"],"properties":{"severity":{"type":"string","enum":["blocking","important","note","suggestion"]},"location":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}}}}'
           prompt: |
