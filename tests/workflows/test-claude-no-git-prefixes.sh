@@ -102,6 +102,17 @@ else
     fail "Bash(git:*) in --allowedTools fails the check"
 fi
 
+# A git rule in the last of 3 steps must fail the check at that step's
+# line. claude.yml has only 1 step, so this case tests the step boundary.
+last="$(grep -n '"mcp__github_inline_comment' "$WORKFLOW_DIR/claude-review.yml" | tail -1 | cut -d: -f1)"
+awk -v n="$last" 'NR == n { sub(/Read,/, "Bash(git show:*),Read,") } { print }' \
+    "$WORKFLOW_DIR/claude-review.yml" > "$TMPROOT/last-step.yml"
+if bad_steps "$TMPROOT/last-step.yml" | grep -q ":$last git rule"; then
+    pass "a git rule in the last step fails the check at line $last"
+else
+    fail "a git rule in the last step fails the check at line $last"
+fi
+
 # A git rule outside claude_args (here, a comment above it) must
 # not fail the check.
 awk '/^ *claude_args:/ { print "          # Bash(git log:*) is not allowed." } { print }' \
