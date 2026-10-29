@@ -192,7 +192,9 @@ example `Post buffered inline comments`) hold a GitHub token.
 
 A deny rule does not close this path. In the issue #29 probe, the permission
 matcher read the command text before the shell removed the quotes. So
-`git log --'output'=<file>` passed a `Bash(git * --out*)` rule. The review
+`git log --'output'=<file>` passed a `Bash(git * --out*)` rule. The
+[probe result](https://github.com/unibrain1/devkit/issues/29#issuecomment-6504295158)
+is in issue #29, with Claude Code 2.1.312 and git 2.56.0. The review
 prompts use `gh pr diff` and `gh pr view`, and Claude reads full files with
 `Read`, `Grep`, and `Glob`.
 
