@@ -23,24 +23,27 @@ WORKFLOW_DIR="${WORKFLOW_DIR:-$REAL_REPO/.github/workflows}"
 
 # bad_steps <file>
 # Prints "<file>:<line> <reason>" for each claude-code-action step that has
-# a git rule in its claude_args block, or no claude_args block. A git rule
-# is "Bash(git" and then a space, ":", "*" or ")". The claude_args block
-# ends at the next line with the same or a lower indent. A step ends at the
-# next line that starts a step ("- ") at the same or a lower indent. A git
-# rule outside claude_args (a comment, a run: script) does not count.
+# a git rule or an any-command Bash rule in its claude_args block, or no
+# claude_args block. A git rule is "Bash(git" and then a space, "-", ":",
+# "*" or ")". Spaces after "(" count too. An any-command rule is "Bash(*"
+# or a bare "Bash" entry, because each one also allows git. The claude_args
+# block ends at the next line with the same or a lower indent. A step ends
+# at the next line that starts a step ("- ") at the same or a lower indent.
+# A rule outside claude_args (a comment, a run: script) does not count.
 bad_steps() {
     awk -v file="$1" '
         function indent(s) { match(s, /^ */); return RLENGTH }
         function close_step() {
             if (in_step && !has_args) print file ":" start " no claude_args"
             if (in_step && git_line) print file ":" git_line " git rule in claude_args"
+            if (in_step && any_line) print file ":" any_line " any-command Bash rule in claude_args"
             in_step = 0; in_args = 0
         }
         in_step && /^ *- / && indent($0) <= step_indent { close_step() }
         in_args && /[^ ]/ && indent($0) <= args_indent { in_args = 0 }
         /uses: anthropics\/claude-code-action@/ {
             close_step()
-            in_step = 1; has_args = 0; git_line = 0; start = NR
+            in_step = 1; has_args = 0; git_line = 0; any_line = 0; start = NR
             # "- uses:" starts the step itself. "uses:" under "- name:" is
             # 2 columns deeper than the "- ".
             step_indent = /^ *- / ? indent($0) : indent($0) - 2
@@ -51,7 +54,8 @@ bad_steps() {
         in_step && /^ *claude_args:/ {
             in_args = 1; has_args = 1; args_indent = indent($0)
         }
-        in_args && /Bash\(git[ :*)]/ && !git_line { git_line = NR }
+        in_args && /Bash\( *git[- :*)]/ && !git_line { git_line = NR }
+        in_args && (/Bash\( *\*/ || /(^|[",'"'"' ])Bash([",'"'"' ]|$)/) && !any_line { any_line = NR }
         END { close_step() }
     ' "$1"
 }
@@ -102,6 +106,30 @@ if [ -n "$(bad_steps "$TMPROOT/git-any.yml")" ]; then
 else
     fail "Bash(git:*) in --allowedTools fails the check"
 fi
+
+# Other spellings of a git rule must fail the check: a "-" after "git"
+# (git-lfs) and a space after "(".
+for rule in 'Bash(git-lfs ls-files:*)' 'Bash( git log:*)'; do
+    sed "s/Bash(gh pr diff:\\*)/Bash(gh pr diff:*),$rule/" \
+        "$WORKFLOW_DIR/claude.yml" > "$TMPROOT/spelling.yml"
+    if bad_steps "$TMPROOT/spelling.yml" | grep -q 'git rule'; then
+        pass "$rule in --allowedTools fails the check"
+    else
+        fail "$rule in --allowedTools fails the check"
+    fi
+done
+
+# A rule that allows any command also allows git, so "Bash(*)" and a bare
+# "Bash" entry must fail the check.
+for rule in 'Bash(*)' 'Bash'; do
+    sed "s/Bash(gh pr diff:\\*)/Bash(gh pr diff:*),$rule/" \
+        "$WORKFLOW_DIR/claude.yml" > "$TMPROOT/any.yml"
+    if bad_steps "$TMPROOT/any.yml" | grep -q 'any-command Bash rule'; then
+        pass "$rule in --allowedTools fails the check"
+    else
+        fail "$rule in --allowedTools fails the check"
+    fi
+done
 
 # A git rule in the last of 3 steps must fail the check at that step's
 # line. claude.yml has only 1 step, so this case tests the step boundary.

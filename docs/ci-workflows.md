@@ -208,7 +208,9 @@ Do not add a git rule in `extra_allowed_tools`. It brings the write path
 back. The workflow does not check this input.
 `tests/workflows/test-claude-no-git-prefixes.sh` checks only the
 `claude_args` text in the workflow files. It fails on a rule that starts
-with `Bash(git` and then has a space, `:`, `*`, or `)`.
+with `Bash(git` and then has a space, `-`, `:`, `*`, or `)`. It also fails
+on `Bash( git` with spaces after the `(`. A rule that allows any command,
+`Bash(*` or a bare `Bash` entry, also allows git, so it fails the test too.
 
 ## `secrets-scan.yml`
 
