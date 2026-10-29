@@ -46,11 +46,12 @@ bad_steps() {
             step_indent = /^ *- / ? indent($0) : indent($0) - 2
             next
         }
-        in_args && /Bash\(git[ :*)]/ && !git_line { git_line = NR }
+        # This rule comes first, so the git check below also reads the
+        # claude_args: line itself.
         in_step && /^ *claude_args:/ {
             in_args = 1; has_args = 1; args_indent = indent($0)
-            if ($0 ~ /Bash\(git[ :*)]/) git_line = NR
         }
+        in_args && /Bash\(git[ :*)]/ && !git_line { git_line = NR }
         END { close_step() }
     ' "$1"
 }
