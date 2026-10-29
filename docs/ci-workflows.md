@@ -185,8 +185,10 @@ The `--allowedTools` value in the `claude_args` of each `claude-code-action`
 step in `claude-review.yml` and `claude.yml` has no git rule (issue #29). A
 prefix rule such as `Bash(git log:*)` also allows `--output=<file>`, and git
 then writes that file. Text injected into a PR could make Claude write
-`$GITHUB_ENV`. The runner loads that file into each later step in the job,
-and those steps hold `GH_TOKEN`.
+`$GITHUB_ENV`. The runner loads that file into each later step in the job.
+In the review jobs, the `Post review` and `Gate` steps hold `GH_TOKEN`. In
+both files, the later steps inside `claude-code-action` v1.0.261 (for
+example `Post buffered inline comments`) hold a GitHub token.
 
 A deny rule does not close this path. In the issue #29 probe, the permission
 matcher read the command text before the shell removed the quotes. So
