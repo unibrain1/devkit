@@ -32,7 +32,7 @@ A Claude Code review on a pull request, and on demand from a comment.
 | `review_model` | string | `claude-sonnet-5-5` | Model for `pr-to-milestone-review`. |
 | `review_effort` | string | `medium` | Effort for `pr-to-milestone-review`. |
 | `milestone_model` | string | `claude-fable-5-1` | Model for `milestone-review` and `comment-deep-review`. |
-| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. |
+| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. Do not add a git rule (see "No git read commands for Claude"). |
 | `extra_instructions` | string | `""` | Text added to each prompt, under the heading "Project instructions". |
 
 ### Secret
@@ -130,7 +130,7 @@ or a collaborator.
 | Input | Type | Default | Use |
 | --- | --- | --- | --- |
 | `model` | string | `claude-sonnet-5-5` | Model for the `claude` job. |
-| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools`. |
+| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools`. Do not add a git rule (see "No git read commands for Claude"). |
 
 `claude.yml` has no `extra_instructions` input. In `claude-code-action`
 v1.0.261, tag mode takes no added text. Put project text for `@claude` in
@@ -178,6 +178,39 @@ few other startup files from the base branch before Claude starts. It does
 not restore `package.json` or other repo scripts. A tool in
 `extra_allowed_tools` that runs repo code would then run the fork's code
 with the secrets. An `@claude` mention on an issue is not affected.
+
+## No git read commands for Claude
+
+The `--allowedTools` value in the `claude_args` of each `claude-code-action`
+step in `claude-review.yml` and `claude.yml` has no git rule (issue #29). A
+prefix rule such as `Bash(git log:*)` also allows `--output=<file>`, and git
+then writes that file. Text injected into a PR could make Claude write
+`$GITHUB_ENV`. The runner loads that file into each later step in the job.
+In the review jobs, the `Post review` and `Gate` steps hold `GH_TOKEN`. In
+both files, the later steps inside `claude-code-action` v1.0.261 (for
+example `Post buffered inline comments`) hold a GitHub token.
+
+A deny rule does not close this path. In the issue #29 probe, the permission
+matcher read the command text before the shell removed the quotes. So
+`git log --'output'=<file>` passed a `Bash(git * --out*)` rule. The
+[probe result](https://github.com/unibrain1/devkit/issues/29#issuecomment-6504295158)
+is in issue #29, with Claude Code 2.1.312 and git 2.56.0. The review
+prompts use `gh pr diff` and `gh pr view`, and Claude reads full files with
+`Read`, `Grep`, and `Glob`.
+
+The `@claude` step in `claude.yml` runs in tag mode. By default, tag mode
+in `claude-code-action` v1.0.261 adds its own rules: `Bash(git add:*)`,
+`Bash(git commit:*)`, `Bash(git rm:*)`, and a `git push` wrapper. None of
+these commands has an `--output` flag. The three review jobs run in agent
+mode, and the action adds no rule there.
+
+Do not add a git rule in `extra_allowed_tools`. It brings the write path
+back. The workflow does not check this input.
+`tests/workflows/test-claude-no-git-prefixes.sh` checks only the
+`claude_args` text in the workflow files. It fails on a rule that starts
+with `Bash(git` and then has a space, `-`, `:`, `*`, or `)`. It also fails
+on `Bash( git` with spaces after the `(`. A rule that allows any command,
+`Bash(*` or a bare `Bash` entry, also allows git, so it fails the test too.
 
 ## `secrets-scan.yml`
 
