@@ -47,6 +47,23 @@ Each repo also needs a `.claude/project.md`. See
 [templates/settings.json](templates/settings.json) to `.claude/settings.json`
 one time. See [docs/settings-template.md](docs/settings-template.md).
 
+## Work on devkit with flow
+
+devkit does not install `flow` from the marketplace. Start each devkit
+session with the working copy:
+
+```sh
+claude --plugin-dir plugins/flow
+```
+
+Then the session runs the flow code on your branch. The one `devkit`
+marketplace entry on the machine keeps the ref that other projects set.
+A `.claude/settings.json` with `ref: main` in devkit would move that
+entry for all projects.
+
+The facts for the flow commands are in
+[.claude/project.md](.claude/project.md).
+
 ## Tests and lint
 
 ```sh

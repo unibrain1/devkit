@@ -8,3 +8,6 @@ node_modules/
 
 # Brain skill zips from .github/scripts/package-skills.sh.
 dist/
+
+# Plan files from the flow commands (the plans key in .claude/project.md).
+docs/plans/
