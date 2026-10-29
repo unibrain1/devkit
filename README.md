@@ -57,8 +57,9 @@ claude --plugin-dir plugins/flow
 ```
 
 Then the session runs the flow code on your branch. The one `devkit`
-marketplace entry on the machine keeps the ref that other projects set. A `.claude/settings.json` with `ref: main` in devkit
-would move that entry for all projects.
+marketplace entry on the machine keeps the ref that other projects set.
+A `.claude/settings.json` with `ref: main` in devkit would move that
+entry for all projects.
 
 The facts for the flow commands are in
 [.claude/project.md](.claude/project.md).
