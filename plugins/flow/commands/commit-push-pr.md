@@ -150,6 +150,9 @@ prose.
      the plan has no such line, write `**Risk flag:** unknown (no plan)`.
      Write it at the start of its own line: `/flow:finish-issue` matches
      `^**Risk flag:**`.
+   - **Red first.** If the plan has a `**Red first:**` line, copy it into
+     the body word for word, at the start of its own line. Otherwise write
+     nothing.
    - **Combine group.** If the plan has a line that starts
      `**Combine group:** combined with`, write
      `**Combine group:** #<this issue>, #A, #B` (every issue in the group),
