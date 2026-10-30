@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the deterministic merge/tag/publish sequence for /release-milestone
-# Steps 6-14 — release-notes cleanup, main sync, PR merge, tag, draft
+# Steps 6-14 — release-notes cleanup, main sync, PR merge, tag, GitHub
 # release, milestone close. Everything here is mechanical (fixed command
 # order, no judgment calls); /release-milestone keeps the human confirmation
 # gate (its own Step 5) before calling this script.
@@ -23,38 +23,62 @@
 #   the head that this script pushed, so a push during the run also fails
 #   the merge instead of landing unreviewed code.
 #
+# Merge method: before Step 6, the script reads the classic branch
+# protection and the rulesets of main. When either requires linear history,
+# Step 8 merges with --squash (one commit on main for each release). Else it
+# merges with --merge. A private repo on the GitHub Free plan has neither
+# source, so it gets --merge. When the script cannot read one of the two
+# sources for another reason, it stops with exit 1. The check runs only
+# while the PR is open.
+#
 # Resume: run the script again with the same arguments after it stops. Each
 # step checks whether an earlier run already did its work, and skips it:
 #   - Step 6 skips when the PR is merged. When the release-notes file is
 #     already removed by a commit on the milestone branch, it pushes the
 #     branch and continues.
 #   - Step 8 skips when the PR is merged.
+#   - Step 8's gh pr merge --delete-branch normally deletes the local
+#     milestone branch. When the branch is still there, Step 10 deletes it
+#     with -D only when its tip is the PR head commit. Else it keeps the
+#     branch and prints why. A failed delete prints a message and does not
+#     stop the run.
 #   - Step 11 skips when the tag exists on the PR's merge commit.
 #   - Step 13 skips when the GitHub release exists.
-#   - Steps 7, 9, 10, 12 and 14 are safe to run again. Step 14 reads the
+#   - Steps 7, 9, 12 and 14 are safe to run again. Step 14 reads the
 #     milestone state back and exits 2 if it is not closed.
 # Step 6 saves the release notes to <plans>/releases/<version>-release-notes.md
-# (a private folder, so it is not committed) before it removes them. Step 13 publishes from that copy. If
-# the copy is missing, Step 13 restores it from the commit before the
-# removal commit.
+# (a private folder, so it is not committed) before it removes them. Step 13
+# creates the release from that copy. If the copy is missing, Step 13 finds
+# the removal commit in the history of the PR head commit, and restores the
+# file from the parent of that commit. This works after a squash merge too.
+# When the head commit is not local, Step 13 first fetches
+# refs/pull/<pr-number>/head.
 #
 # Reads from .claude/project.md:
 #   release_notes  The release notes path. The text {version} in the value is
 #                  replaced with <version>.
 #   plans          The plan folder. Step 6 keeps the notes in <plans>/releases/.
+#   release        Optional. `publish` (the default when the key is absent):
+#                  Step 13 publishes the release and marks it Latest.
+#                  `draft`: Step 13 creates a draft release.
 #
 # Exit codes:
 #   0 = all steps completed (or --dry-run printed the plan)
 #   1 = a check stopped the run before the failing step changed anything
 #       (bad args, deploy remote, closed PR, release notes missing with no
-#       removal commit, stray local commits on main, flow-repo failed).
+#       removal commit, stray local commits on main, flow-repo failed, the
+#       branch protection or rules of main cannot be read).
 #       Fix the cause and run the script again.
 #   2 = a step itself failed (e.g. merge conflict, push rejected, a pull
 #       that is not a fast-forward, tag on the wrong commit, no project.md).
 #       Fix the cause and run the script again. It skips the steps that
 #       already completed. Also: no `release_notes` or no `plans` key in
 #       .claude/project.md. This script cannot release without them, so it
-#       stops before it changes anything.
+#       stops before it changes anything. Also: a `release` value other than
+#       publish or draft. The script stops before it changes anything.
+#       Also: Step 13 finds no saved release notes and no removal commit.
+#       Before Step 6 the same condition gives exit 1. In Step 13 the PR is
+#       already merged, so exit 1 ("nothing changed") does not apply.
 
 # -E: the ERR trap below must also fire for a failure inside run().
 set -Eeuo pipefail
@@ -103,6 +127,27 @@ NOTES_FILE=${FACT_VALUE//\{version\}/${VERSION}}
 require_fact plans
 KEEP_NOTES="${FACT_VALUE%/}/releases/${VERSION}-release-notes.md"
 
+# The optional release key selects publish (the default) or draft. A bad
+# value stops here, before anything changes.
+RELEASE_STATUS=0
+RELEASE_VALUE="$("${SCRIPT_DIR}/flow-project-fact" release)" || RELEASE_STATUS=$?
+if [ "$RELEASE_STATUS" -eq 1 ]; then
+  RELEASE_VALUE="publish"
+  RELEASE_WHY="no release key"
+elif [ "$RELEASE_STATUS" -ne 0 ]; then
+  exit 2
+else
+  RELEASE_WHY="release: ${RELEASE_VALUE}"
+fi
+case "$RELEASE_VALUE" in
+  publish) RELEASE_FLAG="--latest" ;;
+  draft) RELEASE_FLAG="--draft" ;;
+  *)
+    echo "flow-release-milestone: release key is '${RELEASE_VALUE}'. Allowed values: publish, draft." >&2
+    exit 2
+    ;;
+esac
+
 run() {
   if [ "$DRY_RUN" -eq 1 ]; then
     printf '[dry-run] %s\n' "$*"
@@ -113,11 +158,21 @@ run() {
 
 step() { echo "== $* =="; }
 
-# Prints the commit in HEAD's history that removed the release-notes file,
-# or nothing. --full-history: main never had the file, so the default
-# history simplification drops the merged milestone side of the merge.
+# require_sha <value> <what>
+# Exits 2 unless <value> is a full commit SHA. <what> names it in the message.
+require_sha() {
+  if ! printf '%s' "$1" | grep -qE '^[0-9a-f]{40}$'; then
+    echo "Could not read the ${2} (got: '${1}'). Stop and investigate." >&2
+    exit 2
+  fi
+}
+
+# notes_removal_commit <commit>
+# Prints the commit in <commit>'s history that removed the release-notes
+# file, or nothing. --full-history: when <commit> is a merge, the default
+# history simplification can drop the side that removed the file.
 notes_removal_commit() {
-  git log -1 --full-history --format=%H --diff-filter=D HEAD -- "$NOTES_FILE"
+  git log -1 --full-history --format=%H --diff-filter=D "$1" -- "$NOTES_FILE"
 }
 
 PR_STATE="$(gh pr view "$PR_NUMBER" --json state --jq '.state')"
@@ -170,6 +225,70 @@ if [ -n "$REVIEWED_SHA" ] && [ "$PR_STATE" = "OPEN" ]; then
   require_reviewed "$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)" "PR #${PR_NUMBER} head"
 fi
 
+# --- Check the merge method ---
+# GitHub refuses a merge commit when main requires linear history. Classic
+# branch protection or a ruleset can require it, so read both. These reads
+# run before Step 6, so exit 1 still means that nothing changed.
+
+# gh_read <api path> <jq filter>
+# Sets GH_STATUS and GH_OUT. On success GH_OUT is stdout only, so a gh
+# warning on stderr cannot change the value that the caller matches. On
+# failure GH_OUT also holds stderr, because gh puts the message there.
+# The `|| exit $?` inside the substitution keeps the ERR trap quiet: bash
+# 3.2 runs the inherited trap in the subshell even when `||` follows the
+# substitution.
+gh_read() {
+  local err
+  err="$(mktemp)"
+  GH_STATUS=0
+  GH_OUT="$(gh api "$1" --jq "$2" 2>"$err" || exit $?)" || GH_STATUS=$?
+  if [ "$GH_STATUS" -ne 0 ]; then
+    GH_OUT="${GH_OUT}$(cat "$err")"
+  fi
+  rm -f "$err"
+}
+
+# protection_fail <gh output>
+# Exits 1 with the gh output. Nothing changed yet.
+protection_fail() {
+  echo "flow-release-milestone: cannot read the branch protection or rules of main. gh said: ${1}" >&2
+  echo "The classic protection read needs admin read access to the repo. Get that access or fix the cause, then run the script again. Nothing changed." >&2
+  exit 1
+}
+
+# A private repo on the GitHub Free plan has no branch protection and no
+# rulesets. GitHub answers both reads with this text. Such a repo cannot
+# require linear history.
+NO_PROTECTION_PLAN="Upgrade to GitHub Pro"
+
+MERGE_FLAG="--merge"
+if [ "$PR_STATE" = "OPEN" ]; then
+  step "Check the merge method"
+  gh_read "repos/${REPO}/branches/main/protection" '.required_linear_history.enabled // false'
+  case "${GH_STATUS}:${GH_OUT}" in
+    0:true) MERGE_FLAG="--squash" ;;
+    0:false|*"Branch not protected"*|*"${NO_PROTECTION_PLAN}"*) ;;
+    *) protection_fail "$GH_OUT" ;;
+  esac
+  # Classic protection decides only when it requires linear history. Else
+  # check the rulesets.
+  if [ "$MERGE_FLAG" = "--merge" ]; then
+    gh_read "repos/${REPO}/rules/branches/main" '[.[] | select(.type == "required_linear_history")] | length'
+    case "${GH_STATUS}:${GH_OUT}" in
+      0:0|*"${NO_PROTECTION_PLAN}"*) ;;
+      # A count must be digits only. Anything else is not a valid answer.
+      0:|0:*[!0-9]*) protection_fail "$GH_OUT" ;;
+      0:*) MERGE_FLAG="--squash" ;;
+      *) protection_fail "$GH_OUT" ;;
+    esac
+  fi
+  if [ "$MERGE_FLAG" = "--squash" ]; then
+    echo "Merge method: squash (main requires linear history)"
+  else
+    echo "Merge method: merge (main does not require linear history)"
+  fi
+fi
+
 # --- Step 6: save release notes, delete the file, push to the milestone branch ---
 step "Step 6: remove release notes from milestone branch"
 if [ "$PR_STATE" = "MERGED" ]; then
@@ -191,7 +310,7 @@ else
       require_reviewed "$(git rev-parse HEAD)" "Notes removal commit"
     fi
   else
-    REMOVED_IN="$(notes_removal_commit)"
+    REMOVED_IN="$(notes_removal_commit HEAD)"
     if [ -z "$REMOVED_IN" ]; then
       echo "No ${NOTES_FILE} on ${BRANCH}, and no commit on the branch removed it. Stop." >&2
       exit 1
@@ -228,19 +347,45 @@ else
   else
     EXPECTED_HEAD="$(git rev-parse "refs/heads/${BRANCH}")"
   fi
-  run gh pr merge "$PR_NUMBER" --merge --delete-branch --match-head-commit "$EXPECTED_HEAD"
+  run gh pr merge "$PR_NUMBER" "$MERGE_FLAG" --delete-branch --match-head-commit "$EXPECTED_HEAD"
 fi
 
 # --- Step 9: pull the merge commit ---
 step "Step 9: pull merge commit"
 run git pull --ff-only origin main
 
+# --- Read the PR head after the merge ---
+# Steps 10 and 13 need the final head. Before Step 6 pushed the notes
+# removal, the head was a different commit.
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "[dry-run] gh pr view $PR_NUMBER --json headRefOid --jq .headRefOid  # PR_HEAD"
+else
+  PR_HEAD="$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')"
+  require_sha "$PR_HEAD" "head commit of PR #${PR_NUMBER}"
+fi
+
 # --- Step 10: delete local milestone branch, if present ---
+# Step 8's gh pr merge --delete-branch normally deletes the local branch.
+# This step deletes it on a rerun, for example after gh merged the PR but
+# could not delete the local branch. Then gh may also keep the remote
+# branch, and this step does not delete it. git branch -d refuses a
+# squash-merged branch, because main does not contain its commits. The PR
+# is merged at this point, so a local tip that is the PR head commit holds
+# no unmerged work, and -D is safe.
 step "Step 10: delete local milestone branch"
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "[dry-run] git branch -d $BRANCH (ignored if absent)"
+  echo "[dry-run] git branch -D $BRANCH  # only when its tip is PR_HEAD. Ignored if absent."
 else
-  git branch -d "$BRANCH" 2>/dev/null || true
+  LOCAL_TIP="$(git rev-parse -q --verify "refs/heads/${BRANCH}" || true)"
+  if [ -z "$LOCAL_TIP" ]; then
+    echo "No local ${BRANCH} — nothing to delete."
+  elif [ "$LOCAL_TIP" = "$PR_HEAD" ]; then
+    # A failed delete must not stop the release: each rerun would stop here
+    # again, before the tag.
+    git branch -D "$BRANCH" || echo "Could not delete local ${BRANCH}. Delete it by hand."
+  else
+    echo "Kept local ${BRANCH}: its tip ${LOCAL_TIP} is not the PR head ${PR_HEAD}. It may hold work that is not merged. Check it, then delete it by hand."
+  fi
 fi
 
 # --- Step 11: tag the merge commit ---
@@ -253,10 +398,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "[dry-run] git rev-parse ${VERSION}^{commit}  # expect: <MERGE_SHA>"
 else
   MERGE_SHA="$(gh pr view "$PR_NUMBER" --json mergeCommit --jq '.mergeCommit.oid')"
-  if ! printf '%s' "$MERGE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
-    echo "Could not read the merge commit of PR #${PR_NUMBER} (got: '${MERGE_SHA}'). Stop and investigate." >&2
-    exit 2
-  fi
+  require_sha "$MERGE_SHA" "merge commit of PR #${PR_NUMBER}"
   if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
     TAGGED_SHA="$(git rev-parse "${VERSION}^{commit}")"
     if [ "$TAGGED_SHA" != "$MERGE_SHA" ]; then
@@ -279,15 +421,28 @@ fi
 step "Step 12: push tag to origin"
 run git push origin "${VERSION}"
 
-# --- Step 13: draft GitHub release ---
-step "Step 13: create draft GitHub release"
+# --- Step 13: create the GitHub release ---
+if [ "$RELEASE_FLAG" = "--draft" ]; then
+  step "Step 13: create draft GitHub release"
+else
+  step "Step 13: create and publish GitHub release"
+fi
 if [ "$DRY_RUN" -eq 0 ] && gh release view "${VERSION}" --repo "$REPO" >/dev/null 2>&1; then
   echo "Release ${VERSION} already exists — skipping."
 else
   if [ "$DRY_RUN" -eq 0 ] && [ ! -f "$KEEP_NOTES" ]; then
-    REMOVED_IN="$(notes_removal_commit)"
+    # Search the PR head, not main: after a squash merge, main never had
+    # the notes file. One path serves each merge method. A fresh clone or
+    # a deleted branch can leave the head commit absent, so fetch it.
+    if ! git cat-file -e "${PR_HEAD}^{commit}" 2>/dev/null; then
+      if ! git fetch origin "refs/pull/${PR_NUMBER}/head" || ! git cat-file -e "${PR_HEAD}^{commit}" 2>/dev/null; then
+        echo "No saved release notes at ${KEEP_NOTES}, and the PR head ${PR_HEAD} is not local. The fetch of refs/pull/${PR_NUMBER}/head did not get it. Restore ${KEEP_NOTES} by hand: take ${NOTES_FILE} from the parent of the notes removal commit on the PR. Then run the script again." >&2
+        exit 2
+      fi
+    fi
+    REMOVED_IN="$(notes_removal_commit "$PR_HEAD")"
     if [ -z "$REMOVED_IN" ]; then
-      echo "No saved release notes at ${KEEP_NOTES}, and no commit on main removed ${NOTES_FILE}. Stop." >&2
+      echo "No saved release notes at ${KEEP_NOTES}, and no commit in the history of the PR head ${PR_HEAD} removed ${NOTES_FILE}. Stop." >&2
       exit 2
     fi
     mkdir -p "$(dirname "$KEEP_NOTES")"
@@ -307,7 +462,7 @@ else
     --title "${REPO#*/} ${VERSION}" \
     --notes-file "$KEEP_NOTES" \
     --verify-tag \
-    --draft
+    "$RELEASE_FLAG"
 fi
 run rm -f "$KEEP_NOTES"
 
@@ -325,4 +480,8 @@ if [ "$DRY_RUN" -eq 0 ]; then
 fi
 
 echo "Done. Tag ${VERSION} pushed, PR #${PR_NUMBER} merged, milestone #${MILESTONE_NUMBER} closed."
-echo "Release is a DRAFT — publish it when you deploy."
+if [ "$RELEASE_FLAG" = "--draft" ]; then
+  echo "Release ${VERSION} is a DRAFT (${RELEASE_WHY}). Publish it when you deploy."
+else
+  echo "Release ${VERSION} is published and marked Latest (${RELEASE_WHY})."
+fi
