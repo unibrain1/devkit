@@ -28,8 +28,16 @@ the milestone".
   already ran.
 - **Push only to `origin`.** `flow-release-milestone` pushes only to
   `origin`. This command never pushes to another remote.
-- The release stays a **draft** until the user deploys — publishing it is a
-  separate manual step (see Step 7).
+- The `release` key sets the release type:
+  - `publish`, or no key: the script publishes the release and marks it
+    Latest.
+  - `draft`: the script makes a draft release. The deploy procedure
+    publishes it (see Step 7).
+  - Any other value: the script stops with exit 2 before the merge or the
+    tag. The message names `publish` and `draft`.
+- The merge method depends on `main`. If `main` requires linear history,
+  the script squash-merges. Else it makes a merge commit. If the script
+  cannot read the branch protection or the rulesets, it stops (Step 6).
 - This command deletes the `milestone/*` branch after the merge (Step 6). A
   branch that stays keeps the milestone count up (the `flow:workflow` skill,
   `references/plan.md`, "Milestone limit").
@@ -39,7 +47,7 @@ the milestone".
 1. Run `flow-project-check`. If it fails, show its output. Tell the user to
    fix `.claude/project.md` or run `/flow:setup`. Stop.
 2. Read each fact that this command needs with `flow-project-fact <key>`:
-   `plans`, `release_notes`, `release_checks`, `deploy`.
+   `plans`, `release_notes`, `release_checks`, `release`, `deploy`.
 3. If `plans` or `release_notes` is absent, stop. Tell the user:
    "`flow-release-milestone` needs the `plans` and `release_notes` keys. Add
    them to `.claude/project.md`."
@@ -48,6 +56,12 @@ the milestone".
 5. If `release_checks` is absent, add "release_checks: no key in
    .claude/project.md" to the skipped list. If `deploy` is absent, ask the
    user for the deploy procedure when Step 7 needs it.
+6. Keep the `release` case. Exit 1 from `flow-project-fact release` means
+   the key is absent.
+   - Absent or `publish`: the case is **publish**.
+   - `draft`: the case is **draft**.
+   - Any other value: stop. Tell the user: "The `release` key must be
+     `publish` or `draft`. Fix `.claude/project.md`."
 
 ## Workflow
 
@@ -107,7 +121,7 @@ checks in Steps 2–4 cannot run. The script checked them before the merge.
    nothing). If it is not, stop and ask the user to commit or stash.
 2. Skip Steps 2, 3 and 4.
 3. In Step 5, show the PR, the version, and the steps that remain: tag the
-   merge commit, push the tag, create the draft release, close the
+   merge commit, push the tag, create the release, close the
    milestone. Ask the user to confirm.
 4. Go to Step 6. The script skips the steps that are already done.
 
@@ -276,9 +290,16 @@ Display:
 - Version that will be tagged
 - Release notes file path (`NOTES_PATH`)
 - Remind: "This will merge the PR, delete the `milestone/<version>` branch,
-  create a tag, push to origin, and publish a GitHub release (draft).
-  Deployment is a separate manual step: the project's deploy procedure
-  (`deploy` key)."
+  create a tag, push to origin, and create a GitHub release." Then add the
+  merge method and the release case:
+  - Merge method: squash if `main` requires linear history. Else a merge
+    commit. The script chooses the method in Step 6 and prints it.
+  - Release, **publish** case: "The release is published and marked
+    Latest."
+  - Release, **draft** case: "The release is a draft. The project's deploy
+    procedure (`deploy` key) publishes it."
+  - Deployment is a separate manual step: the project's deploy procedure
+    (`deploy` key).
 
 **Ask the user to confirm before proceeding. This is the point of no
 return** — everything after this step is `flow-release-milestone` running
@@ -296,24 +317,71 @@ If the script exits 1 with "not the reviewed commit", a commit landed on the
 milestone branch after the review. Stop. Nothing changed. End with plain
 text: run `/clear`, then type `/flow:review-milestone <version>`.
 
-This runs, in order: refuse to continue if local `main` carries commits
-that `origin/main` does not have; save the release notes to
-`<plans>/releases/<version>-release-notes.md`, remove the release-notes
-file as a commit on the milestone branch and push it (so it lands inside the
-PR, never as a bare push to `main` after merge); sync local `main` to
-`origin/main`; merge the PR (regular merge, `--delete-branch`); pull the
-merge commit; delete the local milestone branch; tag the PR's merge commit
-(from `gh pr view --json mergeCommit`, not `HEAD`) `<version>` and verify
-the tag points at it; push the tag; create the GitHub release as a
-**draft** with `--verify-tag` from the saved notes; close the GitHub
-milestone.
+The script does these steps in this order:
+
+1. It stops if local `main` has commits that `origin/main` does not have.
+2. It chooses the merge method (below).
+3. It saves the release notes to
+   `<plans>/releases/<version>-release-notes.md`. It removes the
+   release-notes file in a commit on the milestone branch and pushes it.
+   The removal is then in the PR, never a bare push to `main` after the
+   merge.
+4. It syncs local `main` to `origin/main`.
+5. It merges the PR with `--delete-branch`, and pulls the merge commit.
+6. It deletes the local milestone branch.
+7. It tags the PR's merge commit (from `gh pr view --json mergeCommit`, not
+   `HEAD`) with `<version>`, and checks that the tag points at it.
+8. It pushes the tag.
+9. It creates the GitHub release from the saved notes, with `--verify-tag`.
+10. It closes the GitHub milestone.
+
+**Merge method.** Before it changes anything, the script reads the classic
+branch protection and the rulesets for `main`.
+
+- `main` requires linear history: the script runs `gh pr merge --squash`.
+  Then `main` has one commit for each release. The tag and the commit are
+  one-to-one, and the history of `main` reads as a list of releases. The
+  per-issue commits stay on the milestone PR.
+- `main` does not require linear history: the script runs
+  `gh pr merge --merge`, a regular merge.
+- The repo has no branch protection on its plan (a private repo on GitHub
+  Free): GitHub answers "Upgrade to GitHub Pro". Such a repo cannot require
+  linear history, so the script runs `gh pr merge --merge`.
+- The script cannot read the branch protection or the rulesets for another
+  reason: it exits 1 and changes nothing. The classic protection read needs
+  admin read access to the repo. Do not guess a merge method.
+
+`--match-head-commit` and the reviewed-commit checks apply to each method.
+
+After the merge (item 6 above), the script deletes the local milestone
+branch with `git branch -D` when its tip is the PR head commit. A squash
+merge needs `-D`, because `git branch -d` refuses a branch that is not in
+`main`. If the tip is another commit, the script keeps the branch and says
+why. If the delete fails, the script says so and continues.
+
+If the saved notes copy is missing (item 9 above), the script finds the
+notes removal commit in the history of the PR head commit. It restores the
+notes from the parent of that commit. If the PR head commit is not local,
+the script fetches `refs/pull/<number>/head` from `origin`.
+
+**Release type.** The script reads the `release` key itself. The Step 0
+case sets only the text of Steps 5 and 7.
+
+- **publish** (key absent, or `publish`): the script creates the release
+  with `--latest`. The release is published and marked Latest.
+- **draft** (`draft`): the script creates a draft release with `--draft`.
+- Any other value: the script exits 2 before the merge and the tag. The
+  message names `publish` and `draft`.
+
+The last message of the script says which case applied.
 
 Exit 0 means every step above completed. Exit 1 means a check stopped the
 run before it changed anything (bad args, closed PR, missing release notes,
-stray local commits on `main` — the script's own output says which). The
-script checks local `main` before it pushes the notes removal. Every pull is
-`--ff-only`. Exit 2 means a step failed (merge conflict, push rejected, tag
-on the wrong commit), or the `release_notes` or `plans` key is absent.
+stray local commits on `main`, unreadable branch protection or rulesets —
+the script's own output says which). The script checks local `main`
+before it pushes the notes removal. Every pull is `--ff-only`. Exit 2 means a step failed (merge
+conflict, push rejected, tag on the wrong commit), the `release_notes` or
+`plans` key is absent, or the `release` value is not allowed.
 
 If the script exits non-zero, report its exact output and stop. Do not
 do the remaining steps by hand. Find the cause from the output, and ask the
@@ -323,8 +391,8 @@ command again. If the session ended, the user types
 The script can resume: it skips each step whose work is already done (notes
 already removed, PR already merged, tag already on the merge commit, release
 already created). If the saved notes copy is missing, it restores the notes
-from the commit before the removal. The confirmation in Step 5 covers the
-resumed run.
+from the history of the PR head commit. The confirmation in Step 5 covers
+the resumed run.
 
 After exit 0, make sure the milestone branch is gone from `origin`:
 
@@ -347,22 +415,31 @@ Then run `flow-milestone-count`. Show the count of milestones in progress.
 
 ```text
 Release <version> created
-- GitHub Release (draft): <URL>
+- GitHub Release (<published, Latest | draft>): <URL>
+- Merge method: <squash | merge commit>
 - Tag: <version> → <merge-commit>
 - Milestone: closed
 - Branch: milestone/<version> deleted
 ```
 
+The merge method comes from the script's `Merge method:` line. A resumed
+run after the merge prints no such line. Then write `not checked (resumed
+after the merge)`.
+
 Tell the user that the project's deploy procedure (`deploy` key) deploys the
 tag, never the current `main`. If the `deploy` key is present, name its
 value. Otherwise, ask the user for the deploy procedure. Do not run it here.
 
-**Publishing the release** (making it public) happens later, at deploy time,
-not by this command. After the user deploys the tag, they run:
+**Publishing the release** applies only to the **draft** case (`release:
+draft`). This command does not publish it. After the user deploys the tag,
+they run:
 
 ```bash
 gh release edit <version> --draft=false --repo $REPO
 ```
+
+In the **publish** case, the release is already public. Do not tell the
+user to publish it.
 
 Skipped steps, as this list:
 
