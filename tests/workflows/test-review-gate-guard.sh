@@ -1,16 +1,17 @@
 #!/bin/bash
 #
-# Tests the self-referential guard of claude-review.yml (issues #31 and #32). The
-# review action refuses to run when a workflow file at the PR head differs
+# Tests the self-referential guard of claude-review.yml (issues #31 and #32).
+# The review action refuses to run when a workflow file at the PR head differs
 # from the copy on the default branch. Then the action writes no execution
-# file, and the old messages said only "no verdict". A person could not tell
-# a real failure from a stale base branch or from a branch that edited the
-# workflow on purpose. Issue #32 adds the stale case: only the default branch
-# changed the file.
+# file, and the run has no review. The cause can be a real failure, a branch
+# that changed the workflow on purpose, or a base branch with an old copy.
+# Each cause needs a different message and a different Gate result.
 #
-# The step "Check workflow match" now finds the cause. The steps "Post review"
-# and "Gate" read its result and give the matching message. The test checks
-# three things for each of the 3 review jobs:
+# The step "Check workflow match" finds the cause. It compares blobs at the
+# default branch, the head, and the merge base. A lookup that fails counts as
+# no answer, so the guard fails closed. The steps "Post review" and "Gate"
+# read its result and give the matching message. The test checks three things
+# for each of the 3 review jobs:
 #   - structure: the steps are in the right order, and the Gate calls no gh
 #   - match: the step gives edited, stale, or none for each blob case
 #   - post and gate: each result gives the right comment and exit code. Post
@@ -39,10 +40,14 @@ TMPROOT="$(mktemp -d)"
 BIN="$TMPROOT/bin"
 gh_stub_install "$BIN"
 mkdir -p "$TMPROOT/home" "$TMPROOT/scripts"
+printf '[]\n' > "$TMPROOT/execution.json"
 
 JOBS="pr-to-milestone-review milestone-review comment-deep-review"
 MATCH_NAME="Check workflow match"
 HEAD40="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+# Blob fixtures. The workflow keeps only a value that looks like a SHA.
+BLOB_M="cccccccccccccccccccccccccccccccccccccccc"
+BLOB_H="dddddddddddddddddddddddddddddddddddddddd"
 BASE40="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 CALLER=".github/workflows/claude-code-review.yml"
 SELF=".github/workflows/claude-review.yml"
@@ -318,17 +323,17 @@ if [ "$match_ok" = 1 ]; then
         l="match ($job)"
 
         expect_match "$l: branch edited the caller file gives edited" \
-            edited "$CALLER" "$s" STUB_MAIN_BLOB=m STUB_HEAD_BLOB=h STUB_BASE_BLOB=m
+            edited "$CALLER" "$s" STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_M"
 
         expect_match "$l: base branch has an old copy gives stale" \
-            stale "$CALLER" "$s" STUB_MAIN_BLOB=m STUB_HEAD_BLOB=h STUB_BASE_BLOB=h
+            stale "$CALLER" "$s" STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_H"
 
         expect_match "$l: equal blobs give none" \
-            none "" "$s" STUB_MAIN_BLOB=m STUB_HEAD_BLOB=m STUB_BASE_BLOB=m
+            none "" "$s" STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_M" STUB_BASE_BLOB="$BLOB_M"
 
         expect_match "$l: an execution file gives none" \
             none "" "$s" EXECUTION_FILE=/x/execution.json \
-            STUB_MAIN_BLOB=m STUB_HEAD_BLOB=h STUB_BASE_BLOB=m
+            STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_M"
         if [ -z "$MLOG" ]; then
             pass "$l: an execution file makes no gh call"
         else
@@ -337,25 +342,36 @@ if [ "$match_ok" = 1 ]; then
 
         expect_match "$l: a failed compare call gives none" \
             none "" "$s" STUB_MERGE_BASE_SHA= \
-            STUB_MAIN_BLOB=m STUB_HEAD_BLOB=h STUB_BASE_BLOB=m
+            STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_M"
         out_has "$l: a failed compare call prints the merge base warning" \
             "Could not get the merge base"
 
         expect_match "$l: a merge base that is not a SHA gives none" \
             none "" "$s" STUB_MERGE_BASE_SHA=null \
-            STUB_MAIN_BLOB=m STUB_HEAD_BLOB=h STUB_BASE_BLOB=m
+            STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_M"
         out_has "$l: a merge base that is not a SHA prints the merge base warning" \
             "Could not get the merge base"
 
+        # Real gh prints an error body on stdout when a lookup fails. The stub
+        # does the same, so a failed lookup is not an empty string.
+        expect_match "$l: failed main and merge base lookups give none" \
+            none "" "$s" STUB_MERGE_BASE_SHA= \
+            STUB_MAIN_BLOB= STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB=
+        expect_match "$l: a failed main lookup gives none" \
+            none "" "$s" \
+            STUB_MAIN_BLOB= STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_M"
+        expect_match "$l: a blob that is not a SHA gives none" \
+            none "" "$s" STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB=null STUB_BASE_BLOB="$BLOB_M"
+
         expect_match "$l: no blob at the head gives none" \
-            none "" "$s" STUB_MAIN_BLOB=m STUB_HEAD_BLOB= STUB_BASE_BLOB=m
+            none "" "$s" STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB= STUB_BASE_BLOB="$BLOB_M"
 
         expect_match "$l: no blob at the merge base gives none" \
-            none "" "$s" STUB_MAIN_BLOB=m STUB_HEAD_BLOB=h STUB_BASE_BLOB=
+            none "" "$s" STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB=
 
         expect_match "$l: a bad WF_REF gives none" \
             none "" "$s" WF_REF=o/r/foo@x \
-            STUB_MAIN_BLOB=m STUB_HEAD_BLOB=h STUB_BASE_BLOB=m
+            STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_M"
         out_has "$l: a bad WF_REF prints a ::warning::" "::warning::Could not parse a workflow path"
         if [ -z "$MLOG" ]; then
             pass "$l: a bad WF_REF makes no gh call"
@@ -367,20 +383,20 @@ if [ "$match_ok" = 1 ]; then
         # both refs.
         expect_match "$l: only claude-review.yml edited gives edited for it" \
             edited "$SELF" "$s" STUB_EXTRA="$TMPROOT/extra.sh" XPATH="$SELF" \
-            XMAIN=m XHEAD=h XBASE=m \
-            STUB_MAIN_BLOB=m STUB_HEAD_BLOB=m STUB_BASE_BLOB=m
+            XMAIN="$BLOB_M" XHEAD="$BLOB_H" XBASE="$BLOB_M" \
+            STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_M" STUB_BASE_BLOB="$BLOB_M"
 
         # The caller path comes first, and stale ends the loop.
         expect_match "$l: stale caller and edited claude-review.yml give stale for the caller" \
             stale "$CALLER" "$s" STUB_EXTRA="$TMPROOT/extra.sh" XPATH="$SELF" \
-            XMAIN=m XHEAD=h XBASE=m \
-            STUB_MAIN_BLOB=m STUB_HEAD_BLOB=h STUB_BASE_BLOB=h
+            XMAIN="$BLOB_M" XHEAD="$BLOB_H" XBASE="$BLOB_M" \
+            STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_H"
 
         # The edited caller must not hide a stale claude-review.yml.
         expect_match "$l: edited caller and stale claude-review.yml give stale for claude-review.yml" \
             stale "$SELF" "$s" STUB_EXTRA="$TMPROOT/extra.sh" XPATH="$SELF" \
-            XMAIN=m XHEAD=h XBASE=h \
-            STUB_MAIN_BLOB=m STUB_HEAD_BLOB=h STUB_BASE_BLOB=m
+            XMAIN="$BLOB_M" XHEAD="$BLOB_H" XBASE="$BLOB_H" \
+            STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_M"
     done
 fi
 
@@ -487,6 +503,18 @@ if [ "$post_ok" = 1 ]; then
             fi
         done
 
+        # Claude ran, so the guard does not apply. The note says that the
+        # output was not valid, whatever the match result is.
+        run_post "$s" "$posted" MATCH_RESULT=edited MATCH_PATH="$CALLER" \
+            CLAUDE_OUTCOME=success EXECUTION_FILE="$TMPROOT/execution.json"
+        if [ "$PRC" = 0 ] && [ "$(posted_count "$posted")" = 1 ] && [ "$PVERDICT" = none ] \
+            && grep -qF "did not return a valid review" "$posted/1.md"; then
+            pass "$l: an execution file and edited post the invalid-review note"
+        else
+            fail "$l: an execution file and edited post the invalid-review note" \
+                "exit $PRC, comments $(posted_count "$posted"), verdict $PVERDICT: $POUT"
+        fi
+
         # The action can exit 0 with no execution file, so success must
         # post the note too. An empty or unknown result is not edited, so
         # it must not silence the note.
@@ -506,7 +534,6 @@ if [ "$post_ok" = 1 ]; then
 fi
 
 # --------------------------------------------------------------------- gate
-printf '[]\n' > "$TMPROOT/execution.json"
 
 # run_gate <script> [VAR=value ...]
 # Sets GOUT and GRC. The defaults are the no-verdict case with no execution

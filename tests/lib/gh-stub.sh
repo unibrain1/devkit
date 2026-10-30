@@ -114,6 +114,8 @@ case "${positional[0]:-}" in
                     blob="${STUB_HEAD_BLOB:-}"
                 fi
                 if [ -z "$blob" ]; then
+                    # Real gh prints the error body on stdout, also with --jq.
+                    printf '{"message":"Not Found","status":"404"}'
                     echo "gh: no blob for ref $ref (stub)" >&2
                     exit 1
                 fi
@@ -127,6 +129,7 @@ case "${positional[0]:-}" in
                 ;;
             repos/*/compare/*)
                 if [ -z "${STUB_MERGE_BASE_SHA:-}" ]; then
+                    printf '{"message":"Not Found","status":"404"}'
                     echo "gh: simulated compare failure (stub)" >&2
                     exit 1
                 fi
