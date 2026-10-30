@@ -17,10 +17,11 @@ name: Claude Code Review
 #                              "@claude deep-review" PR comment by OWNER or
 #                              COLLABORATOR.
 #
-# PR titles with [skip-review] or [WIP] are skipped. Only milestone-review
-# skips drafts. Dependabot PRs are skipped: claude-code-action rejects bot
-# actors unless listed in allowed_bots, and a Dependabot-triggered run gets
-# only Dependabot secrets,
+# pr-to-milestone-review skips PR titles with [skip-review] or [WIP].
+# milestone-review skips [skip-review] titles and drafts. comment-deep-review
+# runs on each request from an OWNER or COLLABORATOR. Dependabot PRs are
+# skipped: claude-code-action rejects bot actors unless listed in
+# allowed_bots, and a Dependabot-triggered run gets only Dependabot secrets,
 # so CLAUDE_CODE_OAUTH_TOKEN is empty there (Registry #1937, Registry #1938).
 #
 # Untrusted input (Registry #1688):
@@ -110,10 +111,11 @@ name: Claude Code Review
 #     split from the default branch. The skip is expected.
 #     Post review posts no note, and the Gate passes with a warning. A
 #     person reviews the PR.
-#   - stale: only the default branch changed the file, for example on a
-#     branch cut from a tag (devkit #32). Post review posts a note, and
-#     the Gate fails. It tells the user to copy the file onto the base
-#     branch if the base branch is also old, then to update the branch.
+#   - stale: the head still has the merge-base copy, and the default
+#     branch changed the file later, for example on a branch cut from a
+#     tag (devkit #32). Post review posts a note, and the Gate fails. It
+#     tells the user to copy the file onto the base branch if the base
+#     branch is also old, and then to update the PR branch.
 #   With no execution file and no edited or stale result, the action did
 #   not run or stopped before it started Claude (devkit #31). A failed
 #   lookup also gives this result, so the Gate fails closed. The Gate
@@ -834,7 +836,7 @@ jobs:
               exit 0
               ;;
             stale)
-              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so this branch has an old copy. If the base branch also has the old copy, copy ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch. Then update this branch from its base branch and run the review again."
+              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy. This branch did not change it, so this branch has an old copy. If the base branch also has the old copy, copy ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch. Then update this branch from its base branch and run the review again."
               exit 1
               ;;
           esac
@@ -1420,7 +1422,7 @@ jobs:
               exit 0
               ;;
             stale)
-              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so this branch has an old copy. If the base branch also has the old copy, copy ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch. Then update this branch from its base branch and run the review again."
+              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy. This branch did not change it, so this branch has an old copy. If the base branch also has the old copy, copy ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch. Then update this branch from its base branch and run the review again."
               exit 1
               ;;
           esac
@@ -2023,7 +2025,7 @@ jobs:
               exit 0
               ;;
             stale)
-              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so this branch has an old copy. If the base branch also has the old copy, copy ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch. Then update this branch from its base branch and run the review again."
+              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy. This branch did not change it, so this branch has an old copy. If the base branch also has the old copy, copy ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch. Then update this branch from its base branch and run the review again."
               exit 1
               ;;
           esac

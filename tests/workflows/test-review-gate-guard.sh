@@ -325,7 +325,7 @@ if [ "$match_ok" = 1 ]; then
         expect_match "$l: branch edited the caller file gives edited" \
             edited "$CALLER" "$s" STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_M"
 
-        expect_match "$l: base branch has an old copy gives stale" \
+        expect_match "$l: head has the merge-base copy gives stale" \
             stale "$CALLER" "$s" STUB_MAIN_BLOB="$BLOB_M" STUB_HEAD_BLOB="$BLOB_H" STUB_BASE_BLOB="$BLOB_H"
 
         expect_match "$l: equal blobs give none" \
@@ -454,6 +454,8 @@ if [ "$post_ok" = 1 ]; then
             pass "$l: stale posts one comment and exits 0"
             body="$posted/1.md"
             has "$body" "$CALLER" "$l: stale comment names the path"
+            has "$body" "If the base branch also has the old copy" \
+                "$l: stale comment makes the base-branch copy conditional"
             has "$body" "copy the file from the default branch onto the base branch" \
                 "$l: stale comment says to copy the file onto an old base branch"
             has "$body" "update this branch from its base branch" \
@@ -588,8 +590,9 @@ if [ "$gate_ok" = 1 ]; then
         esac
 
         run_gate "$s" MATCH_RESULT=stale MATCH_PATH="$CALLER"
-        gate_expect "$l: no verdict and stale exits 1 and says to sync" 1 \
-            "::error::" "$CALLER" "onto the base branch" \
+        gate_expect "$l: no verdict and stale exits 1 and says to update the branch" 1 \
+            "::error::" "$CALLER" "If the base branch also has the old copy" \
+            "onto the base branch" \
             "update this branch from its base branch"
 
         run_gate "$s" MATCH_RESULT=none
