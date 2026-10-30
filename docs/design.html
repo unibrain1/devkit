@@ -512,6 +512,7 @@ jobs:
   <li><strong><code>claude-code-action</code>.</strong> For a <code>pull_request</code> event, the action compares the workflow file on the PR head with the copy on the default branch. If the two are different, the action skips the review. A PR that edits a Claude workflow is never reviewed by Claude (Registry #1919).</li>
 </ol>
 <p>Registry writes this down in <code>.claude/rules/ci-workflows.md</code>. Its review gate reports the skip as a warning, not a failure. The other repos have the same limit, but have no rule or gate for it.</p>
+<p>The devkit review gate gives a warning only when the branch or its base branch changed the file. If only <code>main</code> changed it, the branch has an old copy, for example a branch cut from a tag. Then the gate fails and tells you to copy the file from <code>main</code> onto the base branch (devkit #32).</p>
 
 <h3>What devkit changes</h3>
 <div class="tbl">

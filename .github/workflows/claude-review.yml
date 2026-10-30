@@ -99,8 +99,26 @@ name: Claude Code Review
 #   own rule, moved here because this workflow is reusable: github.workflow_ref
 #   gives the caller's own path (form owner/repo/<path>@<ref>), and
 #   github.event.repository.default_branch gives the caller's default
-#   branch, which need not be "main". The Gate step parses and validates
-#   that path before it uses it in a `gh api` call.
+#   branch, which need not be "main". The "Check workflow match" step
+#   parses and validates that path before it uses it in a `gh api` call.
+#   It also checks this file's own path (devkit #27).
+#
+#   A blob mismatch has two causes. The step compares the head blob with
+#   the blob at the merge base of the head and the default branch:
+#   - edited: the branch or its base branch changed the file after the
+#     split from the default branch. The skip is expected.
+#     Post review posts no note, and the Gate passes with a warning. A
+#     person reviews the PR.
+#   - stale: only the default branch changed the file, for example on a
+#     branch cut from a tag (devkit #32). Post review posts a note, and
+#     the Gate fails with an instruction to sync the file onto the base
+#     branch.
+#   With no execution file and no edited or stale result, the action did
+#   not run or stopped before it started Claude (devkit #31). A failed
+#   lookup also gives this result, so the Gate fails closed. The Gate
+#   fails and points to the action step log. Post review posts a note
+#   only when the Claude step ran (outcome success or failure). After an
+#   earlier failure or a cancel, a note would repeat the real error.
 #
 # allowedTools for each review job has no package manager or linter. A
 # project's own lint and test suite already catches what they would catch.
@@ -497,6 +515,106 @@ jobs:
 
             {0}', inputs.extra_instructions) || '' }}
 
+      # The self-referential guard (see the header comment). Post review
+      # and the Gate read its result, so the two steps cannot disagree.
+      - name: Check workflow match
+        id: match
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+          WF_REF: ${{ github.workflow_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          # result: edited (this branch or its base branch changed a
+          # workflow file, so the action skipped the review on purpose),
+          # stale (only the default branch changed it: the base branch has
+          # an old copy), or none.
+          # An execution file means that the action ran, so the guard does
+          # not apply.
+          if [ -n "$EXECUTION_FILE" ]; then
+            echo "result=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # claude-code-action refuses to run when the caller's own review
+          # workflow file at the PR head differs from the copy on the
+          # caller's default branch (Registry #1919). This workflow is
+          # reusable, so get that path from github.workflow_ref. In a call
+          # to a reusable workflow, it names the TOP-LEVEL caller file, in
+          # the form owner/repo/<path>@<ref>.
+          WF_PATH=""
+          REF_PART="${WF_REF%@*}"
+          CANDIDATE="${REF_PART#*/}"
+          CANDIDATE="${CANDIDATE#*/}"
+          if printf '%s' "$CANDIDATE" | grep -qE '^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$'; then
+            WF_PATH="$CANDIDATE"
+          else
+            echo "::warning::Could not parse a workflow path from github.workflow_ref ('${WF_REF}'). Skipping the self-referential guard."
+          fi
+
+          # Fail closed: only a real blob SHA counts. When a lookup fails,
+          # gh prints the error body on stdout, so the step keeps a value
+          # only when it is a SHA. An empty value never gives edited or
+          # stale. In a caller repo with no copy of claude-review.yml, both
+          # lookups for that path fail.
+          RESULT=none
+          RESULT_PATH=""
+          MERGE_BASE=""
+          if [ -n "$WF_PATH" ] && [ -n "$DEFAULT_BRANCH" ] && [ -n "$HEAD_SHA" ]; then
+            # The action also refuses when a reusable workflow that the
+            # caller calls from its own repo (uses: ./...) differs from the
+            # default branch. Only devkit calls this file that way
+            # (devkit #27), so this file's own path is a second candidate.
+            for P in "$WF_PATH" .github/workflows/claude-review.yml; do
+              MAIN_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${DEFAULT_BRANCH}" --jq .sha 2>/dev/null || true)
+              HEAD_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${HEAD_SHA}" --jq .sha 2>/dev/null || true)
+              [[ "$MAIN_BLOB" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || MAIN_BLOB=""
+              [[ "$HEAD_BLOB" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || HEAD_BLOB=""
+              if [ -z "$MAIN_BLOB" ] || [ -z "$HEAD_BLOB" ] || [ "$MAIN_BLOB" = "$HEAD_BLOB" ]; then
+                continue
+              fi
+              # A blob mismatch alone does not show who changed the file.
+              # If the head still has the merge-base copy, only the default
+              # branch changed it, for example on a branch cut from a tag
+              # (devkit #32). A PR diff check is not enough: after a change
+              # merges into a milestone branch, later PRs on that branch do
+              # not change the file, but their copy is newer, not older.
+              # Get the merge base only now: most runs have no mismatch.
+              if [ -z "$MERGE_BASE" ]; then
+                MERGE_BASE=$(gh api "repos/${REPO}/compare/${DEFAULT_BRANCH}...${HEAD_SHA}" --jq .merge_base_commit.sha 2>/dev/null || true)
+                if [[ ! "$MERGE_BASE" =~ ^[0-9a-f]{40}$ ]]; then
+                  echo "::warning::Could not get the merge base of ${DEFAULT_BRANCH} and ${HEAD_SHA}. Skipping the self-referential guard."
+                  break
+                fi
+              fi
+              BASE_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${MERGE_BASE}" --jq .sha 2>/dev/null || true)
+              [[ "$BASE_BLOB" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || BASE_BLOB=""
+              if [ -z "$BASE_BLOB" ]; then
+                continue
+              fi
+              # stale wins over edited: an old copy blocks the review until
+              # a person syncs it.
+              if [ "$HEAD_BLOB" = "$BASE_BLOB" ]; then
+                RESULT=stale
+                RESULT_PATH="$P"
+                break
+              fi
+              if [ "$RESULT" = "none" ]; then
+                RESULT=edited
+                RESULT_PATH="$P"
+              fi
+            done
+          fi
+          echo "Workflow match: ${RESULT} ${RESULT_PATH}"
+          {
+            echo "result=${RESULT}"
+            echo "path=${RESULT_PATH}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Post review
         id: post
         if: always()
@@ -508,6 +626,9 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+          MATCH_RESULT: ${{ steps.match.outputs.result }}
+          MATCH_PATH: ${{ steps.match.outputs.path }}
+          CLAUDE_OUTCOME: ${{ steps.claude-review.outcome }}
         run: |
           set -euo pipefail
           # STRUCTURED_OUTPUT is model output, and the model reads attacker-
@@ -616,10 +737,35 @@ jobs:
           echo "verdict=none" >> "$GITHUB_OUTPUT"
           if [ -z "$EXECUTION_FILE" ]; then
             # The action produced no execution file: it did not run, or it
-            # stopped before it started Claude. One cause is the self-
-            # referential guard (see the Gate). The Gate decides between a
-            # warning and an error.
-            echo "The review action produced no execution file (it did not run, or it stopped before it started Claude). Nothing to post."
+            # stopped before it started Claude. The match step gives the
+            # cause. When the branch or its base branch changed the workflow
+            # file, the skip is expected, so no note. The Gate warns.
+            # When an earlier step failed or the run was cancelled, the
+            # Claude step was skipped or cancelled. The failed or cancelled
+            # step already shows the cause, so a note adds nothing.
+            if [ "$CLAUDE_OUTCOME" != "success" ] && [ "$CLAUDE_OUTCOME" != "failure" ]; then
+              echo "The Claude review step did not run (outcome: ${CLAUDE_OUTCOME:-none}). Nothing to post."
+              exit 0
+            fi
+            if [ "$MATCH_RESULT" = "edited" ]; then
+              echo "The review action produced no execution file, and ${MATCH_PATH} changed on this branch or its base branch after the split from the default branch (self-referential guard). Nothing to post."
+              exit 0
+            fi
+            {
+              echo "**Claude Code Review did not run.**"
+              echo ""
+              if [ "$MATCH_RESULT" = "stale" ]; then
+                echo "\`${MATCH_PATH}\` on this branch differs from the default branch copy, and this branch did not change it. The base branch has an old copy, so the review action did not run. Sync the file from the default branch onto the base branch, then run the review again."
+              else
+                echo "The review action produced no execution file: it did not run, or it stopped before it started Claude. See the log of the Claude review step."
+              fi
+              echo ""
+              echo "This run records no verdict, and the merge gate fails."
+              echo ""
+              echo "Run log: ${RUN_URL}"
+            } > "$BODY_FILE"
+            gh pr comment "$PR_NUM" --repo "$REPO" --body-file "$BODY_FILE"
+            echo "::warning::No review ran (workflow match: ${MATCH_RESULT}). Posted a failure note with no verdict."
             exit 0
           fi
           # This note has no verdict line, so the flow scripts count no
@@ -640,13 +786,12 @@ jobs:
         env:
           VERDICT: ${{ steps.post.outputs.verdict }}
           BLOCKING: ${{ steps.post.outputs.blocking }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ steps.ctx.outputs.pr_number }}
-          REPO: ${{ github.repository }}
           HEAD_SHA: ${{ steps.head.outputs.sha }}
           EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
-          WF_REF: ${{ github.workflow_ref }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MATCH_RESULT: ${{ steps.match.outputs.result }}
+          MATCH_PATH: ${{ steps.match.outputs.path }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
 
@@ -681,45 +826,22 @@ jobs:
             exit 1
           fi
 
-          # One cause of "no verdict" is expected and self-inflicted:
-          # claude-code-action refuses to run when the caller's own review
-          # workflow file at the PR head differs from the copy on the
-          # caller's default branch (Registry #1919). This workflow is
-          # reusable, so "the caller's own review workflow file" is not a
-          # literal path here — get it from github.workflow_ref, which in a
-          # call to a reusable workflow names the TOP-LEVEL caller file, in
-          # the form owner/repo/<path>@<ref>.
-          WF_PATH=""
-          REF_PART="${WF_REF%@*}"
-          CANDIDATE="${REF_PART#*/}"
-          CANDIDATE="${CANDIDATE#*/}"
-          if printf '%s' "$CANDIDATE" | grep -qE '^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$'; then
-            WF_PATH="$CANDIDATE"
-          else
-            echo "::warning::Could not parse a workflow path from github.workflow_ref ('${WF_REF}'). Skipping the self-referential guard."
+          # The match step decides if the self-referential guard applies.
+          case "$MATCH_RESULT" in
+            edited)
+              echo "::warning::No review posted — the action produced no execution file, and ${MATCH_PATH} changed on this branch or its base branch after the split from ${DEFAULT_BRANCH}, so it differs from ${DEFAULT_BRANCH}'s copy (self-referential guard). A person must review this PR. The workflow change takes effect after the merge."
+              exit 0
+              ;;
+            stale)
+              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so the base branch has an old copy. Sync ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch, then run the review again."
+              exit 1
+              ;;
+          esac
+          if [ -z "$EXECUTION_FILE" ]; then
+            echo "::error::No review ran. The review action produced no execution file: it did not run, or it stopped before it started Claude. See the log of the Claude review step: ${RUN_URL}"
+            exit 1
           fi
-
-          # The action also refuses when a reusable workflow that the caller
-          # calls from its own repo (uses: ./...) differs from the default
-          # branch. Only devkit calls this file that way (devkit #27), so
-          # this file's own path is a second candidate.
-          if [ -n "$WF_PATH" ] && [ -n "$DEFAULT_BRANCH" ]; then
-            for P in "$WF_PATH" .github/workflows/claude-review.yml; do
-              # Fail closed: a lookup that errors gives an empty string, and
-              # an empty string on either side disqualifies the warning path.
-              # Only a real, successfully-fetched mismatch counts. In a
-              # caller repo with no copy of this file, both lookups fail.
-              MAIN_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${DEFAULT_BRANCH}" --jq .sha 2>/dev/null || true)
-              HEAD_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${HEAD_SHA}" --jq .sha 2>/dev/null || true)
-              if [ -z "$EXECUTION_FILE" ] && [ -n "$HEAD_SHA" ] \
-                 && [ -n "$MAIN_BLOB" ] && [ -n "$HEAD_BLOB" ] \
-                 && [ "$MAIN_BLOB" != "$HEAD_BLOB" ]; then
-                echo "::warning::No review posted — the action produced no execution file, and ${P} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy (self-referential guard). This PR must be reviewed by a person; the workflow change takes effect once merged."
-                exit 0
-              fi
-            done
-          fi
-          echo "::error::No review verdict. The review did not run, or it returned no valid structured output. Investigate before merging."
+          echo "::error::No review verdict. Claude ran, but Post review recorded no verdict. See the Post review log. Investigate before merging."
           exit 1
 
   # Deep review for a milestone PR into the default branch. Runs on open /
@@ -1016,6 +1138,106 @@ jobs:
 
             {0}', inputs.extra_instructions) || '' }}
 
+      # The self-referential guard (see the header comment). Post review
+      # and the Gate read its result, so the two steps cannot disagree.
+      - name: Check workflow match
+        id: match
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+          WF_REF: ${{ github.workflow_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          # result: edited (this branch or its base branch changed a
+          # workflow file, so the action skipped the review on purpose),
+          # stale (only the default branch changed it: the base branch has
+          # an old copy), or none.
+          # An execution file means that the action ran, so the guard does
+          # not apply.
+          if [ -n "$EXECUTION_FILE" ]; then
+            echo "result=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # claude-code-action refuses to run when the caller's own review
+          # workflow file at the PR head differs from the copy on the
+          # caller's default branch (Registry #1919). This workflow is
+          # reusable, so get that path from github.workflow_ref. In a call
+          # to a reusable workflow, it names the TOP-LEVEL caller file, in
+          # the form owner/repo/<path>@<ref>.
+          WF_PATH=""
+          REF_PART="${WF_REF%@*}"
+          CANDIDATE="${REF_PART#*/}"
+          CANDIDATE="${CANDIDATE#*/}"
+          if printf '%s' "$CANDIDATE" | grep -qE '^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$'; then
+            WF_PATH="$CANDIDATE"
+          else
+            echo "::warning::Could not parse a workflow path from github.workflow_ref ('${WF_REF}'). Skipping the self-referential guard."
+          fi
+
+          # Fail closed: only a real blob SHA counts. When a lookup fails,
+          # gh prints the error body on stdout, so the step keeps a value
+          # only when it is a SHA. An empty value never gives edited or
+          # stale. In a caller repo with no copy of claude-review.yml, both
+          # lookups for that path fail.
+          RESULT=none
+          RESULT_PATH=""
+          MERGE_BASE=""
+          if [ -n "$WF_PATH" ] && [ -n "$DEFAULT_BRANCH" ] && [ -n "$HEAD_SHA" ]; then
+            # The action also refuses when a reusable workflow that the
+            # caller calls from its own repo (uses: ./...) differs from the
+            # default branch. Only devkit calls this file that way
+            # (devkit #27), so this file's own path is a second candidate.
+            for P in "$WF_PATH" .github/workflows/claude-review.yml; do
+              MAIN_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${DEFAULT_BRANCH}" --jq .sha 2>/dev/null || true)
+              HEAD_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${HEAD_SHA}" --jq .sha 2>/dev/null || true)
+              [[ "$MAIN_BLOB" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || MAIN_BLOB=""
+              [[ "$HEAD_BLOB" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || HEAD_BLOB=""
+              if [ -z "$MAIN_BLOB" ] || [ -z "$HEAD_BLOB" ] || [ "$MAIN_BLOB" = "$HEAD_BLOB" ]; then
+                continue
+              fi
+              # A blob mismatch alone does not show who changed the file.
+              # If the head still has the merge-base copy, only the default
+              # branch changed it, for example on a branch cut from a tag
+              # (devkit #32). A PR diff check is not enough: after a change
+              # merges into a milestone branch, later PRs on that branch do
+              # not change the file, but their copy is newer, not older.
+              # Get the merge base only now: most runs have no mismatch.
+              if [ -z "$MERGE_BASE" ]; then
+                MERGE_BASE=$(gh api "repos/${REPO}/compare/${DEFAULT_BRANCH}...${HEAD_SHA}" --jq .merge_base_commit.sha 2>/dev/null || true)
+                if [[ ! "$MERGE_BASE" =~ ^[0-9a-f]{40}$ ]]; then
+                  echo "::warning::Could not get the merge base of ${DEFAULT_BRANCH} and ${HEAD_SHA}. Skipping the self-referential guard."
+                  break
+                fi
+              fi
+              BASE_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${MERGE_BASE}" --jq .sha 2>/dev/null || true)
+              [[ "$BASE_BLOB" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || BASE_BLOB=""
+              if [ -z "$BASE_BLOB" ]; then
+                continue
+              fi
+              # stale wins over edited: an old copy blocks the review until
+              # a person syncs it.
+              if [ "$HEAD_BLOB" = "$BASE_BLOB" ]; then
+                RESULT=stale
+                RESULT_PATH="$P"
+                break
+              fi
+              if [ "$RESULT" = "none" ]; then
+                RESULT=edited
+                RESULT_PATH="$P"
+              fi
+            done
+          fi
+          echo "Workflow match: ${RESULT} ${RESULT_PATH}"
+          {
+            echo "result=${RESULT}"
+            echo "path=${RESULT_PATH}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Post review
         id: post
         if: always()
@@ -1027,6 +1249,9 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+          MATCH_RESULT: ${{ steps.match.outputs.result }}
+          MATCH_PATH: ${{ steps.match.outputs.path }}
+          CLAUDE_OUTCOME: ${{ steps.claude-review.outcome }}
         run: |
           set -euo pipefail
           BODY_FILE="$RUNNER_TEMP/review-body.md"
@@ -1107,7 +1332,36 @@ jobs:
 
           echo "verdict=none" >> "$GITHUB_OUTPUT"
           if [ -z "$EXECUTION_FILE" ]; then
-            echo "The review action produced no execution file (it did not run, or it stopped before it started Claude). Nothing to post."
+            # The action produced no execution file: it did not run, or it
+            # stopped before it started Claude. The match step gives the
+            # cause. When the branch or its base branch changed the workflow
+            # file, the skip is expected, so no note. The Gate warns.
+            # When an earlier step failed or the run was cancelled, the
+            # Claude step was skipped or cancelled. The failed or cancelled
+            # step already shows the cause, so a note adds nothing.
+            if [ "$CLAUDE_OUTCOME" != "success" ] && [ "$CLAUDE_OUTCOME" != "failure" ]; then
+              echo "The Claude review step did not run (outcome: ${CLAUDE_OUTCOME:-none}). Nothing to post."
+              exit 0
+            fi
+            if [ "$MATCH_RESULT" = "edited" ]; then
+              echo "The review action produced no execution file, and ${MATCH_PATH} changed on this branch or its base branch after the split from the default branch (self-referential guard). Nothing to post."
+              exit 0
+            fi
+            {
+              echo "**Claude Code Review did not run.**"
+              echo ""
+              if [ "$MATCH_RESULT" = "stale" ]; then
+                echo "\`${MATCH_PATH}\` on this branch differs from the default branch copy, and this branch did not change it. The base branch has an old copy, so the review action did not run. Sync the file from the default branch onto the base branch, then run the review again."
+              else
+                echo "The review action produced no execution file: it did not run, or it stopped before it started Claude. See the log of the Claude review step."
+              fi
+              echo ""
+              echo "This run records no verdict, and the merge gate fails."
+              echo ""
+              echo "Run log: ${RUN_URL}"
+            } > "$BODY_FILE"
+            gh pr comment "$PR_NUM" --repo "$REPO" --body-file "$BODY_FILE"
+            echo "::warning::No review ran (workflow match: ${MATCH_RESULT}). Posted a failure note with no verdict."
             exit 0
           fi
           {
@@ -1126,13 +1380,12 @@ jobs:
         env:
           VERDICT: ${{ steps.post.outputs.verdict }}
           BLOCKING: ${{ steps.post.outputs.blocking }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
           HEAD_SHA: ${{ steps.head.outputs.sha }}
           EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
-          WF_REF: ${{ github.workflow_ref }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MATCH_RESULT: ${{ steps.match.outputs.result }}
+          MATCH_PATH: ${{ steps.match.outputs.path }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
 
@@ -1159,27 +1412,22 @@ jobs:
             exit 1
           fi
 
-          WF_PATH=""
-          REF_PART="${WF_REF%@*}"
-          CANDIDATE="${REF_PART#*/}"
-          CANDIDATE="${CANDIDATE#*/}"
-          if printf '%s' "$CANDIDATE" | grep -qE '^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$'; then
-            WF_PATH="$CANDIDATE"
-          else
-            echo "::warning::Could not parse a workflow path from github.workflow_ref ('${WF_REF}'). Skipping the self-referential guard."
-          fi
-
-          if [ -n "$WF_PATH" ] && [ -n "$DEFAULT_BRANCH" ]; then
-            MAIN_BLOB=$(gh api "repos/${REPO}/contents/${WF_PATH}?ref=${DEFAULT_BRANCH}" --jq .sha 2>/dev/null || true)
-            HEAD_BLOB=$(gh api "repos/${REPO}/contents/${WF_PATH}?ref=${HEAD_SHA}" --jq .sha 2>/dev/null || true)
-            if [ -z "$EXECUTION_FILE" ] && [ -n "$HEAD_SHA" ] \
-               && [ -n "$MAIN_BLOB" ] && [ -n "$HEAD_BLOB" ] \
-               && [ "$MAIN_BLOB" != "$HEAD_BLOB" ]; then
-              echo "::warning::No review posted — the action produced no execution file, and ${WF_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy (self-referential guard). This PR must be reviewed by a person; the workflow change takes effect once merged."
+          # The match step decides if the self-referential guard applies.
+          case "$MATCH_RESULT" in
+            edited)
+              echo "::warning::No review posted — the action produced no execution file, and ${MATCH_PATH} changed on this branch or its base branch after the split from ${DEFAULT_BRANCH}, so it differs from ${DEFAULT_BRANCH}'s copy (self-referential guard). A person must review this PR. The workflow change takes effect after the merge."
               exit 0
-            fi
+              ;;
+            stale)
+              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so the base branch has an old copy. Sync ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch, then run the review again."
+              exit 1
+              ;;
+          esac
+          if [ -z "$EXECUTION_FILE" ]; then
+            echo "::error::No review ran. The review action produced no execution file: it did not run, or it stopped before it started Claude. See the log of the Claude review step: ${RUN_URL}"
+            exit 1
           fi
-          echo "::error::No review verdict. The review did not run, or it returned no valid structured output. Investigate before merging."
+          echo "::error::No review verdict. Claude ran, but Post review recorded no verdict. See the Post review log. Investigate before merging."
           exit 1
 
   # On-demand deep review from a "@claude deep-review" comment, gated to
@@ -1493,6 +1741,106 @@ jobs:
 
             {0}', inputs.extra_instructions) || '' }}
 
+      # The self-referential guard (see the header comment). Post review
+      # and the Gate read its result, so the two steps cannot disagree.
+      - name: Check workflow match
+        id: match
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+          WF_REF: ${{ github.workflow_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          # result: edited (this branch or its base branch changed a
+          # workflow file, so the action skipped the review on purpose),
+          # stale (only the default branch changed it: the base branch has
+          # an old copy), or none.
+          # An execution file means that the action ran, so the guard does
+          # not apply.
+          if [ -n "$EXECUTION_FILE" ]; then
+            echo "result=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # claude-code-action refuses to run when the caller's own review
+          # workflow file at the PR head differs from the copy on the
+          # caller's default branch (Registry #1919). This workflow is
+          # reusable, so get that path from github.workflow_ref. In a call
+          # to a reusable workflow, it names the TOP-LEVEL caller file, in
+          # the form owner/repo/<path>@<ref>.
+          WF_PATH=""
+          REF_PART="${WF_REF%@*}"
+          CANDIDATE="${REF_PART#*/}"
+          CANDIDATE="${CANDIDATE#*/}"
+          if printf '%s' "$CANDIDATE" | grep -qE '^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$'; then
+            WF_PATH="$CANDIDATE"
+          else
+            echo "::warning::Could not parse a workflow path from github.workflow_ref ('${WF_REF}'). Skipping the self-referential guard."
+          fi
+
+          # Fail closed: only a real blob SHA counts. When a lookup fails,
+          # gh prints the error body on stdout, so the step keeps a value
+          # only when it is a SHA. An empty value never gives edited or
+          # stale. In a caller repo with no copy of claude-review.yml, both
+          # lookups for that path fail.
+          RESULT=none
+          RESULT_PATH=""
+          MERGE_BASE=""
+          if [ -n "$WF_PATH" ] && [ -n "$DEFAULT_BRANCH" ] && [ -n "$HEAD_SHA" ]; then
+            # The action also refuses when a reusable workflow that the
+            # caller calls from its own repo (uses: ./...) differs from the
+            # default branch. Only devkit calls this file that way
+            # (devkit #27), so this file's own path is a second candidate.
+            for P in "$WF_PATH" .github/workflows/claude-review.yml; do
+              MAIN_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${DEFAULT_BRANCH}" --jq .sha 2>/dev/null || true)
+              HEAD_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${HEAD_SHA}" --jq .sha 2>/dev/null || true)
+              [[ "$MAIN_BLOB" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || MAIN_BLOB=""
+              [[ "$HEAD_BLOB" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || HEAD_BLOB=""
+              if [ -z "$MAIN_BLOB" ] || [ -z "$HEAD_BLOB" ] || [ "$MAIN_BLOB" = "$HEAD_BLOB" ]; then
+                continue
+              fi
+              # A blob mismatch alone does not show who changed the file.
+              # If the head still has the merge-base copy, only the default
+              # branch changed it, for example on a branch cut from a tag
+              # (devkit #32). A PR diff check is not enough: after a change
+              # merges into a milestone branch, later PRs on that branch do
+              # not change the file, but their copy is newer, not older.
+              # Get the merge base only now: most runs have no mismatch.
+              if [ -z "$MERGE_BASE" ]; then
+                MERGE_BASE=$(gh api "repos/${REPO}/compare/${DEFAULT_BRANCH}...${HEAD_SHA}" --jq .merge_base_commit.sha 2>/dev/null || true)
+                if [[ ! "$MERGE_BASE" =~ ^[0-9a-f]{40}$ ]]; then
+                  echo "::warning::Could not get the merge base of ${DEFAULT_BRANCH} and ${HEAD_SHA}. Skipping the self-referential guard."
+                  break
+                fi
+              fi
+              BASE_BLOB=$(gh api "repos/${REPO}/contents/${P}?ref=${MERGE_BASE}" --jq .sha 2>/dev/null || true)
+              [[ "$BASE_BLOB" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || BASE_BLOB=""
+              if [ -z "$BASE_BLOB" ]; then
+                continue
+              fi
+              # stale wins over edited: an old copy blocks the review until
+              # a person syncs it.
+              if [ "$HEAD_BLOB" = "$BASE_BLOB" ]; then
+                RESULT=stale
+                RESULT_PATH="$P"
+                break
+              fi
+              if [ "$RESULT" = "none" ]; then
+                RESULT=edited
+                RESULT_PATH="$P"
+              fi
+            done
+          fi
+          echo "Workflow match: ${RESULT} ${RESULT_PATH}"
+          {
+            echo "result=${RESULT}"
+            echo "path=${RESULT_PATH}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Post review
         id: post
         if: always()
@@ -1504,6 +1852,9 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+          MATCH_RESULT: ${{ steps.match.outputs.result }}
+          MATCH_PATH: ${{ steps.match.outputs.path }}
+          CLAUDE_OUTCOME: ${{ steps.claude-review.outcome }}
         run: |
           set -euo pipefail
           BODY_FILE="$RUNNER_TEMP/review-body.md"
@@ -1584,7 +1935,36 @@ jobs:
 
           echo "verdict=none" >> "$GITHUB_OUTPUT"
           if [ -z "$EXECUTION_FILE" ]; then
-            echo "The review action produced no execution file (it did not run, or it stopped before it started Claude). Nothing to post."
+            # The action produced no execution file: it did not run, or it
+            # stopped before it started Claude. The match step gives the
+            # cause. When the branch or its base branch changed the workflow
+            # file, the skip is expected, so no note. The Gate warns.
+            # When an earlier step failed or the run was cancelled, the
+            # Claude step was skipped or cancelled. The failed or cancelled
+            # step already shows the cause, so a note adds nothing.
+            if [ "$CLAUDE_OUTCOME" != "success" ] && [ "$CLAUDE_OUTCOME" != "failure" ]; then
+              echo "The Claude review step did not run (outcome: ${CLAUDE_OUTCOME:-none}). Nothing to post."
+              exit 0
+            fi
+            if [ "$MATCH_RESULT" = "edited" ]; then
+              echo "The review action produced no execution file, and ${MATCH_PATH} changed on this branch or its base branch after the split from the default branch (self-referential guard). Nothing to post."
+              exit 0
+            fi
+            {
+              echo "**Claude Code Review did not run.**"
+              echo ""
+              if [ "$MATCH_RESULT" = "stale" ]; then
+                echo "\`${MATCH_PATH}\` on this branch differs from the default branch copy, and this branch did not change it. The base branch has an old copy, so the review action did not run. Sync the file from the default branch onto the base branch, then run the review again."
+              else
+                echo "The review action produced no execution file: it did not run, or it stopped before it started Claude. See the log of the Claude review step."
+              fi
+              echo ""
+              echo "This run records no verdict, and the merge gate fails."
+              echo ""
+              echo "Run log: ${RUN_URL}"
+            } > "$BODY_FILE"
+            gh pr comment "$PR_NUM" --repo "$REPO" --body-file "$BODY_FILE"
+            echo "::warning::No review ran (workflow match: ${MATCH_RESULT}). Posted a failure note with no verdict."
             exit 0
           fi
           {
@@ -1603,13 +1983,12 @@ jobs:
         env:
           VERDICT: ${{ steps.post.outputs.verdict }}
           BLOCKING: ${{ steps.post.outputs.blocking }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ steps.ctx.outputs.pr_number }}
-          REPO: ${{ github.repository }}
           HEAD_SHA: ${{ steps.head.outputs.sha }}
           EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
-          WF_REF: ${{ github.workflow_ref }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MATCH_RESULT: ${{ steps.match.outputs.result }}
+          MATCH_PATH: ${{ steps.match.outputs.path }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
 
@@ -1636,25 +2015,20 @@ jobs:
             exit 1
           fi
 
-          WF_PATH=""
-          REF_PART="${WF_REF%@*}"
-          CANDIDATE="${REF_PART#*/}"
-          CANDIDATE="${CANDIDATE#*/}"
-          if printf '%s' "$CANDIDATE" | grep -qE '^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$'; then
-            WF_PATH="$CANDIDATE"
-          else
-            echo "::warning::Could not parse a workflow path from github.workflow_ref ('${WF_REF}'). Skipping the self-referential guard."
-          fi
-
-          if [ -n "$WF_PATH" ] && [ -n "$DEFAULT_BRANCH" ]; then
-            MAIN_BLOB=$(gh api "repos/${REPO}/contents/${WF_PATH}?ref=${DEFAULT_BRANCH}" --jq .sha 2>/dev/null || true)
-            HEAD_BLOB=$(gh api "repos/${REPO}/contents/${WF_PATH}?ref=${HEAD_SHA}" --jq .sha 2>/dev/null || true)
-            if [ -z "$EXECUTION_FILE" ] && [ -n "$HEAD_SHA" ] \
-               && [ -n "$MAIN_BLOB" ] && [ -n "$HEAD_BLOB" ] \
-               && [ "$MAIN_BLOB" != "$HEAD_BLOB" ]; then
-              echo "::warning::No review posted — the action produced no execution file, and ${WF_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy (self-referential guard). This PR must be reviewed by a person; the workflow change takes effect once merged."
+          # The match step decides if the self-referential guard applies.
+          case "$MATCH_RESULT" in
+            edited)
+              echo "::warning::No review posted — the action produced no execution file, and ${MATCH_PATH} changed on this branch or its base branch after the split from ${DEFAULT_BRANCH}, so it differs from ${DEFAULT_BRANCH}'s copy (self-referential guard). A person must review this PR. The workflow change takes effect after the merge."
               exit 0
-            fi
+              ;;
+            stale)
+              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so the base branch has an old copy. Sync ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch, then run the review again."
+              exit 1
+              ;;
+          esac
+          if [ -z "$EXECUTION_FILE" ]; then
+            echo "::error::No review ran. The review action produced no execution file: it did not run, or it stopped before it started Claude. See the log of the Claude review step: ${RUN_URL}"
+            exit 1
           fi
-          echo "::error::No review verdict. The review did not run, or it returned no valid structured output. Investigate before merging."
+          echo "::error::No review verdict. Claude ran, but Post review recorded no verdict. See the Post review log. Investigate before merging."
           exit 1
