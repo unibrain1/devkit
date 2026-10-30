@@ -635,8 +635,9 @@ the line is still in the ledger file, delete it now (Step 5, "Ledger
 items"). Mark a ledger item N/A with the same marker, leave it `[ ]`, and
 leave its line in the ledger file.
 
-**Red first.** If the plan has a `## Bug Escape Analysis` section and no
-`**Red first:**` line, launch `flow:senior-test-engineer` to run its
+**Red first.** This is the fallback for Step 6, "Every new test". That
+step writes the `**Red first:**` line when it runs the check. If the plan
+has a `## Bug Escape Analysis` section and no `**Red first:**` line, launch `flow:senior-test-engineer` to run its
 red-first check. Write its result as `**Red first:** <failure line>` or
 `**Red first:** not checked — <cause>`, at the start of its own line.
 `/flow:commit-push-pr` copies the line into the PR body.
