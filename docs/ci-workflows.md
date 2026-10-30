@@ -179,10 +179,12 @@ at the merge base of the head and the default branch:
   so the PR that edits the caller is not stuck. `Post review` posts no
   note. A person reviews that PR. The flow scripts still find no verdict
   line for it.
-- **Only the default branch changed the file.** The base branch has an old
-  copy, for example a branch cut from a release tag. `Post review` posts a
-  note, and the `Gate` step fails. To fix it, copy the file from the
-  default branch onto the base branch, then run the review again.
+- **Only the default branch changed the file.** The PR branch has an old
+  copy, for example a branch cut from a release tag, or a branch cut
+  before a change to the file merged. `Post review` posts a note, and the
+  `Gate` step fails. To fix it, copy the file from the default branch
+  onto the base branch if the base branch also has the old copy. Then
+  update the PR branch from its base branch and run the review again.
 
 The step checks `claude-review.yml` in the same way. With no execution
 file and no edited or stale result, the action did not run or stopped

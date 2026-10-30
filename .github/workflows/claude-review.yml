@@ -17,9 +17,10 @@ name: Claude Code Review
 #                              "@claude deep-review" PR comment by OWNER or
 #                              COLLABORATOR.
 #
-# Drafts and PR titles with [skip-review] or [WIP] are skipped. Dependabot
-# PRs are skipped: claude-code-action rejects bot actors unless listed in
-# allowed_bots, and a Dependabot-triggered run gets only Dependabot secrets,
+# PR titles with [skip-review] or [WIP] are skipped. Only milestone-review
+# skips drafts. Dependabot PRs are skipped: claude-code-action rejects bot
+# actors unless listed in allowed_bots, and a Dependabot-triggered run gets
+# only Dependabot secrets,
 # so CLAUDE_CODE_OAUTH_TOKEN is empty there (Registry #1937, Registry #1938).
 #
 # Untrusted input (Registry #1688):
@@ -111,8 +112,8 @@ name: Claude Code Review
 #     person reviews the PR.
 #   - stale: only the default branch changed the file, for example on a
 #     branch cut from a tag (devkit #32). Post review posts a note, and
-#     the Gate fails with an instruction to sync the file onto the base
-#     branch.
+#     the Gate fails. It tells the user to copy the file onto the base
+#     branch if the base branch is also old, then to update the branch.
 #   With no execution file and no edited or stale result, the action did
 #   not run or stopped before it started Claude (devkit #31). A failed
 #   lookup also gives this result, so the Gate fails closed. The Gate
@@ -181,7 +182,7 @@ env:
 jobs:
   # Lightweight review for PRs targeting a milestone branch, and for
   # non-milestone branches targeting the default branch directly (hotfix /
-  # ad hoc PRs). Runs on every push regardless of draft state, or on demand
+  # ad hoc PRs). Runs on every push, also on a draft, or on demand
   # through workflow_dispatch.
   pr-to-milestone-review:
     if: |
@@ -531,8 +532,8 @@ jobs:
           set -euo pipefail
           # result: edited (this branch or its base branch changed a
           # workflow file, so the action skipped the review on purpose),
-          # stale (only the default branch changed it: the base branch has
-          # an old copy), or none.
+          # stale (only the default branch changed it: this branch has an
+          # old copy), or none.
           # An execution file means that the action ran, so the guard does
           # not apply.
           if [ -n "$EXECUTION_FILE" ]; then
@@ -755,7 +756,7 @@ jobs:
               echo "**Claude Code Review did not run.**"
               echo ""
               if [ "$MATCH_RESULT" = "stale" ]; then
-                echo "\`${MATCH_PATH}\` on this branch differs from the default branch copy, and this branch did not change it. The base branch has an old copy, so the review action did not run. Sync the file from the default branch onto the base branch, then run the review again."
+                echo "\`${MATCH_PATH}\` on this branch differs from the default branch copy, and this branch did not change it. The review action did not run. If the base branch also has the old copy, copy the file from the default branch onto the base branch. Then update this branch from its base branch and run the review again."
               else
                 echo "The review action produced no execution file: it did not run, or it stopped before it started Claude. See the log of the Claude review step."
               fi
@@ -833,7 +834,7 @@ jobs:
               exit 0
               ;;
             stale)
-              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so the base branch has an old copy. Sync ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch, then run the review again."
+              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so this branch has an old copy. If the base branch also has the old copy, copy ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch. Then update this branch from its base branch and run the review again."
               exit 1
               ;;
           esac
@@ -1154,8 +1155,8 @@ jobs:
           set -euo pipefail
           # result: edited (this branch or its base branch changed a
           # workflow file, so the action skipped the review on purpose),
-          # stale (only the default branch changed it: the base branch has
-          # an old copy), or none.
+          # stale (only the default branch changed it: this branch has an
+          # old copy), or none.
           # An execution file means that the action ran, so the guard does
           # not apply.
           if [ -n "$EXECUTION_FILE" ]; then
@@ -1351,7 +1352,7 @@ jobs:
               echo "**Claude Code Review did not run.**"
               echo ""
               if [ "$MATCH_RESULT" = "stale" ]; then
-                echo "\`${MATCH_PATH}\` on this branch differs from the default branch copy, and this branch did not change it. The base branch has an old copy, so the review action did not run. Sync the file from the default branch onto the base branch, then run the review again."
+                echo "\`${MATCH_PATH}\` on this branch differs from the default branch copy, and this branch did not change it. The review action did not run. If the base branch also has the old copy, copy the file from the default branch onto the base branch. Then update this branch from its base branch and run the review again."
               else
                 echo "The review action produced no execution file: it did not run, or it stopped before it started Claude. See the log of the Claude review step."
               fi
@@ -1419,7 +1420,7 @@ jobs:
               exit 0
               ;;
             stale)
-              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so the base branch has an old copy. Sync ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch, then run the review again."
+              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so this branch has an old copy. If the base branch also has the old copy, copy ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch. Then update this branch from its base branch and run the review again."
               exit 1
               ;;
           esac
@@ -1757,8 +1758,8 @@ jobs:
           set -euo pipefail
           # result: edited (this branch or its base branch changed a
           # workflow file, so the action skipped the review on purpose),
-          # stale (only the default branch changed it: the base branch has
-          # an old copy), or none.
+          # stale (only the default branch changed it: this branch has an
+          # old copy), or none.
           # An execution file means that the action ran, so the guard does
           # not apply.
           if [ -n "$EXECUTION_FILE" ]; then
@@ -1954,7 +1955,7 @@ jobs:
               echo "**Claude Code Review did not run.**"
               echo ""
               if [ "$MATCH_RESULT" = "stale" ]; then
-                echo "\`${MATCH_PATH}\` on this branch differs from the default branch copy, and this branch did not change it. The base branch has an old copy, so the review action did not run. Sync the file from the default branch onto the base branch, then run the review again."
+                echo "\`${MATCH_PATH}\` on this branch differs from the default branch copy, and this branch did not change it. The review action did not run. If the base branch also has the old copy, copy the file from the default branch onto the base branch. Then update this branch from its base branch and run the review again."
               else
                 echo "The review action produced no execution file: it did not run, or it stopped before it started Claude. See the log of the Claude review step."
               fi
@@ -2022,7 +2023,7 @@ jobs:
               exit 0
               ;;
             stale)
-              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so the base branch has an old copy. Sync ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch, then run the review again."
+              echo "::error::No review ran. ${MATCH_PATH} at ${HEAD_SHA} differs from ${DEFAULT_BRANCH}'s copy, and this branch did not change it, so this branch has an old copy. If the base branch also has the old copy, copy ${MATCH_PATH} from ${DEFAULT_BRANCH} onto the base branch. Then update this branch from its base branch and run the review again."
               exit 1
               ;;
           esac

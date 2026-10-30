@@ -454,8 +454,10 @@ if [ "$post_ok" = 1 ]; then
             pass "$l: stale posts one comment and exits 0"
             body="$posted/1.md"
             has "$body" "$CALLER" "$l: stale comment names the path"
-            has "$body" "Sync the file from the default branch onto the base branch" \
-                "$l: stale comment says to sync the file onto the base branch"
+            has "$body" "copy the file from the default branch onto the base branch" \
+                "$l: stale comment says to copy the file onto an old base branch"
+            has "$body" "update this branch from its base branch" \
+                "$l: stale comment says to update the branch from its base"
             has "$body" "Run log: $URL" "$l: stale comment has the run link"
             if [ "$PVERDICT" = none ]; then
                 pass "$l: stale writes verdict=none"
@@ -587,7 +589,8 @@ if [ "$gate_ok" = 1 ]; then
 
         run_gate "$s" MATCH_RESULT=stale MATCH_PATH="$CALLER"
         gate_expect "$l: no verdict and stale exits 1 and says to sync" 1 \
-            "::error::" "Sync" "$CALLER" "onto the base branch"
+            "::error::" "$CALLER" "onto the base branch" \
+            "update this branch from its base branch"
 
         run_gate "$s" MATCH_RESULT=none
         gate_expect "$l: no verdict, none, and no execution file exits 1" 1 \
