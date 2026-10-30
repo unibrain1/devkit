@@ -140,6 +140,9 @@ The step reads only issue comments on the PR. It does not read review
 bodies or replies in review threads. So a rebuttal counts only when a
 trusted person posts it as a PR comment.
 
+To rebut a finding, post the rebuttal as a normal PR comment. Do not post
+it as a reply in a review thread, because the reviewer does not see it.
+
 The review jobs give the model no tool that reads PR comments. Their
 `--allowedTools` has no `Bash(gh pr view:*)` and no `Bash(gh pr list:*)`.
 `gh pr view <n> --comments` and `gh pr list --json comments` print every
