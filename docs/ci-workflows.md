@@ -192,14 +192,14 @@ The step checks `claude-review.yml` in the same way. With no execution
 file and no edited or stale result, the action did not run or stopped
 before it started Claude. A failed lookup also gives this result. The
 `Gate` step fails and points to the log of the Claude review step.
+`Post review` posts a note with the run link when the Claude step ran and
+stopped early. When an earlier step failed or the run was cancelled, the
+Claude step was skipped or cancelled, and `Post review` posts no note.
 
 After a caller change merges into the default branch, merge the default
 branch into each open milestone branch. Until then, a PR into that
 milestone branch has an old copy. With an `@main` pin, its `Gate` step
 fails as stale. With a tag pin, the PR still runs the old workflow.
-`Post review` posts a note with the run link when the Claude step ran and
-stopped early. When an earlier step failed or the run was cancelled, the
-Claude step was skipped or cancelled, and `Post review` posts no note.
 
 Edit a caller only at a milestone boundary (design section 8).
 

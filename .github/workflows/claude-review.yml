@@ -1471,6 +1471,8 @@ jobs:
             exit 1
           fi
 
+          # head_ref can hold a newline on a fork PR, so it uses the heredoc
+          # form with a random delimiter. The file header gives the reason.
           DELIM="ghadelim_$(openssl rand -hex 16)"
           {
             echo "pr_number=${PR_NUM}"
