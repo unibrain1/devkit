@@ -177,7 +177,9 @@ on:
 env:
   # The PR comment filter for the review prompts (issue #30). The Fetch PR
   # context step of each review job uses it, so the three jobs keep the
-  # same comments.
+  # same comments. gh pr view uses GraphQL, which gives the bot login as
+  # github-actions. The flow scripts use REST, which gives
+  # github-actions[bot]. Keep each name for its API.
   TRUSTED_COMMENTS_JQ: >-
     def trusted: .authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR" or .author.login == "github-actions"; (.comments[] | select(trusted) | {author: .author.login, association: .authorAssociation, body: .body}), {omitted: ([.comments[] | select(trusted | not)] | length)}
 
@@ -236,10 +238,6 @@ jobs:
             exit 1
           fi
 
-          BASE=$(gh pr view "$PR_NUM" --repo "$REPO" --json baseRefName -q .baseRefName)
-          HEAD_REF=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefName -q .headRefName)
-          TITLE=$(gh pr view "$PR_NUM" --repo "$REPO" --json title -q .title)
-
           # A fork PR must not run here. A pull_request run from a fork gets no
           # secrets, but a workflow_dispatch or issue_comment run does. The
           # fork could then run its own code with them, for example a hook in
@@ -258,26 +256,11 @@ jobs:
             exit 1
           fi
 
-          # BASE, HEAD_REF, and TITLE are attacker-controlled on a fork PR. A
-          # bare `echo "key=$VALUE" >> $GITHUB_OUTPUT` lets a value with a
-          # newline forge another output — including pr_number, which the
-          # checkout step turns into a git ref — because Actions keeps the
-          # LAST assignment of a key. The heredoc form with a random
-          # delimiter is the documented multiline-safe way to emit these.
-          # https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
-          DELIM="ghadelim_$(openssl rand -hex 16)"
+          # Both values are validated above. The step writes no title or
+          # branch name: no later step in this job reads them.
           {
             echo "pr_number=${PR_NUM}"
             echo "head_sha=${HEAD_OID}"
-            echo "base_ref<<${DELIM}"
-            echo "${BASE}"
-            echo "${DELIM}"
-            echo "head_ref<<${DELIM}"
-            echo "${HEAD_REF}"
-            echo "${DELIM}"
-            echo "title<<${DELIM}"
-            echo "${TITLE}"
-            echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout PR
@@ -1468,9 +1451,7 @@ jobs:
             exit 1
           fi
 
-          BASE=$(gh pr view "$PR_NUM" --repo "$REPO" --json baseRefName -q .baseRefName)
           HEAD_REF=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefName -q .headRefName)
-          TITLE=$(gh pr view "$PR_NUM" --repo "$REPO" --json title -q .title)
 
           # A fork PR must not run here. A pull_request run from a fork gets no
           # secrets, but a workflow_dispatch or issue_comment run does. The
@@ -1494,14 +1475,8 @@ jobs:
           {
             echo "pr_number=${PR_NUM}"
             echo "head_sha=${HEAD_OID}"
-            echo "base_ref<<${DELIM}"
-            echo "${BASE}"
-            echo "${DELIM}"
             echo "head_ref<<${DELIM}"
             echo "${HEAD_REF}"
-            echo "${DELIM}"
-            echo "title<<${DELIM}"
-            echo "${TITLE}"
             echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 

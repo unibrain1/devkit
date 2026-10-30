@@ -65,7 +65,9 @@ that opens sets its ref for all projects.
   instructions. Model output goes into a step through `env` only, never into
   `run:` text.
 - **Self-review limit:** a PR that changes `claude-review.yml` gets no
-  Claude review. The Gate passes with a warning. A person reviews it, and
+  Claude review. The Gate passes with a warning. A branch with an old copy
+  of the file fails the Gate as stale: merge `main` into the milestone
+  branch, then update the PR branch. A person reviews it, and
   `unibrain1/devkit-sandbox` is the test path for the change. In a
   milestone, this also applies to each later PR after a `claude-review.yml`
   change merges into the milestone branch, and to the milestone PR. Put
