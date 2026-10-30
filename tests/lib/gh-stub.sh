@@ -17,7 +17,12 @@
 #                       --paginate, as real gh does.
 #   STUB_PR_JSON        JSON file for `gh pr view`.
 #   STUB_MAIN_BLOB      The .sha for `gh api repos/*/contents/*?ref=main`.
-#   STUB_HEAD_BLOB      The .sha for the same call with any other ref.
+#   STUB_HEAD_BLOB      The .sha for the same call with any other ref,
+#                       except $STUB_MERGE_BASE_SHA.
+#   STUB_MERGE_BASE_SHA The .merge_base_commit.sha for
+#                       `gh api repos/*/compare/*`. Empty: the call fails.
+#   STUB_BASE_BLOB      The .sha for a contents call with
+#                       ref=$STUB_MERGE_BASE_SHA.
 #   STUB_GH_FAIL=1      Every call exits 1.
 #   STUB_GH_FAIL_PR_VIEW=1  Only `gh pr view` exits 1.
 #   STUB_REPO           The owner/name that `gh repo view` reports. Default
@@ -101,7 +106,9 @@ case "${positional[0]:-}" in
         case "$endpoint" in
             repos/*/contents/*\?ref=*)
                 ref="${endpoint##*\?ref=}"
-                if [ "$ref" = "main" ]; then
+                if [ -n "${STUB_MERGE_BASE_SHA:-}" ] && [ "$ref" = "$STUB_MERGE_BASE_SHA" ]; then
+                    blob="${STUB_BASE_BLOB:-}"
+                elif [ "$ref" = "main" ]; then
                     blob="${STUB_MAIN_BLOB:-}"
                 else
                     blob="${STUB_HEAD_BLOB:-}"
@@ -111,6 +118,19 @@ case "${positional[0]:-}" in
                     exit 1
                 fi
                 json="$(jq -cn --arg sha "$blob" '{sha: $sha}')"
+                if [ "$has_filter" = "1" ]; then
+                    printf '%s' "$json" | jq -r "$filter"
+                else
+                    printf '%s\n' "$json"
+                fi
+                exit $?
+                ;;
+            repos/*/compare/*)
+                if [ -z "${STUB_MERGE_BASE_SHA:-}" ]; then
+                    echo "gh: simulated compare failure (stub)" >&2
+                    exit 1
+                fi
+                json="$(jq -cn --arg sha "$STUB_MERGE_BASE_SHA" '{merge_base_commit: {sha: $sha}}')"
                 if [ "$has_filter" = "1" ]; then
                     printf '%s' "$json" | jq -r "$filter"
                 else

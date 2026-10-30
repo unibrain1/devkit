@@ -170,10 +170,29 @@ folder, its parent folder, or `HOME`.
 ### When the caller file changes
 
 `claude-code-action` skips the review when the caller file on the PR branch
-is different from the default branch. The `Gate` step then passes with a
-warning, so the PR that edits the caller is not stuck. A person reviews
-that PR. The flow scripts still find no verdict line for it. Edit a caller
-only at a milestone boundary (design section 8).
+is different from the default branch. The `Check workflow match` step in
+each review job finds the cause. It compares the head copy with the copy
+at the merge base of the head and the default branch:
+
+- **The branch or its base branch changed the file** after the split from
+  the default branch. The `Gate` step passes with a warning,
+  so the PR that edits the caller is not stuck. `Post review` posts no
+  note. A person reviews that PR. The flow scripts still find no verdict
+  line for it.
+- **Only the default branch changed the file.** The base branch has an old
+  copy, for example a branch cut from a release tag. `Post review` posts a
+  note, and the `Gate` step fails. To fix it, copy the file from the
+  default branch onto the base branch, then run the review again.
+
+The step checks `claude-review.yml` in the same way. With no execution
+file and no edited or stale result, the action did not run or stopped
+before it started Claude. A failed lookup also gives this result. The
+`Gate` step fails and points to the log of the Claude review step.
+`Post review` posts a note with the run link when the Claude step ran and
+stopped early. When an earlier step failed or the run was cancelled, the
+Claude step was skipped or cancelled, and `Post review` posts no note.
+
+Edit a caller only at a milestone boundary (design section 8).
 
 ### devkit's own caller
 
@@ -187,8 +206,12 @@ devkit has its own `.github/workflows/claude-code-review.yml`. It calls
   (devkit #27). So devkit cannot review a change to its own review. Test
   such a change in `unibrain1/devkit-sandbox`, and a person reviews it.
 
-In both cases the Gate passes with the self-referential guard warning. The secret `CLAUDE_CODE_OAUTH_TOKEN` is set in devkit. A
-fork PR gets no review (see "Fork PRs").
+In both cases, the Gate passes with the self-referential guard warning
+when the branch or its base branch changed the file. So later PRs into a
+milestone branch that has the change also pass with the warning: their
+copy is newer than the default branch, not older. The secret
+`CLAUDE_CODE_OAUTH_TOKEN` is set in devkit. A fork PR gets no review (see
+"Fork PRs").
 
 The devkit caller has no `issue_comment` trigger, so devkit has no
 `@claude deep-review` comment. devkit is public, and CodeQL flags a
@@ -266,7 +289,8 @@ step in `claude-review.yml` and `claude.yml` has no git rule (issue #29). A
 prefix rule such as `Bash(git log:*)` also allows `--output=<file>`, and git
 then writes that file. Text injected into a PR could make Claude write
 `$GITHUB_ENV`. The runner loads that file into each later step in the job.
-In the review jobs, the `Post review` and `Gate` steps hold `GH_TOKEN`. In
+In the review jobs, the `Check workflow match` and `Post review` steps
+hold `GH_TOKEN`. The `Gate` step holds no token. In
 both files, the later steps inside `claude-code-action` v1.0.261 (for
 example `Post buffered inline comments`) hold a GitHub token.
 
