@@ -37,12 +37,14 @@
 #     already removed by a commit on the milestone branch, it pushes the
 #     branch and continues.
 #   - Step 8 skips when the PR is merged.
-#   - Step 10 deletes the local milestone branch with -D only when its tip
-#     is the PR head commit. Else it keeps the branch and prints why. A
-#     failed delete prints a message and does not stop the run.
+#   - Step 8's gh pr merge --delete-branch normally deletes the local
+#     milestone branch. When the branch is still there, Step 10 deletes it
+#     with -D only when its tip is the PR head commit. Else it keeps the
+#     branch and prints why. A failed delete prints a message and does not
+#     stop the run.
 #   - Step 11 skips when the tag exists on the PR's merge commit.
 #   - Step 13 skips when the GitHub release exists.
-#   - Steps 7, 9, 10, 12 and 14 are safe to run again. Step 14 reads the
+#   - Steps 7, 9, 12 and 14 are safe to run again. Step 14 reads the
 #     milestone state back and exits 2 if it is not closed.
 # Step 6 saves the release notes to <plans>/releases/<version>-release-notes.md
 # (a private folder, so it is not committed) before it removes them. Step 13
@@ -74,6 +76,9 @@
 #       .claude/project.md. This script cannot release without them, so it
 #       stops before it changes anything. Also: a `release` value other than
 #       publish or draft. The script stops before it changes anything.
+#       Also: Step 13 finds no saved release notes and no removal commit.
+#       Before Step 6 the same condition gives exit 1. In Step 13 the PR is
+#       already merged, so exit 1 ("nothing changed") does not apply.
 
 # -E: the ERR trap below must also fire for a failure inside run().
 set -Eeuo pipefail
@@ -360,9 +365,13 @@ else
 fi
 
 # --- Step 10: delete local milestone branch, if present ---
-# git branch -d refuses a squash-merged branch, because main does not
-# contain its commits. The PR is merged at this point, so a local tip that
-# is the PR head commit holds no unmerged work, and -D is safe.
+# Step 8's gh pr merge --delete-branch normally deletes the local branch.
+# This step deletes it on a rerun, for example after gh merged the PR but
+# could not delete the local branch. Then gh may also keep the remote
+# branch, and this step does not delete it. git branch -d refuses a
+# squash-merged branch, because main does not contain its commits. The PR
+# is merged at this point, so a local tip that is the PR head commit holds
+# no unmerged work, and -D is safe.
 step "Step 10: delete local milestone branch"
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "[dry-run] git branch -D $BRANCH  # only when its tip is PR_HEAD. Ignored if absent."

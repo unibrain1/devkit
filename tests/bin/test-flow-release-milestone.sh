@@ -56,7 +56,9 @@ cat > "$STUB_EXTRA" <<'STUB'
 # or --draft, from release create), milestone_state, fail_release
 # (present -> release create fails), push_after_merge (present -> one more
 # commit lands on main right after the merge), pr_head (the PR head saved
-# at merge time, after which the branch is gone).
+# at merge time, after which the branch is gone), local_delete_fail
+# (present -> pr merge merges, then fails to delete the local branch and
+# keeps the remote branch, as real gh can).
 # Protection answers: linear_classic (classic protection requires linear
 # history), linear_ruleset (a ruleset requires it), protection_403 (the
 # classic read fails with HTTP 403), not_protected (the classic read fails
@@ -184,7 +186,6 @@ case "$*" in
                 git merge -q --no-ff -m "Merge pull request #$want_pr" "origin/milestone/v9.9.9" || exit 1
             fi
             git push -q origin main || exit 1
-            git push -q origin --delete milestone/v9.9.9 || exit 1
             git rev-parse HEAD > "$S/merge_sha"
             if [ -f "$S/push_after_merge" ]; then
                 echo later > later.txt
@@ -194,7 +195,18 @@ case "$*" in
             fi
         ) || exit 1
         echo "$have_head" > "$S/pr_head"
-        echo MERGED > "$S/pr_state" ;;
+        echo MERGED > "$S/pr_state"
+        # Real gh --delete-branch deletes the local branch first, then the
+        # remote branch. When the local delete fails, gh exits non-zero
+        # after the merge and the remote branch stays.
+        if [ -f "$S/local_delete_fail" ]; then
+            echo "failed to delete local branch milestone/v9.9.9: simulated (stub)" >&2
+            exit 1
+        fi
+        if git rev-parse -q --verify "refs/heads/milestone/v9.9.9" >/dev/null; then
+            git branch -D milestone/v9.9.9 >/dev/null || exit 1
+        fi
+        git --git-dir="$STUB_ORIGIN" update-ref -d "refs/heads/milestone/v9.9.9" || exit 1 ;;
     "api repos/example-org/example-repo/milestones/7 --jq .title")
         echo "v9.9.9: Test milestone" ;;
     "api repos/example-org/example-repo/milestones/7 -X PATCH -f state=closed")
@@ -794,18 +806,30 @@ else
         "output: [$OUTF1B]"
 fi
 
-# --- Case M9: linear, full run -> local milestone branch deleted --------
+# --- Case M9: linear, gh cannot delete the local branch -> Step 10 -D -----
+# gh squash-merges and then fails to delete the local branch, so the first
+# run stops at Step 8 with exit 2. The rerun skips the merge. Step 10 must
+# delete the squash-merged branch, which git branch -d refuses.
 setup_case caseM9
-touch "$STATE/linear_classic"
+touch "$STATE/linear_classic" "$STATE/local_delete_fail"
+run_release "$VERSION" "$PR" "$MS" >/dev/null 2>&1
+STATUSM9A=$?
+BRANCH_LEFTM9A=0
+git -C "$WORK" rev-parse -q --verify "refs/heads/milestone/${VERSION}" >/dev/null && BRANCH_LEFTM9A=1
+rm -f "$STATE/local_delete_fail"
 OUTM9="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
 STATUSM9=$?
+WHYM9="$(check_released)"
 BRANCH_LEFTM9=0
 git -C "$WORK" rev-parse -q --verify "refs/heads/milestone/${VERSION}" >/dev/null && BRANCH_LEFTM9=1
-if [ "$STATUSM9" -eq 0 ] && [ "$BRANCH_LEFTM9" -eq 0 ]; then
-    pass "Case M9: linear, full run -> local milestone branch deleted after the squash"
+if [ "$STATUSM9A" -eq 2 ] && [ "$BRANCH_LEFTM9A" -eq 1 ] && [ "$STATUSM9" -eq 0 ] && [ -z "$WHYM9" ] \
+    && [ "$BRANCH_LEFTM9" -eq 0 ] && [[ "$OUTM9" == *"Deleted branch milestone/${VERSION}"* ]]; then
+    pass "Case M9: linear, gh local delete fails -> rerun Step 10 deletes the squash-merged branch"
 else
-    fail "Case M9: linear, local branch after the squash" "exit: $STATUSM9 (want 0)" \
-        "local branch left: $BRANCH_LEFTM9 (want 0)" "output: [$OUTM9]"
+    fail "Case M9: linear, Step 10 deletes the local branch on the rerun" \
+        "exits: $STATUSM9A $STATUSM9 (want 2 0)" "check: $WHYM9" \
+        "local branch after run 1: $BRANCH_LEFTM9A (want 1), after run 2: $BRANCH_LEFTM9 (want 0)" \
+        "output: [$OUTM9]"
 fi
 
 # --- Case M10: Free plan answers both reads with 403 Upgrade -> --merge ----
@@ -933,7 +957,7 @@ else
 fi
 
 # --- Case M13: local branch has a new commit -> kept on the rerun ----------
-# The first run fails at Step 13, after Step 10 deleted the local branch.
+# The first run fails at Step 13, after gh deleted the local branch.
 # The test then makes a local branch with one extra commit. The rerun must
 # keep it, because the commit is not in the PR.
 setup_case caseM13
@@ -963,12 +987,17 @@ else
 fi
 
 # --- Case M14: git branch -D fails -> message, release goes on -------------
+# gh leaves the local branch (as in M9), so the rerun reaches Step 10.
 setup_case caseM14
+touch "$STATE/local_delete_fail"
+run_release "$VERSION" "$PR" "$MS" >/dev/null 2>&1
+STATUSM14A=$?
+rm -f "$STATE/local_delete_fail"
 OUTM14="$(cd "$WORK" && PATH="$GITSTUBDIR:$STUBDIR:$PATH" FAIL_GIT_BRANCH_D=1 STUB_STATE="$STATE" \
     STUB_ORIGIN="$ORIGIN" "$SCRIPT" "$VERSION" "$PR" "$MS" 2>&1)"
 STATUSM14=$?
 WHYM14="$(check_released)"
-if [ "$STATUSM14" -eq 0 ] && [ -z "$WHYM14" ] \
+if [ "$STATUSM14A" -eq 2 ] && [ "$STATUSM14" -eq 0 ] && [ -z "$WHYM14" ] \
     && [[ "$OUTM14" == *"Could not delete local milestone/${VERSION}"* ]]; then
     pass "Case M14: branch delete fails -> exit 0, message printed, tag and release done"
 else

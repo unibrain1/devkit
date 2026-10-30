@@ -61,7 +61,7 @@ The script reads the branch protection and the rulesets of `main` to choose the 
 
 - `main` requires linear history: a squash merge (`--squash`). `main` gets one commit for each release, so the tag and the commit are one-to-one.
 - `main` does not require linear history: a merge commit (`--merge`).
-- The plan has no branch protection (a private repo on GitHub Free): a merge commit.
+- The GitHub plan of the repo has no branch protection (a private repo on GitHub Free): a merge commit.
 - The script cannot read the branch protection or the rulesets for another reason: it exits 1 and changes nothing. The classic protection read needs admin read access.
 
 The `release` key sets the release type:

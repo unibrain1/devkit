@@ -328,7 +328,7 @@ The script does these steps in this order:
    merge.
 4. It syncs local `main` to `origin/main`.
 5. It merges the PR with `--delete-branch`, and pulls the merge commit.
-6. It deletes the local milestone branch.
+6. It deletes the local milestone branch, if `gh` did not.
 7. It tags the PR's merge commit (from `gh pr view --json mergeCommit`, not
    `HEAD`) with `<version>`, and checks that the tag points at it.
 8. It pushes the tag.
@@ -344,20 +344,24 @@ branch protection and the rulesets for `main`.
   per-issue commits stay on the milestone PR.
 - `main` does not require linear history: the script runs
   `gh pr merge --merge`, a regular merge.
-- The repo has no branch protection on its plan (a private repo on GitHub
-  Free): GitHub answers "Upgrade to GitHub Pro". Such a repo cannot require
-  linear history, so the script runs `gh pr merge --merge`.
+- The GitHub plan of the repo has no branch protection (a private repo on
+  GitHub Free): GitHub answers "Upgrade to GitHub Pro". Such a repo cannot
+  require linear history, so the script runs `gh pr merge --merge`.
 - The script cannot read the branch protection or the rulesets for another
   reason: it exits 1 and changes nothing. The classic protection read needs
   admin read access to the repo. Do not guess a merge method.
 
 `--match-head-commit` and the reviewed-commit checks apply to each method.
 
-After the merge (item 6 above), the script deletes the local milestone
-branch with `git branch -D` when its tip is the PR head commit. A squash
-merge needs `-D`, because `git branch -d` refuses a branch that is not in
-`main`. If the tip is another commit, the script keeps the branch and says
-why. If the delete fails, the script says so and continues.
+The merge (item 5 above) uses `--delete-branch`, so `gh` normally deletes
+the local milestone branch too. If the branch is still there (item 6), for
+example on a rerun after `gh` could not delete it, the script deletes it
+with `git branch -D` when its tip is the PR head commit. A squash merge
+needs `-D`, because `git branch -d` refuses a branch that is not in `main`.
+If the tip is another commit, the script keeps the branch and says why. If
+the delete fails, the script says so and continues. When `gh` could not
+delete the local branch, the remote milestone branch may also remain on
+`origin`. The script does not delete it. Delete it by hand.
 
 If the saved notes copy is missing (item 9 above), the script finds the
 notes removal commit in the history of the PR head commit. It restores the
@@ -378,10 +382,11 @@ The last message of the script says which case applied.
 Exit 0 means every step above completed. Exit 1 means a check stopped the
 run before it changed anything (bad args, closed PR, missing release notes,
 stray local commits on `main`, unreadable branch protection or rulesets —
-the script's own output says which). The script checks local `main`
-before it pushes the notes removal. Every pull is `--ff-only`. Exit 2 means a step failed (merge
-conflict, push rejected, tag on the wrong commit), the `release_notes` or
-`plans` key is absent, or the `release` value is not allowed.
+the script's own output says which). The script checks local `main` before
+it pushes the notes removal. Every pull is `--ff-only`. Exit 2 means a step
+failed (merge conflict, push rejected, tag on the wrong commit), the
+`release_notes` or `plans` key is absent, or the `release` value is not
+allowed.
 
 If the script exits non-zero, report its exact output and stop. Do not
 do the remaining steps by hand. Find the cause from the output, and ask the
