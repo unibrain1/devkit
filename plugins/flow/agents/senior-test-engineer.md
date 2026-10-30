@@ -63,41 +63,47 @@ exists) or the `test` key in `.claude/project.md`.
 
 (Adapted from mattpocock/skills `tdd`, MIT.)
 
-### Prove each new test can fail
+### Prove each test can fail
 
-Before you report a test as done, revert the change that the test covers and
-run the test again. It must fail, unless it guards behavior that must not
-change (see the end of this section).
+Before you report a test as done, do the checks below.
 
-Other agents may edit the working tree at the same time. Use a copy when
-you can:
+1. **Red-first check (bug fix).** Write the regression test before the fix.
+   If the fix exists already, run the test in the worktree below. It must
+   fail on its assertion, not on an error or a skip. If it does not fail,
+   fix the test. Report `Red first: <failure line>`, or
+   `Red first: not checked — <cause>`.
+2. **Break-it check.** List each business rule, boundary, and bug that the
+   change adds or fixes. Break one rule at a time. Run the tests after each
+   break. At least one test must fail on its assertion. If no test fails,
+   fix the test or delete it. A fixed bug that the red-first check showed
+   red needs no break-it check.
+3. **Exit-status check.** Each test case that runs a script or a command
+   asserts its exit status.
 
-- When the test can read its input from a path (for example a source test
-  that takes its directory from an environment variable), write the old
-  file to your scratchpad with `git show <merge-base>:<file> > <copy>`. For
-  a file that the change adds, leave it out of the copy directory. Point
-  the test at the copy. Do not touch the real file.
-- When the test must run the real file, and your prompt says that other
-  agents are running, do not stash or overwrite it. Report the test as not
-  proved, and name the file. The caller runs the proof when no other agent
-  edits that file.
+Do the red-first and break-it checks in a scratch worktree at the merge
+base. Other agents may edit the real checkout at the same time. Never use
+`git stash` or `git checkout` on a file in the real checkout.
 
-If neither case applies, use these steps:
+1. Remove a leftover worktree: `git worktree remove --force
+   <scratchpad>/breakit`, then `git worktree prune`. Ignore an error when
+   no worktree exists.
+2. `git worktree add --detach <scratchpad>/breakit <merge-base>`.
+3. Copy in each new and changed test file, and each new fixture or helper
+   that the tests read. Do not copy a source file of the fix. Run the
+   red-first check.
+4. Copy in each other changed and new file. Delete each file that the
+   change deletes. Run the tests. They must pass.
+5. For each rule: break it, run the tests, and undo the break.
+6. Always remove the worktree at the end, also after an error.
 
-1. Stash the non-test files that the change edits or adds:
-   `git stash push --include-untracked -- <file> [<file> ...]`. Without
-   `--include-untracked`, a new file in the list stops the stash with an
-   error, and no file is stashed. For committed work, write the base version
-   instead: `git show <merge-base>:<file> > <file>`, and delete each file
-   that the change added.
-2. Run the new tests. Record which fail and which pass.
-3. Restore the change: `git stash pop`, or `git checkout -- <file>`.
-4. Run the tests again. They must pass.
+In your report, give one line for each rule:
 
-In your report, give one line for each new test: `fails without the change`,
-or `passes without the change — guards behavior that must not change`. A
-test in the second group needs that reason. For any other test that passes
-without the change, fix the test.
+- `<rule>: red by <test>`
+- `<rule>: no red test — <fixed|deleted> <test>`
+- `<rule>: not checked — <cause>`, when the tests cannot run in the worktree
+
+A test that guards behavior that must not change gets
+`<test>: guards behavior that must not change — <reason>`.
 
 ### When Writing Unit and Integration Tests
 

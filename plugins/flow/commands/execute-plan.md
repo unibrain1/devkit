@@ -299,29 +299,11 @@ defect. Both are cheap to catch here instead of two workflow stages later:
   and throw a generic type error instead of the method's documented
   exception, and only a test that supplies the wrong type (not just the
   absent key) will catch it.
-- **Every new test**: the `flow:senior-test-engineer` must show that each new
-  test fails with the change reverted. A test that passes with the change
-  reverted must guard behavior that must not change, and the report must say
-  so. Do not mark a test item `[x]` until the plan file records the result
-  for each test, in the form `fails without the change` or
-  `passes without the change — <reason>`.
-- **Prove a test can fail on a copy, not on the real file.** When a test
-  can read its input from a path (for example, a source test that takes its
-  directory from an environment variable), the test agent points it at a
-  copy of the old file. When the test must run the real file and another
-  agent runs at the same time, the test agent does not prove it. It reports
-  the test as not proved.
-- **A test the agent could not prove.** Keep its item `[ ]`. When no
-  running agent may edit the file ("One writer per file", Step 5), run the
-  proof yourself:
-  1. Copy the current file to your scratchpad.
-  2. Write the old version over it:
-     `git show <merge-base>:<file> > <file>`. For a file that the change
-     adds, move it to the scratchpad.
-  3. Run the test. Record `fails without the change` or
-     `passes without the change — <reason>` in the plan file.
-  4. Restore the file with `cp` from the scratchpad copy. Check it with
-     `diff` against that copy. Then mark the item `[x]`.
+- **Every new test**: the `flow:senior-test-engineer` applies "Prove each
+  test can fail" in its agent file. Do not mark a test item `[x]` until the
+  plan file records the agent's report lines. A `not checked` line keeps its
+  item `[ ]`. For a bug-fix plan, also write
+  `**Red first:** <failure line>` under `## Bug Escape Analysis`.
 
 Mark the corresponding checklist items `[x]` as each completes.
 
@@ -686,7 +668,11 @@ stamps the fingerprint again when its own run is clean.
 `/flow:review-pr` then hands off to `/flow:commit-push-pr` as plain text.
 
 **For bug-fix plans** (plan file has a Bug Escape Analysis section), remind
-the user to include the escape analysis in the PR description.
+the user to include the escape analysis in the PR description. If the
+section has no `**Red first:**` line, launch `flow:senior-test-engineer` to
+run its red-first check before the hand-off. Write the line that it
+reports. `/flow:commit-push-pr` copies the line into the
+PR body.
 
 **Delete the plan file** once the user confirms the PR is merged and the
 issue is closed (typically during/after `/flow:finish-issue`) — its job (a

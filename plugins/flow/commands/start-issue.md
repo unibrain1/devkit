@@ -430,6 +430,10 @@ Each Explore agent should check the relevant docs (the files in the
 `.claude/rules/` name) only when those areas are plausibly affected — don't
 blanket-read all docs for every issue.
 
+Tell each Explore agent to check each factual claim in the acceptance
+criteria (a path, a list, a count, a current behavior) against the repo, and
+to report each claim that is wrong.
+
 #### For Bug Issues (bug label): Investigate Testing Gaps
 
 Add an escape-analysis question to the Explore prompt: why wasn't this caught by existing
@@ -478,6 +482,9 @@ Skip it when the issue is already well-defined.
 When you do launch the PM agent, provide: issue details, Explore results, and specific
 concerns. Ask it to evaluate: completeness, acceptance criteria gaps, decomposition needs,
 and questions to ask the user.
+
+If an Explore agent reports a wrong claim in the acceptance criteria, ask
+the user about each one in the first round.
 
 After any PM input, interview the user with the **round method** below. Step 7
 uses the same method.
@@ -641,6 +648,8 @@ and your answers. I'll ask clarifying questions as I refine the approach."
    - **Existing Functionality** (from Step 7.1)
    - **Database & Security Considerations** (from Step 7.2)
    - **Architecture & Design** (your plan, informed by Explore/Plan-agent research)
+   - **Classification values** (if the change adds a status, a type, or a
+     set of codes — each value and the action for it)
    - **Implementation Checklist** (see Step 9's format — this is the section
      `/flow:execute-plan` executes against)
    - **Test Plan** (from `flow:senior-test-engineer`, if consulted)
@@ -730,6 +739,9 @@ line are always required.
 
 ## Architecture & Design
 <!-- your approach, alternatives considered, why this one -->
+
+## Classification values
+<!-- if the change adds a classification: each value and the action for it -->
 
 ## Implementation Checklist
 
@@ -850,6 +862,8 @@ criteria that the plan must meet:
   plan is not ready. Add the refused edge cases and nearby work from the
   Step 6 and Step 7 decisions. If you cannot name one, ask the user in a
   round. Never mark a plan approved with an empty `## Not doing`.
+- If the change adds a classification, `## Classification values` lists
+  each value and the action for it.
 - The `**Risk flag:**` line exists and is `yes` or `no`, by the rule above.
   The rule covers every file that the Implementation Checklist names.
 - A `## Deviation` section has each of its items in the Implementation
