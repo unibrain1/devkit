@@ -365,9 +365,23 @@ jobs:
             - Each file in `.claude/rules/` that applies to the changed
               files. List them with the Glob tool, not `ls`.
 
-            Work through this directly yourself — only `Bash`, `Read`,
-            `Grep`, and `Glob` tools are available here, no agent-
-            delegation mechanism.
+            ## Tools
+
+            Work through the tasks yourself. There is no agent delegation,
+            and nothing else will report back to you.
+
+            - Read each file with the `Read` tool. Give it the full path.
+              This includes `${{ runner.temp }}/pr-context/pr.json` and
+              `${{ runner.temp }}/pr-context/comments.jsonl`. The checkout
+              is at `${{ github.workspace }}`.
+            - Search with `Grep`. List files with `Glob`.
+            - Bash runs only `gh pr diff <PR number>`, and any rule that
+              this project adds. Type it as one command, exactly as this
+              prompt shows it. Do not add `cd`, `;`, `&&`, `|`, `>`, or a
+              second command. The allowlist refuses all other Bash
+              commands.
+            - Do not use `cat`, `ls`, `head`, `find`, or `grep` in Bash.
+              Use `Read`, `Glob`, and `Grep`.
 
             ## First: read the conversation so far
 
@@ -970,9 +984,23 @@ jobs:
             - Each file in `.claude/rules/` that applies to the changed
               files. List them with the Glob tool, not `ls`.
 
-            Work through the tasks below yourself. Only `Bash`, `Read`,
-            `Grep`, and `Glob` are available here. There is no agent
-            delegation, and nothing else will report back to you.
+            ## Tools
+
+            Work through the tasks yourself. There is no agent delegation,
+            and nothing else will report back to you.
+
+            - Read each file with the `Read` tool. Give it the full path.
+              This includes `${{ runner.temp }}/pr-context/pr.json` and
+              `${{ runner.temp }}/pr-context/comments.jsonl`. The checkout
+              is at `${{ github.workspace }}`.
+            - Search with `Grep`. List files with `Glob`.
+            - Bash runs only `gh pr diff <PR number>`, and any rule that
+              this project adds. Type it as one command, exactly as this
+              prompt shows it. Do not add `cd`, `;`, `&&`, `|`, `>`, or a
+              second command. The allowlist refuses all other Bash
+              commands.
+            - Do not use `cat`, `ls`, `head`, `find`, or `grep` in Bash.
+              Use `Read`, `Glob`, and `Grep`.
 
             ## First: read the conversation so far
 
@@ -1002,7 +1030,8 @@ jobs:
 
             ## Read the merged issue list
 
-            Read the file `merged-prs.txt` with the Read tool.
+            Read the file `${{ github.workspace }}/merged-prs.txt` with the
+            Read tool.
 
             The file lists issue PRs squash-merged into this milestone
             branch.
@@ -1608,9 +1637,23 @@ jobs:
             - Each file in `.claude/rules/` that applies to the changed
               files. List them with the Glob tool, not `ls`.
 
-            Work through the tasks below yourself. Only `Bash`, `Read`,
-            `Grep`, and `Glob` are available here. There is no agent
-            delegation, and nothing else will report back to you.
+            ## Tools
+
+            Work through the tasks yourself. There is no agent delegation,
+            and nothing else will report back to you.
+
+            - Read each file with the `Read` tool. Give it the full path.
+              This includes `${{ runner.temp }}/pr-context/pr.json` and
+              `${{ runner.temp }}/pr-context/comments.jsonl`. The checkout
+              is at `${{ github.workspace }}`.
+            - Search with `Grep`. List files with `Glob`.
+            - Bash runs only `gh pr diff <PR number>`, and any rule that
+              this project adds. Type it as one command, exactly as this
+              prompt shows it. Do not add `cd`, `;`, `&&`, `|`, `>`, or a
+              second command. The allowlist refuses all other Bash
+              commands.
+            - Do not use `cat`, `ls`, `head`, `find`, or `grep` in Bash.
+              Use `Read`, `Glob`, and `Grep`.
 
             ## First: read the conversation so far
 
@@ -1638,7 +1681,8 @@ jobs:
 
             ## Read the merged PR list
 
-            Read the file `merged-prs.txt` with the Read tool.
+            Read the file `${{ github.workspace }}/merged-prs.txt` with the
+            Read tool.
 
             For a milestone PR, the file lists the issue PRs merged into the milestone branch. For another PR, it says that there is no list. Then skip the checks that need the list.
 
