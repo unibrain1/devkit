@@ -2,9 +2,9 @@
 #
 # Tests the tool rules in the review prompts of claude-review.yml (issue
 # #54). --allowedTools lets Bash run only "gh pr diff". A prompt that only
-# says "Bash, Read, Grep, and Glob are available" leads the model to "cd",
-# ";", pipes, and "cat", and the allowlist refuses each one. The review then
-# runs with less input and the Gate still passes.
+# says "Bash, Read, Grep, and Glob are available" can make the model run
+# "cd", chained commands, pipes, and "cat". The allowlist refuses each one.
+# The review then runs with less input, and the Gate still passes.
 #
 # So each Claude step prompt must have the ## Tools block: Read with a full
 # path for each file, PR context files included, Grep and Glob to search,
@@ -27,19 +27,21 @@ WORKFLOW_DIR="${WORKFLOW_DIR:-$REAL_REPO/.github/workflows}"
 REVIEW="$WORKFLOW_DIR/claude-review.yml"
 
 # check_file <file>
-# Prints "<file>:<line> <reason>" for each problem in a claude-code-action
-# step:
+# Prints one line for each problem in a claude-code-action step. Each line
+# starts with "<file>:<line>":
 #   - The prompt lacks a phrase of the ## Tools block. The check uses the
 #     prompt with each line break and its indent as one space, so a re-wrap
 #     does not split a phrase.
 #   - The prompt has the old "are available here" text.
-#   - A prompt line with "gh pr diff" is not the bare command
-#     "gh pr diff ${{ <expression> }}", other than the "Bash runs only"
-#     line and the allowlist lines. Or the prompt has no bare "gh pr diff" example, so "exactly as
-#     this prompt shows it" points at nothing.
+#   - A line in the file with "gh pr diff" is not the bare command
+#     "gh pr diff ${{ <expression> }}". The "Bash runs only" line and the
+#     allowlist lines are not checked.
+#   - The prompt has no bare "gh pr diff" example, so "exactly as this
+#     prompt shows it" points at nothing.
 #   - The prompt names merged-prs.txt with no workspace path.
-# It also prints a problem when the file has fewer or more than 3 Claude
-# steps. A step ends at the next step ("      - ") or the next job.
+# It also prints "<file>: found N Claude steps" when the file has fewer or
+# more than 3 Claude steps. A step ends at the next step ("      - ") or
+# the next job.
 check_file() {
     awk -v file="$1" '
         function need(text) {
@@ -57,6 +59,7 @@ check_file() {
             need("Bash runs only `gh pr diff <PR number>`")
             need("Type it as one command, exactly as this prompt shows it.")
             need("Do not add `cd`, `;`, `&&`, `|`, `>`, or a second command.")
+            need("The allowlist refuses all other Bash commands.")
             need("Do not use `cat`, `ls`, `head`, `find`, or `grep` in Bash.")
             if (!examples)
                 print file ":" c " Claude step has no bare gh pr diff example"
@@ -86,60 +89,73 @@ check_file() {
 
 TMPROOT="$(mktemp -d)"
 
+# An awk error writes only to stderr. So the check keeps stderr and treats a
+# non-zero exit as a problem, or a broken awk program would pass.
+# run_check <file>: sets $problems to the check output, or to the error.
+run_check() {
+    if ! problems="$(check_file "$1" 2>&1)"; then
+        problems="check_file failed: ${problems:-no output}"
+    fi
+    details=()
+    while IFS= read -r p; do details+=("$p"); done <<< "$problems"
+}
+
 label="each review prompt has the tool rules and bare gh pr diff examples"
 if [ ! -f "$REVIEW" ]; then
     fail "$label" "no file $REVIEW"
 else
-    problems="$(check_file "$REVIEW")"
+    run_check "$REVIEW"
     if [ -z "$problems" ]; then
         pass "$label"
     else
-        details=()
-        while IFS= read -r p; do details+=("$p"); done <<< "$problems"
         fail "$label" "${details[@]}"
     fi
 fi
 
 # Each fixture is a copy of the workflow with one defect. The check must
-# report each one, or it could pass on a prompt with the defect.
-# defect <name> <sed expression>: writes the fixture and checks it.
+# report each one with the reason that belongs to it. A fixture can also
+# trip another check, so any output alone does not prove the check works.
+# defect <name> <reason> <sed expression>: writes the fixture and checks it.
 defect() {
-    sed "$2" "$REVIEW" > "$TMPROOT/$1.yml"
-    check_fixture "$1"
+    sed "$3" "$REVIEW" > "$TMPROOT/$1.yml"
+    check_fixture "$1" "$2"
 }
+# check_fixture <name> <reason>
 check_fixture() {
     label="the check reports a fixture with $1"
-    if [ -n "$(check_file "$TMPROOT/$1.yml")" ]; then
-        pass "$label"
-    else
-        fail "$label" "check_file printed nothing"
-    fi
+    run_check "$TMPROOT/$1.yml"
+    case "$problems" in
+        "check_file failed:"*) fail "$label" "${details[@]}" ;;
+        *"$2"*) pass "$label" ;;
+        "") fail "$label" "check_file did not print: $2" "it printed nothing" ;;
+        *) fail "$label" "check_file did not print: $2" "it printed:" "${details[@]}" ;;
+    esac
 }
 # shellcheck disable=SC2016 # the sed expressions match literal workflow text
 if [ -f "$REVIEW" ]; then
-    defect "no Tools block" 's/## Tools/## Notes/'
-    defect "the old tool text" 's/^            ## Tools$/            Only `Bash`, `Read`, `Grep`, and `Glob` are available here./'
-    defect "a gh pr diff pipe" 's/^\( *gh pr diff \${{ [a-z_.]* }}\)$/\1 | head/'
-    defect "a cd before gh pr diff" 's/^\( *\)\(gh pr diff \${{ [a-z_.]* }}\)$/\1cd \/tmp; \2/'
-    defect "a bare merged-prs.txt path" 's/`${{ github.workspace }}\/merged-prs.txt`/`merged-prs.txt`/'
-    defect "no runner.temp path" 's/This includes `${{ runner.temp }}/This includes `/'
+    defect "no Tools block" "lacks: ## Tools" 's/## Tools/## Notes/'
+    defect "the old tool text" "old are-available-here text" 's/^            ## Tools$/            Only `Bash`, `Read`, `Grep`, and `Glob` are available here./'
+    defect "a gh pr diff pipe" "is not one bare command" 's/^\( *gh pr diff \${{ [a-z_.]* }}\)$/\1 | head/'
+    defect "a cd before gh pr diff" "is not one bare command" 's/^\( *\)\(gh pr diff \${{ [a-z_.]* }}\)$/\1cd \/tmp; \2/'
+    defect "a bare merged-prs.txt path" "no workspace path" 's/`${{ github.workspace }}\/merged-prs.txt`/`merged-prs.txt`/'
+    defect "no runner.temp path" "lacks: This includes" 's/This includes `${{ runner.temp }}/This includes `/'
     # Only the second prompt loses its Tools block. The check must look at
     # each prompt, not at the file as a whole.
     awk '/^            ## Tools$/ && ++n == 2 { sub(/## Tools/, "## Notes") } { print }' \
         "$REVIEW" > "$TMPROOT/one prompt with no Tools block.yml"
-    check_fixture "one prompt with no Tools block"
-    defect "no gh pr diff example" '/^ *gh pr diff \${{ [a-z_.]* }}$/d'
+    check_fixture "one prompt with no Tools block" "lacks: ## Tools"
+    defect "no gh pr diff example" "no bare gh pr diff example" '/^ *gh pr diff \${{ [a-z_.]* }}$/d'
     # Only the second prompt loses its example, so the count must reset at
     # each step.
     awk '/^ *gh pr diff \$\{\{ [a-z_.]* \}\}$/ && ++n == 2 { next } { print }' \
         "$REVIEW" > "$TMPROOT/one prompt with no gh pr diff example.yml"
-    check_fixture "one prompt with no gh pr diff example"
+    check_fixture "one prompt with no gh pr diff example" "no bare gh pr diff example"
     # A new step with only a uses: line, before the first Claude step.
     awk '/^      - name: Run Claude Issue-Level Review$/ {
         print "      - name: Extra Claude step"
         print "        uses: anthropics/claude-code-action@x"
     } { print }' "$REVIEW" > "$TMPROOT/a fourth Claude step.yml"
-    check_fixture "a fourth Claude step"
+    check_fixture "a fourth Claude step" "found 4 Claude steps"
 fi
 
 harness_report

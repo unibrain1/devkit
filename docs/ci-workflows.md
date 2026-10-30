@@ -173,23 +173,30 @@ folder, its parent folder, or `HOME`.
 
 `--allowedTools` lets Bash run only `gh pr diff` (and the rules in
 `extra_allowed_tools`). The model does not know this unless the prompt
-says it. A prompt that only lists the tools leads the model to `cd`, `;`,
-pipes, and `cat`. The allowlist refuses each of these calls, and the review
-then runs with less input (issue #54).
+says it. A prompt that only lists the tools can make the model run `cd`,
+chained commands, pipes, and `cat`. The allowlist refuses each of these
+calls, and the review then runs with less input (issue #54).
 
 So each review prompt has the same `## Tools` block:
 
 - `Read` opens each file, with a full path. This includes `pr.json` and
-  `comments.jsonl` in `$RUNNER_TEMP/pr-context`, and `merged-prs.txt` in
-  the workspace.
+  `comments.jsonl` in `$RUNNER_TEMP/pr-context`.
 - `Grep` searches, and `Glob` lists files.
-- Bash runs only the bare `gh pr diff <n>` command that the prompt shows,
+- Bash runs only the bare `gh pr diff <PR number>` command that the prompt shows,
   with no `cd`, `;`, `&&`, `|`, `>`, or second command.
+
+The milestone and deep-review prompts also read `merged-prs.txt`. Their
+"Read the merged ... list" section gives its full workspace path.
 
 The `Gate` step prints a `Refused:` warning for each tool call that the
 allowlist refused. The warning has the tool name and the first 3 words of
-the command. A review with a `Refused:` warning may have run
-with less input than the prompt expects.
+the command. A review with a `Refused:` warning may have run with less
+input than the prompt expects.
+
+`tests/workflows/test-review-gate-refused.sh` runs the jq filter of each
+`Gate` step on a fake execution file. It checks one warning line for each
+refused call. It also checks that the warning keeps only the first line
+of the command, and only its first 3 words.
 
 `tests/workflows/test-review-prompt-tools.sh` checks the `## Tools` block in
 each prompt. It also checks that each prompt has a `gh pr diff` example, and

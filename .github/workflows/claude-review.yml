@@ -378,8 +378,8 @@ jobs:
             - Bash runs only `gh pr diff <PR number>`, and any rule that
               this project adds. Type it as one command, exactly as this
               prompt shows it. Do not add `cd`, `;`, `&&`, `|`, `>`, or a
-              second command. The allowlist refuses each other Bash
-              command.
+              second command. The allowlist refuses all other Bash
+              commands.
             - Do not use `cat`, `ls`, `head`, `find`, or `grep` in Bash.
               Use `Read`, `Glob`, and `Grep`.
 
@@ -997,8 +997,8 @@ jobs:
             - Bash runs only `gh pr diff <PR number>`, and any rule that
               this project adds. Type it as one command, exactly as this
               prompt shows it. Do not add `cd`, `;`, `&&`, `|`, `>`, or a
-              second command. The allowlist refuses each other Bash
-              command.
+              second command. The allowlist refuses all other Bash
+              commands.
             - Do not use `cat`, `ls`, `head`, `find`, or `grep` in Bash.
               Use `Read`, `Glob`, and `Grep`.
 
@@ -1650,8 +1650,8 @@ jobs:
             - Bash runs only `gh pr diff <PR number>`, and any rule that
               this project adds. Type it as one command, exactly as this
               prompt shows it. Do not add `cd`, `;`, `&&`, `|`, `>`, or a
-              second command. The allowlist refuses each other Bash
-              command.
+              second command. The allowlist refuses all other Bash
+              commands.
             - Do not use `cat`, `ls`, `head`, `find`, or `grep` in Bash.
               Use `Read`, `Glob`, and `Grep`.
 
