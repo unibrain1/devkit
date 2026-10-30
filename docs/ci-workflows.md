@@ -157,9 +157,12 @@ The workflow does not check `extra_allowed_tools` yet (issue #40).
 
 `tests/workflows/test-review-comment-trust.sh` checks the env key, the
 fetch step before each Claude step, the file reads and trust text in each
-prompt, and the exact `--allowedTools` of each job. It runs the jq on
-fixture comments. It also runs each fetch step with a fake `gh` and checks
-the files that the step writes.
+prompt, and the exact `--allowedTools` of each job. The fetch step and the
+Claude step must have no `if:` and no `continue-on-error`, so the model
+does not run after a failed fetch. The test runs the jq on fixture
+comments. It also runs each fetch step with a fake `gh` and checks the
+files that the step writes. The step must write nothing in the work
+folder, its parent folder, or `HOME`.
 
 ### When the caller file changes
 

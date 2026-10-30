@@ -43,16 +43,20 @@ name: Claude Code Review
 #   `blocking` finding to be verified, not suspected. An unconfirmed
 #   suspicion is an `important` finding, with a note on what could not be
 #   checked. Each prompt reads existing PR comments first, so a settled
-#   finding is not re-raised. The Fetch PR context step reads the comments
-#   with the jq filter in TRUSTED_COMMENTS_JQ. The filter keeps only OWNER,
-#   MEMBER, and COLLABORATOR comments and comments from github-actions,
-#   which include the reviewer's own reviews. The step writes them to
-#   $RUNNER_TEMP/pr-context/comments.jsonl, one JSON line each, with the
-#   authorAssociation. The model gets only a count of the other comments.
-#   By default, it has no tool that reads PR comments. So their text
-#   cannot argue against a finding (issue #30). The pre-merge commands also
-#   treat an `important` finding as blocking, so a prompt files a settled
-#   item, an accepted risk, or a reminder as `note` (Registry #2416).
+#   finding is not re-raised. The pre-merge commands also treat an
+#   `important` finding as blocking, so a prompt files a settled item, an
+#   accepted risk, or a reminder as `note` (Registry #2416).
+#
+# Comment trust (issue #30):
+#   Any GitHub user can comment on a public PR. The Fetch PR context step
+#   reads the comments with the jq filter in TRUSTED_COMMENTS_JQ. The filter
+#   keeps only OWNER, MEMBER, and COLLABORATOR comments and comments from
+#   github-actions, which include the reviewer's own reviews. The step
+#   writes them to $RUNNER_TEMP/pr-context/comments.jsonl, one JSON line
+#   each, with the authorAssociation. The model gets only a count of the
+#   other comments. By default, it has no tool that reads PR comments. So
+#   their text cannot argue against a finding. The full design is in
+#   docs/ci-workflows.md, "Comment trust".
 #
 # Posting mechanism (Registry #2506):
 #   Each review job passes --json-schema. Claude returns the review as
@@ -106,8 +110,9 @@ name: Claude Code Review
 # quoted spelling of that flag. allowedTools has no `gh pr view` and no
 # `gh pr list` (issue #30). Each one can print every PR comment, also the
 # comments that TRUSTED_COMMENTS_JQ leaves out. A caller must not add them,
-# or another tool that reads PR comments, with extra_allowed_tools. Nothing
-# checks that input yet (issue #40).
+# or another tool that reads PR comments, with extra_allowed_tools. The list
+# of such tools is in docs/ci-workflows.md, "Comment trust". Nothing checks
+# that input yet (issue #40).
 
 on:
   workflow_call:
@@ -135,7 +140,7 @@ on:
         type: string
         default: claude-fable-5-1
       extra_allowed_tools:
-        description: "Comma-separated tools to add to --allowedTools. Do not add a tool that reads PR comments, for example Bash(gh pr view:*) or Bash(gh api:*)"
+        description: "Comma-separated tools to add to --allowedTools. Do not add a tool that reads PR comments, for example Bash(gh pr view:*) or Bash(gh api:*). The full list is in docs/ci-workflows.md, Comment trust"
         required: false
         type: string
         default: ""
