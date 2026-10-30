@@ -169,6 +169,32 @@ comments. It also runs each fetch step with a fake `gh` and checks the
 files that the step writes. The step must write nothing in the work
 folder, its parent folder, or `HOME`.
 
+### Tools in the review prompts
+
+`--allowedTools` lets Bash run only `gh pr diff` (and the rules in
+`extra_allowed_tools`). The model does not know this unless the prompt
+says it. A prompt that only lists the tools leads the model to `cd`, `;`,
+pipes, and `cat`. The allowlist refuses each of these calls, and the review
+then runs with less input (issue #54).
+
+So each review prompt has the same `## Tools` block:
+
+- `Read` opens each file, with a full path. This includes `pr.json` and
+  `comments.jsonl` in `$RUNNER_TEMP/pr-context`, and `merged-prs.txt` in
+  the workspace.
+- `Grep` searches, and `Glob` lists files.
+- Bash runs only the bare `gh pr diff <n>` command that the prompt shows,
+  with no `cd`, `;`, `&&`, `|`, `>`, or second command.
+
+The `Gate` step prints a `Refused:` warning for each tool call that the
+allowlist refused. The warning has the tool name and the first 3 words of
+the command. A review with a `Refused:` warning may have run
+with less input than the prompt expects.
+
+`tests/workflows/test-review-prompt-tools.sh` checks the `## Tools` block in
+each prompt. It also checks that each prompt has a `gh pr diff` example, and
+that each example is the bare command. It cannot check what the model does.
+
 ### When the caller file changes
 
 `claude-code-action` skips the review when the caller file on the PR branch
@@ -214,6 +240,8 @@ devkit has its own `.github/workflows/claude-code-review.yml`. It calls
   reusable workflow in the same repo to match the default branch
   (devkit #27). So devkit cannot review a change to its own review. Test
   such a change in `unibrain1/devkit-sandbox`, and a person reviews it.
+  In the sandbox run, the `Gate` must show no `Refused:` warning (see
+  "Tools in the review prompts").
 
 In both cases, the Gate passes with the self-referential guard warning
 when the branch or its base branch changed the file. So later PRs into a
