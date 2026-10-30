@@ -207,12 +207,9 @@ Launch `flow:software-developer` agents per Step 4's grouping. Provide each agen
   review round.
 
 **One writer per file.** Two agents that run at the same time must not
-edit the same file. This includes the temporary edits that prove a test
-can fail (Step 6). Before you launch an agent, list the files it may edit.
+edit the same file. Before you launch an agent, list the files it may edit.
 If another running agent may edit one of them, wait for that agent or give
-both items to one agent. When you launch a test agent while another agent
-runs, write in its prompt: "Other agents are running. Do not stash or
-overwrite a file to prove a test."
+both items to one agent.
 
 **Model override by tier** (infer tier from the plan file's scope — number of
 checklist items and files touched, same Small/Medium/Large bands
@@ -302,8 +299,9 @@ defect. Both are cheap to catch here instead of two workflow stages later:
 - **Every new test**: the `flow:senior-test-engineer` applies "Prove each
   test can fail" in its agent file. Do not mark a test item `[x]` until the
   plan file records the agent's report lines. A `not checked` line keeps its
-  item `[ ]`. For a bug-fix plan, also write
-  `**Red first:** <failure line>` under `## Bug Escape Analysis`.
+  item `[ ]`. For a bug-fix plan, also write the agent's red-first result
+  as `**Red first:** <failure line>` or `**Red first:** not checked —
+  <cause>` under `## Bug Escape Analysis`.
 
 Mark the corresponding checklist items `[x]` as each completes.
 
@@ -637,8 +635,15 @@ the line is still in the ledger file, delete it now (Step 5, "Ledger
 items"). Mark a ledger item N/A with the same marker, leave it `[ ]`, and
 leave its line in the ledger file.
 
+**Red first.** If the plan has a `## Bug Escape Analysis` section and no
+`**Red first:**` line, launch `flow:senior-test-engineer` to run its
+red-first check. Write its result as `**Red first:** <failure line>` or
+`**Red first:** not checked — <cause>`, at the start of its own line.
+`/flow:commit-push-pr` copies the line into the PR body.
+
 **Stale fingerprint.** If this step changed any tracked file (the work from
-`Do the work now`, or a ledger line deleted), delete the plan file's
+`Do the work now`, a test that the red-first check fixed, or a ledger line
+deleted), delete the plan file's
 `Review fingerprint:` line. The Step 7 lanes did not see that change, so
 `/flow:review-pr` runs all of its lanes. A change to the plan file alone does
 not count: the plan file is git-ignored.
@@ -668,11 +673,7 @@ stamps the fingerprint again when its own run is clean.
 `/flow:review-pr` then hands off to `/flow:commit-push-pr` as plain text.
 
 **For bug-fix plans** (plan file has a Bug Escape Analysis section), remind
-the user to include the escape analysis in the PR description. If the
-section has no `**Red first:**` line, launch `flow:senior-test-engineer` to
-run its red-first check before the hand-off. Write the line that it
-reports. `/flow:commit-push-pr` copies the line into the
-PR body.
+the user to include the escape analysis in the PR description.
 
 **Delete the plan file** once the user confirms the PR is merged and the
 issue is closed (typically during/after `/flow:finish-issue`) — its job (a

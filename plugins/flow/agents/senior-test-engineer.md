@@ -88,13 +88,20 @@ base. Other agents may edit the real checkout at the same time. Never use
    <scratchpad>/breakit`, then `git worktree prune`. Ignore an error when
    no worktree exists.
 2. `git worktree add --detach <scratchpad>/breakit <merge-base>`.
-3. Copy in each new and changed test file, and each new fixture or helper
-   that the tests read. Do not copy a source file of the fix. Run the
-   red-first check.
-4. Copy in each other changed and new file. Delete each file that the
-   change deletes. Run the tests. They must pass.
-5. For each rule: break it, run the tests, and undo the break.
-6. Always remove the worktree at the end, also after an error.
+3. Copy in each changed and new file. Delete each file that the change
+   deletes. Run the tests. They must pass.
+4. Make sure that the tests run the worktree files. In the worktree, make
+   one changed source file fail at its start, run its tests, and undo the
+   break. If no test
+   fails, report the red-first check and each rule as
+   `not checked — tests do not run in the worktree`. Fix or delete no test.
+   Go to step 7.
+5. For a bug fix only (otherwise go to step 6): in the worktree, set each
+   source file of the fix back to the merge
+   base, and delete each source file that the fix adds. Run the red-first
+   check. Then copy the fix files in again.
+6. For each rule: break it, run the tests, and undo the break.
+7. Always remove the worktree at the end, also after an error.
 
 In your report, give one line for each rule:
 
