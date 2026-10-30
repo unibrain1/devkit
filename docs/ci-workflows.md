@@ -32,7 +32,7 @@ A Claude Code review on a pull request, and on demand from a comment.
 | `review_model` | string | `claude-sonnet-5-5` | Model for `pr-to-milestone-review`. |
 | `review_effort` | string | `medium` | Effort for `pr-to-milestone-review`. |
 | `milestone_model` | string | `claude-fable-5-1` | Model for `milestone-review` and `comment-deep-review`. |
-| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. Do not add a git rule (see "No git read commands for Claude"). |
+| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. Do not add a git rule (see "No git read commands for Claude"). Do not add a tool that reads PR comments, for example `Bash(gh pr view:*)` or `Bash(gh api:*)` (see "Comment trust"). |
 | `extra_instructions` | string | `""` | Text added to each prompt, under the heading "Project instructions". |
 
 ### Secret
@@ -86,6 +86,86 @@ so the review cannot run there either. A person reviews a fork PR.
 
 These jobs check out the head SHA that they resolve at the start, not the
 moving PR ref.
+
+### Comment trust
+
+Each review prompt reads the earlier PR comments before it reviews, so
+that a settled finding does not come back. On a public repo, any GitHub
+user can comment on a PR. A rebuttal from that user could make the reviewer
+drop a valid finding (issue #30).
+
+The model does not fetch the comments. In each review job, a
+"Fetch PR context" step runs before the Claude step. It writes two files
+to `$RUNNER_TEMP/pr-context/`:
+
+- `pr.json` — the PR title, base branch, and head branch.
+- `comments.jsonl` — the trusted comments. A jq filter selects them.
+
+The prompt tells the reviewer to read these files. The step gets the PR
+number through `env`. It makes one `gh pr view` call and keeps the raw
+JSON in a shell variable, not in a file, so the model cannot read the
+untrusted comments. If the `gh` call fails, the step fails, and the review
+does not run.
+
+The jq filter is in the workflow-level `env:` key `TRUSTED_COMMENTS_JQ`, so
+the three jobs use the same filter:
+
+```sh
+printf '%s' "$RAW" | jq -c '
+  def trusted: .authorAssociation == "OWNER"
+    or .authorAssociation == "MEMBER"
+    or .authorAssociation == "COLLABORATOR"
+    or .author.login == "github-actions";
+  (.comments[] | select(trusted)
+    | {author: .author.login, association: .authorAssociation, body: .body}),
+  {omitted: ([.comments[] | select(trusted | not)] | length)}'
+```
+
+The workflow has this jq on one line. The model never reads the text of
+the other comments. A trusted comment is one of these:
+
+- A comment with the association `OWNER`, `MEMBER`, or `COLLABORATOR`.
+- A comment from `github-actions`. The reviewer's own earlier reviews are
+  in this group. The Post review step posts them as `github-actions`, and
+  GitHub gives them the association `NONE`. Another workflow that posts
+  with `GITHUB_TOKEN` also posts as `github-actions`, so the filter trusts
+  its comments too (issue #39).
+
+The step writes one JSON line for each trusted comment. jq escapes the
+comment body, so a body cannot add a fake comment header. The last line is
+`{"omitted": N}`, the number of other comments. The prompt tells the
+reviewer that this number is a count, not evidence.
+
+The step reads only issue comments on the PR. It does not read review
+bodies or replies in review threads. So a rebuttal counts only when a
+trusted person posts it as a PR comment.
+
+To rebut a finding, post the rebuttal as a normal PR comment. Do not post
+it as a reply in a review thread, because the reviewer does not see it.
+
+The review jobs give the model no tool that reads PR comments. Their
+`--allowedTools` has no `Bash(gh pr view:*)` and no `Bash(gh pr list:*)`.
+`gh pr view <n> --comments` and `gh pr list --json comments` print every
+comment, also the untrusted ones.
+
+Do not add a tool that reads PR comments with `extra_allowed_tools`. If you
+do, the filter no longer stops the untrusted text. These tools read PR
+comments:
+
+- `Bash(gh pr view:*)`, `Bash(gh pr list:*)`, and `Bash(gh issue view:*)`
+- `Bash(gh api:*)` and `Bash(gh:*)`
+- `WebFetch`, and a GitHub MCP tool that reads issues or PRs
+
+The workflow does not check `extra_allowed_tools` yet (issue #40).
+
+`tests/workflows/test-review-comment-trust.sh` checks the env key, the
+fetch step before each Claude step, the file reads and trust text in each
+prompt, and the exact `--allowedTools` of each job. The fetch step and the
+Claude step must have no `if:` and no `continue-on-error`, so the model
+does not run after a failed fetch. The test runs the jq on fixture
+comments. It also runs each fetch step with a fake `gh` and checks the
+files that the step writes. The step must write nothing in the work
+folder, its parent folder, or `HOME`.
 
 ### When the caller file changes
 
@@ -195,8 +275,9 @@ matcher read the command text before the shell removed the quotes. So
 `git log --'output'=<file>` passed a `Bash(git * --out*)` rule. The
 [probe result](https://github.com/unibrain1/devkit/issues/29#issuecomment-6504295158)
 is in issue #29, with Claude Code 2.1.312 and git 2.56.0. The review
-prompts use `gh pr diff` and `gh pr view`, and Claude reads full files with
-`Read`, `Grep`, and `Glob`.
+prompts use `gh pr diff` and read the files of the Fetch PR context step
+(see "Comment trust"). Claude reads full files with `Read`, `Grep`, and
+`Glob`.
 
 The `@claude` step in `claude.yml` runs in tag mode. By default, tag mode
 in `claude-code-action` v1.0.261 adds its own rules: `Bash(git add:*)`,
