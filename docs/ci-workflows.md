@@ -22,7 +22,7 @@ A Claude Code review on a pull request, and on demand from a comment.
 | --- | --- |
 | `pr-to-milestone-review` | Every push to a PR into a milestone branch, or an ad hoc PR straight to the default branch. Also `workflow_dispatch`. |
 | `milestone-review` | A milestone PR into the default branch, on open, ready for review, or the `deep-review` label. |
-| `comment-deep-review` | A `@claude deep-review` comment from the repo owner (OWNER) or a collaborator (COLLABORATOR). |
+| `comment-deep-review` | A `@claude deep-review` comment from the repo owner (OWNER), an org member (MEMBER), or a collaborator (COLLABORATOR). |
 
 ### Inputs
 

@@ -14,13 +14,13 @@ name: Claude Code Review
 #                              default branch, on open / ready_for_review /
 #                              the deep-review label.
 #   comment-deep-review     : deep review on demand, from a
-#                              "@claude deep-review" PR comment by OWNER or
-#                              COLLABORATOR.
+#                              "@claude deep-review" PR comment by OWNER,
+#                              MEMBER, or COLLABORATOR.
 #
 # pr-to-milestone-review skips PR titles with [skip-review] or [WIP].
 # milestone-review skips [skip-review] titles and drafts. comment-deep-review
-# runs on each request from an OWNER or COLLABORATOR. Dependabot PRs are
-# skipped: claude-code-action rejects bot actors unless listed in
+# runs on each request from an OWNER, MEMBER, or COLLABORATOR. Dependabot
+# PRs are skipped: claude-code-action rejects bot actors unless listed in
 # allowed_bots, and a Dependabot-triggered run gets only Dependabot secrets,
 # so CLAUDE_CODE_OAUTH_TOKEN is empty there (Registry #1937, Registry #1938).
 #
@@ -1446,8 +1446,10 @@ jobs:
           exit 1
 
   # On-demand deep review from a "@claude deep-review" comment, gated to
-  # OWNER or COLLABORATOR. Uses the same depth and model as
-  # milestone-review, and the same posting, verdict, and gate.
+  # OWNER, MEMBER, or COLLABORATOR. On a repo that an organization owns,
+  # GitHub reports an org member's comment as MEMBER, not OWNER (issue #55).
+  # Uses the same depth and model as milestone-review, and the same
+  # posting, verdict, and gate.
   comment-deep-review:
     if: |
       github.event_name == 'issue_comment' &&
@@ -1455,6 +1457,7 @@ jobs:
       contains(github.event.comment.body, '@claude deep-review') &&
       (
         github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'
       )
     runs-on: ubuntu-latest

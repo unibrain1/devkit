@@ -477,7 +477,7 @@ jobs:
   <li>Devkit keeps Registry's rule to pin third-party actions to full SHAs. Dependabot in devkit bumps them one time for all repos.</li>
   <li>The review workflow keeps Registry's fork-safety rules (#1688) and its Dependabot skip.</li>
   <li>Each repo names its review caller <code>.github/workflows/claude-code-review.yml</code>, the same name as today. The flow scripts use this name. The reusable workflow gets the caller path from <code>github.workflow_ref</code>, so it names no file.</li>
-  <li>The review has three jobs: <code>pr-to-milestone-review</code> for issue PRs and ad hoc PRs, <code>milestone-review</code> for <code>milestone/*</code> to <code>main</code> or the <code>deep-review</code> label, and <code>comment-deep-review</code> for a "@claude deep-review" comment from OWNER or COLLABORATOR.</li>
+  <li>The review has three jobs: <code>pr-to-milestone-review</code> for issue PRs and ad hoc PRs, <code>milestone-review</code> for <code>milestone/*</code> to <code>main</code> or the <code>deep-review</code> label, and <code>comment-deep-review</code> for a "@claude deep-review" comment from OWNER, MEMBER, or COLLABORATOR.</li>
   <li>The CI workflows do not load <code>flow</code>. The prompts read CLAUDE.md, <code>.claude/project.md</code>, and <code>.claude/rules/</code>. Two optional inputs hold project additions, both empty by default: <code>extra_allowed_tools</code> in both Claude workflows, and <code>extra_instructions</code> in <code>claude-review.yml</code> only. In <code>claude-code-action</code> v1.0.261, tag mode takes no added text, so project text for @claude goes in CLAUDE.md or <code>.claude/rules/</code>.</li>
 </ul>
 
