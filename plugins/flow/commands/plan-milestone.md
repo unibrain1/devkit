@@ -71,6 +71,42 @@ no earlier work, say nothing and continue.
 Create one tracking task per step below (signal review, theme, gate,
 seal, output) via TaskCreate.
 
+## Step 0b: Check the version
+
+Do this before Step 1, so that a bad version stops the command before any
+GitHub or git change. Check the version form, and check that the version is
+newer than the last release tag. Keep the quotes: an extra word in
+`$ARGUMENTS` then makes the form check fail, and it does not replace the
+last tag.
+
+```bash
+flow-check-version-newer "$ARGUMENTS"
+```
+
+- **Exit 0** — continue.
+- **Exit 1** — stop. Tell the user: "`$ARGUMENTS` is not newer than the last
+  tag `<last tag>`. Type the command again with a newer version." The
+  script's stderr names the last tag.
+- **Exit 2** — read stderr:
+  1. `Could not parse candidate version` — stop. Tell the user:
+     "`$ARGUMENTS` is not a milestone version. Use the form
+     `vX.Y.Z` or `vX.Y.Z.N`, for example `v2.17.0`, or `v2.17.0.1` for a
+     patch release. Then type the command again."
+  2. `git describe --tags --abbrev=0 failed` — run
+     `git fetch origin --tags`, then run the check again. If it fails
+     again and `git tag --list 'v*'` prints nothing, the repo has no
+     release yet. Run `flow-check-version-newer "$ARGUMENTS" v0.0.0`, which
+     checks only the form. Read its exit code as above. If
+     `git tag --list 'v*'` prints a tag, stop and show the stderr.
+  3. `Could not parse last tag` — the nearest tag is not a release tag
+     (for example `skills-latest`). Run
+     `git tag --list 'v*' --sort=-v:refname | head -1`. If it prints a tag,
+     pass that tag as the second argument, and show the user which tag you
+     used. If it prints nothing, the repo has no release yet: pass
+     `v0.0.0`. Read the exit code as above. If this run also gives
+     `Could not parse last tag`, stop and show the stderr.
+- **Any other exit code** — stop and show the stderr.
+
 ## Step 1: Read the signals
 
 Find the milestone number and full title:

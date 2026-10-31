@@ -2,7 +2,8 @@
 #
 # Tests for flow-check-version-newer: numeric comparison of a
 # candidate version with the last release tag, including the optional
-# fourth number of a patch release from main (v2.30.4.1).
+# fourth number of a patch release from main (v2.30.4.1). The candidate
+# must start with 'v'. The last tag may lack it.
 #
 # HERMETIC: every case passes the last tag as the second argument, so the
 # script never runs `git describe`. The one `git describe` case runs in a
@@ -25,6 +26,10 @@ fi
 
 TMPROOT="$(mktemp -d)" || exit 1
 
+# A GIT_DIR or GIT_WORK_TREE from the caller would send the fixture's git
+# init, commit, and tag to the caller's repo, not to $TMPROOT.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+
 # expect <want-exit> <candidate> <last-tag>
 expect() {
     local want="$1" candidate="$2" last="$3" out status
@@ -42,7 +47,6 @@ expect 0 v2.30.5 v2.30.4
 expect 0 v2.31.0 v2.30.9
 expect 0 v3.0.0 v2.99.99
 expect 0 v2.10.0 v2.9.0
-expect 0 2.30.5 v2.30.4
 expect 1 v2.30.4 v2.30.4
 expect 1 v2.30.3 v2.30.4
 expect 1 v2.9.0 v2.10.0
@@ -62,6 +66,35 @@ expect 2 v2.30 v2.30.4
 expect 2 v2.30.5 v2.30.4.1.1
 expect 2 v2.30.5 v2.30.4-rc1
 expect 2 v2.30.5 latest
+
+# The candidate needs a leading 'v'. The last tag does not.
+expect 2 2.30.5 v2.30.4
+expect 2 2.30.4.1 v2.30.4
+expect 0 v2.30.5 2.30.4
+expect 1 v2.30.3 2.30.4
+
+# Exit 2 names the expected form. Exit 1 names the last tag.
+# expect_stderr <want-exit> <text> <arg>...
+# It runs the script in $TMPROOT, which is not a git repo. A case with no
+# last tag then cannot read the devkit tags. This holds even if the script
+# runs git describe first.
+expect_stderr() {
+    local want="$1" text="$2" out status
+    shift 2
+    out="$(cd "$TMPROOT" && env -u GIT_DIR GIT_CEILING_DIRECTORIES="$TMPROOT" "$SCRIPT" "$@" 2>&1 >/dev/null)"
+    status=$?
+    if [ "$status" -eq "$want" ] && printf '%s' "$out" | grep -qF -- "$text"; then
+        pass "[$*] -> exit $want, stderr has '$text'"
+    else
+        fail "[$*] -> exit $want, stderr has '$text'" "exit: $status stderr: [$out]"
+    fi
+}
+expect_stderr 2 'vX.Y.Z or vX.Y.Z.N' 1.2.0 v1.1.0
+expect_stderr 2 'vX.Y.Z or vX.Y.Z.N' v1.2 v1.1.0
+expect_stderr 2 'vX.Y.Z or vX.Y.Z.N' '' v1.1.0
+expect_stderr 2 'vX.Y.Z or vX.Y.Z.N'
+expect_stderr 2 'Usage: flow-check-version-newer'
+expect_stderr 1 'v2.30.4' v2.30.3 v2.30.4
 
 # --- Last tag from `git describe` is a four-part tag -> exit 0 ------------
 REPO="$TMPROOT/repo"
