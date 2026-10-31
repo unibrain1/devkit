@@ -167,7 +167,11 @@ Claude step must have no `if:` and no `continue-on-error`, so the model
 does not run after a failed fetch. The test runs the jq on fixture
 comments. It also runs each fetch step with a fake `gh` and checks the
 files that the step writes. The step must write nothing in the work
-folder, its parent folder, or `HOME`.
+folder, its parent folder, or `HOME`. A run of the fetch step uses a
+`PR_NUM` from the test, so a text check compares the `PR_NUM` lines. In
+each job, the `PR_NUM` line of the fetch step must equal the `PR_NUM` line
+of Post review. Then the model reads the comments of the PR that gets the
+review.
 
 ### File reach of the review
 

@@ -14,6 +14,11 @@
 # fixture JSON, and it runs each fetch step with a fake gh. It cannot check
 # what the model does.
 #
+# The fetch runs use PR_NUM=1 from the test, so a run cannot catch a wrong
+# PR_NUM in the workflow. A text check catches it. In each job, the PR_NUM
+# line of the fetch step must equal the PR_NUM line of Post review. Then the
+# model reads the comments of the PR that gets the review.
+#
 # WORKFLOW_DIR points the test at a copy of .github/workflows.
 #
 # Usage: bash tests/workflows/test-review-comment-trust.sh
@@ -469,5 +474,38 @@ done 3< <(awk '/^      - name: Fetch PR context$/ { print NR }' "$REVIEW" 2>/dev
 if [ "$blocks" != 3 ]; then
     fail "claude-review.yml has 3 fetch steps to run" "found $blocks"
 fi
+
+# pr_num_of <name> <n>: prints "<job>|<PR_NUM line>" for the n-th step with
+# this name. The PR_NUM part is empty when the step has no PR_NUM line.
+pr_num_of() {
+    awk -v want="      - name: $1" -v n="$2" '
+        on && (/^      - / || /^  [a-z]/) { exit }
+        /^  [a-z][a-z0-9-]*:$/ { j = $0; sub(/^ +/, "", j); sub(/:$/, "", j) }
+        on && /^          PR_NUM: / { p = $0 }
+        $0 == want { c++; if (c == n) on = 1 }
+        END { if (on) print j "|" p }
+    ' "$REVIEW" 2>/dev/null
+}
+
+# The jobs use different PR_NUM expressions, so the check compares the pair,
+# not a fixed text.
+n=0
+for job in pr-to-milestone-review milestone-review comment-deep-review; do
+    n=$((n + 1))
+    label="$job: fetch step PR_NUM equals Post review PR_NUM"
+    fetch_="$(pr_num_of "Fetch PR context" "$n")"
+    post_="$(pr_num_of "Post review" "$n")"
+    fjob="${fetch_%%|*}"; fnum="${fetch_#*|}"
+    pjob="${post_%%|*}"; pnum="${post_#*|}"
+    if [ "$fjob" != "$job" ] || [ "$pjob" != "$job" ]; then
+        fail "$label" "steps are in jobs: fetch=$fjob post=$pjob"
+    elif [ -z "$fnum" ] || [ -z "$pnum" ]; then
+        fail "$label" "no PR_NUM line: fetch=[$fnum] post=[$pnum]"
+    elif [ "$fnum" != "$pnum" ]; then
+        fail "$label" "fetch=[$fnum] post=[$pnum]"
+    else
+        pass "$label"
+    fi
+done
 
 harness_report
