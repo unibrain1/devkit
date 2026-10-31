@@ -108,7 +108,7 @@ if ! REPO="$("${SCRIPT_DIR}/flow-repo")"; then
   exit 1
 fi
 
-# Read a required project fact. Exit 2 when the key is absent or
+# Read a required project fact. Exit 2 when the key is absent, empty, or
 # project.md is missing. Nothing has changed at this point.
 require_fact() {
   local key="$1" status=0
@@ -117,6 +117,10 @@ require_fact() {
     echo "flow-release-milestone: no '${key}' key in .claude/project.md. Add it. This script needs it to release." >&2
     exit 2
   elif [ "$status" -ne 0 ]; then
+    exit 2
+  elif [ -z "$FACT_VALUE" ]; then
+    # An empty plans value would put the notes copy at /releases/.
+    echo "flow-release-milestone: the '${key}' key in .claude/project.md is empty. Give it a value. This script needs it to release." >&2
     exit 2
   fi
 }

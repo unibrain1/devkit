@@ -442,6 +442,26 @@ else
     fail "Case 6b: a repo that gh cannot resolve -> exit 1" "exit: $STATUS6D (want 1)" "output: [$OUT6D]"
 fi
 
+# --- Case 6b: an empty project fact -> 2, nothing changes ----------
+# An empty plans value would send the notes copy to /releases/.
+setup_case case6b
+BEFORE6B="$(git -C "$ORIGIN" for-each-ref)"
+project_md_write "$WORK" 'release_notes: `docs/releases/RELEASE_NOTES_{version}.md`' 'plans: ``'
+OUT6BA="$(run_release "$VERSION" "$PR" "$MS" 2>&1 >/dev/null)"
+STATUS6BA=$?
+project_md_write "$WORK" 'release_notes: ``' 'plans: `docs/plans`'
+OUT6BB="$(run_release "$VERSION" "$PR" "$MS" 2>&1 >/dev/null)"
+STATUS6BB=$?
+AFTER6B="$(git -C "$ORIGIN" for-each-ref)"
+if [ "$STATUS6BA" -eq 2 ] && [ "$STATUS6BB" -eq 2 ] \
+    && [ "$OUT6BA" = "flow-release-milestone: the 'plans' key in .claude/project.md is empty. Give it a value. This script needs it to release." ] \
+    && [ "$OUT6BB" = "flow-release-milestone: the 'release_notes' key in .claude/project.md is empty. Give it a value. This script needs it to release." ] \
+    && [ "$BEFORE6B" = "$AFTER6B" ] && ! grep -qE '^(pr merge|release create)' "$STATE/calls"; then
+    pass "Case 6b: empty plans -> 2, empty release_notes -> 2, nothing changed"
+else
+    fail "Case 6b: empty project fact -> 2" "exits: $STATUS6BA $STATUS6BB (want 2 2)" "plans: [$OUT6BA]" "release_notes: [$OUT6BB]"
+fi
+
 # --- Case 7: dry run -> 0, nothing changes -------------------------------
 setup_case case7
 BEFORE="$(git -C "$ORIGIN" for-each-ref)"
@@ -1002,6 +1022,26 @@ if [ "$STATUSM14A" -eq 2 ] && [ "$STATUSM14" -eq 0 ] && [ -z "$WHYM14" ] \
     pass "Case M14: branch delete fails -> exit 0, message printed, tag and release done"
 else
     fail "Case M14: branch delete fails" "exit: $STATUSM14 (want 0)" "check: $WHYM14" "output: [$OUTM14]"
+fi
+
+# --- Case M15: rerun after the merge does not read branch protection -------
+# The PR is MERGED on the rerun. A 403 on the protection read must not matter.
+setup_case caseM15
+touch "$STATE/fail_release"
+run_release "$VERSION" "$PR" "$MS" >/dev/null 2>&1
+STATUSM15A=$?
+rm -f "$STATE/fail_release" "$WORK/$KEEP_REL"
+touch "$STATE/protection_403"
+CALLS_BEFOREM15="$(wc -l < "$STATE/calls")"
+OUTM15="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSM15=$?
+WHYM15="$(check_released)"
+if [ "$STATUSM15A" -eq 2 ] && [ "$STATUSM15" -eq 0 ] && [ -z "$WHYM15" ] \
+    && [[ "$OUTM15" != *"cannot read the branch protection"* ]] \
+    && ! tail -n +"$((CALLS_BEFOREM15 + 1))" "$STATE/calls" | grep -q 'branches/main/protection'; then
+    pass "Case M15: rerun after the merge -> exit 0, no protection read"
+else
+    fail "Case M15: rerun after the merge reads no protection" "exits: $STATUSM15A $STATUSM15 (want 2 0)" "check: $WHYM15" "output: [$OUTM15]"
 fi
 
 # --- Release key: publish (default) or draft ----------------------------
