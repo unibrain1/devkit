@@ -6,26 +6,48 @@
 #
 # Usage: flow-check-version-newer <candidate-version> [<last-tag>]
 #
-# <candidate-version>: e.g. v2.17.0 (the 'v' prefix is optional, accepted
-#   either way for caller convenience).
+# <candidate-version>: e.g. v2.17.0. It must start with 'v', because the
+#   "release tags" ruleset protects only refs/tags/v*. An empty or missing
+#   candidate is a parse failure (exit 2), not "not newer" (exit 1).
 #
 # Both versions may have an optional fourth number. A patch release from
-# main adds one to the newest tag, e.g. v2.30.4 -> v2.30.4.1. A missing fourth number
-# counts as 0, so v2.30.5 > v2.30.4.1 > v2.30.4.
-# <last-tag>: optional — defaults to `git describe --tags --abbrev=0` in the
-#   current repo. Pass explicitly to check against something other than the
-#   working tree's current tag history (e.g. in a worktree or CI checkout
-#   without full tag history fetched).
+# main adds one to the newest tag, e.g. v2.30.4 -> v2.30.4.1. A missing
+# fourth number counts as 0, so v2.30.5 > v2.30.4.1 > v2.30.4.
+#
+# <last-tag>: optional. A last tag with no 'v' is accepted. The default
+#   is `git describe --tags --abbrev=0` in the current repo. Pass it
+#   explicitly to check against something other than the working tree's
+#   tag history (e.g. in a worktree or CI checkout without full tag
+#   history fetched).
 #
 # Exit codes:
 #   0 = candidate is strictly newer than the last tag — proceed
 #   1 = candidate is NOT newer (equal or older) — do not proceed
-#   2 = could not parse one or both versions as vX.Y.Z or vX.Y.Z.N — ambiguous,
-#       stop and ask
+#   2 = could not parse one or both versions as vX.Y.Z or vX.Y.Z.N, or
+#       `git describe` failed to find a last tag — ambiguous, stop and ask
 
 set -euo pipefail
 
-CANDIDATE="${1:?Usage: flow-check-version-newer <candidate-version> [<last-tag>]}"
+# Prints "major minor patch hotfix". A version with no fourth number has
+# hotfix 0. With "require_v" as the second argument, the version must start
+# with 'v'. Only the candidate needs it. The last tag keeps an optional 'v'.
+parse_version() {
+  local prefix='v?'
+  [ "${2:-}" = require_v ] && prefix='v'
+  if [[ ! "$1" =~ ^${prefix}([0-9]+)\.([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
+    return 1
+  fi
+  echo "${BASH_REMATCH[1]} ${BASH_REMATCH[2]} ${BASH_REMATCH[3]} ${BASH_REMATCH[5]:-0}"
+}
+
+# Check the candidate before git describe. A typo then gets the form
+# message, not a message about tags.
+CANDIDATE="${1:-}"
+[ -n "$CANDIDATE" ] || echo "Usage: flow-check-version-newer <candidate-version> [<last-tag>]" >&2
+CANDIDATE_PARSED="$(parse_version "$CANDIDATE" require_v)" || {
+  echo "Could not parse candidate version '$CANDIDATE' (expected vX.Y.Z or vX.Y.Z.N)." >&2
+  exit 2
+}
 
 if [ -n "${2:-}" ]; then
   LAST_TAG="$2"
@@ -39,23 +61,6 @@ else
   fi
 fi
 
-strip_v() { echo "${1#v}"; }
-
-# Prints "major minor patch hotfix". A version with no fourth number has
-# hotfix 0.
-parse_version() {
-  local v
-  v="$(strip_v "$1")"
-  if [[ ! "$v" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
-    return 1
-  fi
-  echo "${BASH_REMATCH[1]} ${BASH_REMATCH[2]} ${BASH_REMATCH[3]} ${BASH_REMATCH[5]:-0}"
-}
-
-CANDIDATE_PARSED="$(parse_version "$CANDIDATE")" || {
-  echo "Could not parse candidate version '$CANDIDATE' (expected vX.Y.Z or vX.Y.Z.N)." >&2
-  exit 2
-}
 LAST_PARSED="$(parse_version "$LAST_TAG")" || {
   echo "Could not parse last tag '$LAST_TAG' (expected vX.Y.Z or vX.Y.Z.N)." >&2
   exit 2

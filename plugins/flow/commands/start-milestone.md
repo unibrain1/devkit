@@ -46,6 +46,47 @@ creation, milestone setup, issue quality review, issue ordering,
 release-notes draft, commit and push, output). Set to
 `in_progress`/`completed` as you progress.
 
+## Step 0b: Check the version
+
+Do this before Step 1, so that a bad version stops the command before any
+GitHub or git change. Check the version form, and check that the version is
+newer than the last release tag. Keep the quotes: an extra word in
+`$ARGUMENTS` then makes the form check fail, and it does not replace the
+last tag.
+
+```bash
+flow-check-version-newer "$ARGUMENTS"
+```
+
+- **Exit 0** — continue.
+- **Exit 1** — stop. Tell the user: "`$ARGUMENTS` is not newer than the last
+  tag `<last tag>`. Type the command again with a newer version." The
+  script's stderr names the last tag.
+- **Exit 2** — read stderr:
+  1. `Could not parse candidate version` — stop. Tell the user:
+     "`$ARGUMENTS` is not a milestone version. Use the form
+     `vX.Y.Z` or `vX.Y.Z.N`, for example `v2.17.0`, or `v2.17.0.1` for a
+     patch release. Then type the command again."
+  2. `git describe --tags --abbrev=0 failed` — run
+     `git fetch origin --tags`. If the fetch fails, stop and show its
+     stderr. Then run the check again. If it fails again and
+     `git tag --list 'v*'` prints nothing, the repo has no release yet.
+     Run `flow-check-version-newer "$ARGUMENTS" v0.0.0`. This checks the
+     form, and that the version is newer than `v0.0.0`. Read its exit code
+     as above. If
+     `git tag --list 'v*'` prints a tag, stop and show the stderr.
+  3. `Could not parse last tag` — the nearest tag is not a release tag
+     (for example `skills-latest`). Find the newest tag in the form
+     `vX.Y.Z` or `vX.Y.Z.N`. A prerelease tag such as `v2.0.0-rc1` sorts
+     first, so filter the list:
+     `git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' | head -1`.
+     If it prints a tag, pass that tag as the second argument, and show the
+     user which tag you used. If it prints nothing, the repo has no release
+     yet: pass `v0.0.0`. Read the exit code as above. If this run also
+     gives `Could not parse last tag`, stop and show the stderr.
+  4. Any other stderr — stop and show the stderr.
+- **Any other exit code** — stop and show the stderr.
+
 ## Workflow
 
 ### Step 1: Validate the milestone exists on GitHub
@@ -282,10 +323,13 @@ Defer (leaves the issue open, out of the milestone):
 gh issue edit NNN --repo $REPO --remove-milestone
 ```
 
-Close (fails all three planning questions outright):
+Close (fails all three planning questions outright). Remove the milestone,
+then close the issue as not planned. If the milestone edit fails, do not
+close the issue. Report the failure:
 
 ```bash
-gh issue close NNN --repo $REPO \
+gh issue edit NNN --repo $REPO --remove-milestone
+gh issue close NNN --repo $REPO --reason "not planned" \
   --comment "Closing as low-value / make-work during milestone planning. Can be reopened if prioritized."
 ```
 
@@ -301,11 +345,13 @@ If consolidation candidates exist, ask second:
 
 For each accepted group: pick the primary issue (more complete scope, or
 lower number if unclear — ask the user if not obvious), fold the secondary
-issue's scope into its body, then close the secondary with a linking
-comment:
+issue's scope into its body. Then remove the milestone from the secondary,
+and close it as a duplicate of the primary, with a linking comment. If the
+milestone edit fails, do not close the issue. Report the failure:
 
 ```bash
-gh issue close NNN --repo $REPO \
+gh issue edit NNN --repo $REPO --remove-milestone
+gh issue close NNN --repo $REPO --duplicate-of PRIMARY \
   --comment "Consolidated into #PRIMARY — scope merged there."
 ```
 

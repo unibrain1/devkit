@@ -96,6 +96,21 @@ else
     fail "after create, nothing is missing" "missing rc: $rc" "log: [$(cat "$CREATE_LOG")]"
 fi
 
+# Case 3b: a long label list with each match near the top. The list is
+# larger than a pipe buffer, so a pipe into `grep -q` gets EPIPE when grep
+# exits at the first match. Under pipefail that made a label read as missing.
+{
+    grep -vE '^(#|[[:space:]]*$)' "$TEMPLATE" | cut -f1
+    awk 'BEGIN { for (i = 0; i < 20000; i++) printf "filler-label-%05d\n", i }'
+} > "$LABELS_FILE"
+OUT3="$("$SCRIPT" --missing 2>&1)"
+rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$OUT3" ]; then
+    pass "a long label list finds each label (no pipe into grep -q)"
+else
+    fail "a long label list finds each label" "rc: $rc (want 0)" "out: [$(printf '%s' "$OUT3" | head -3)]"
+fi
+
 # Case 4: gh fails -> exit 2.
 STUB_GH_FAIL=1 "$SCRIPT" --missing >/dev/null 2>&1
 if [ "$?" -eq 2 ]; then pass "gh failure -> exit 2"; else fail "gh failure -> exit 2"; fi

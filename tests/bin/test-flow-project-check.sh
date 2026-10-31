@@ -51,7 +51,7 @@ project_md_write "$REPO" 'test: `t`' 'test_quick: `q`' 'lint: `l`' 'format: `f`'
     'deploy: see docs/DEPLOY.md' 'standards: `a b`' 'plans: `p`' \
     'release_notes: `r/{version}.md`' 'ledger: `l.md`' 'private_paths: `p x`' \
     'milestone_setup: `s`' 'issue_checks: `i`' 'milestone_checks: `m`' \
-    'release_checks: `r`' 'vault: `Projects/X/X.md`'
+    'release_checks: `r`' 'release: `publish`' 'vault: `Projects/X/X.md`'
 check "every known key exits 0" 0 ""
 
 project_md_write "$REPO" 'test: `t`' 'lint: `l`' 'release_check: `x`'

@@ -52,10 +52,23 @@ It checks that the CI review posted and CI is green. `flow-verify-ci-review` acc
 
 - No Blocking or Important finding is open. If one is open, the command fixes nothing. It tells the user to run `/flow:review-milestone <version>`.
 - The milestone scope matches the release notes.
-- The version is newer than the last tag. Run `flow-check-version-newer <version>`.
+- The version is newer than the last tag. Run `flow-check-version-newer <version>`. The version must start with `v`. The last tag may lack it.
 - The deploy sheet is fresh.
 
-After the user approves, `flow-release-milestone` merges the PR, tags the merge commit, creates a draft GitHub release, and closes the milestone. It removes the `milestone/*` branch. The release stays a draft until the user deploys it.
+After the user approves, `flow-release-milestone` merges the PR, tags the merge commit, creates a GitHub release, and closes the milestone. It removes the `milestone/*` branch.
+
+The script reads the branch protection and the rulesets of `main` to choose the merge method:
+
+- `main` requires linear history: a squash merge (`--squash`). `main` gets one commit for each release, so the tag and the commit are one-to-one.
+- `main` does not require linear history: a merge commit (`--merge`).
+- The GitHub plan of the repo has no branch protection (a private repo on GitHub Free): a merge commit.
+- The script cannot read the branch protection or the rulesets for another reason: it exits 1 and changes nothing. The classic protection read needs admin read access.
+
+The `release` key sets the release type:
+
+- `publish`, or no key: the release is published and marked Latest.
+- `draft`: the release is a draft. The deploy procedure publishes it.
+- Any other value: the script exits 2 before the merge and the tag.
 
 Run the `release_checks` command before the merge, if the key exists.
 

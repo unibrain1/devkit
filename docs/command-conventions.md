@@ -24,6 +24,15 @@ Each command starts with this step, before any other step:
 
 `/flow:setup` is the only exception, because it creates the file.
 
+## Version check: Step 0b
+
+A command that takes a version and changes GitHub or git checks the
+version before it changes anything. `/flow:plan-milestone` and
+`/flow:start-milestone` do this in Step 0b with
+`flow-check-version-newer`. A bad form or a version that is not newer stops
+the command. `tests/commands/test-version-check-at-start.sh` checks that
+Step 0b comes before each write command.
+
 ## Project facts
 
 - Read a fact with `flow-project-fact <key>`. The keys are in

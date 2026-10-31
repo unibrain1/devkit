@@ -19,7 +19,7 @@ change in each of those repos. The design is in
 | `plugins/brain/skills/` | Skills for the Claude apps. Not a plugin until v1.1 |
 | `.github/workflows/` | Reusable CI (`claude-review.yml`, `claude.yml`, `secrets-scan.yml`, `node-site.yml`, `upstream-sync.yml`) and devkit's own CI. See [docs/ci-workflows.md](docs/ci-workflows.md) |
 | `templates/` | `settings.json` for a project repo |
-| `tests/` | Hermetic bash tests, one `test-<name>.sh` file for each script |
+| `tests/` | Hermetic bash tests, one `test-<name>.sh` file for each script. `tests/commands/` tests command text, and `tests/workflows/` tests the workflows |
 
 ## Session start
 

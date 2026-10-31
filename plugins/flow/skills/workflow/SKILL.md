@@ -23,6 +23,7 @@ Read `.claude/project.md` before any step. Read one value with `flow-project-fac
 | `deploy` | Deploy procedure. Ask the user if the key is missing. |
 | `plans` | Plan folder. Git-ignored. Holds `issues/` and `releases/`. |
 | `release_notes` | Release notes path pattern. `{version}` is the milestone version. |
+| `release` | `publish` or `draft`. If it is missing, publish. `draft` makes a draft release that the deploy procedure publishes. |
 | `ledger` | Cleanup ledger file. |
 | `private_paths` | Paths that never enter a commit. |
 | `issue_checks`, `milestone_checks`, `release_checks`, `milestone_setup` | Project commands at fixed steps. A non-zero exit stops the command. |

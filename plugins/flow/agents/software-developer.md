@@ -77,8 +77,10 @@ these files.
    - Before you edit a function, grep every caller. Fix the shared function
      once. Do not patch only the path that the issue names, because the
      other callers stay broken.
-   - Turn the failing command into the regression test, then run it again
-     to see it pass. Remove any temporary debug output.
+   - Turn the failing command into the regression test. It must fail on its
+     assertion before the fix ("Prove each test can fail" in
+     `senior-test-engineer.md`). Then run it again to see it pass. Remove
+     any temporary debug output.
    (The failing-command rule is adapted from mattpocock/skills
    `diagnosing-bugs`, MIT.)
 6. **Security check**: After writing code, review it for injection, XSS,
@@ -86,6 +88,9 @@ these files.
 7. **Clean up**: Remove dead code completely. No `_unused` renames, no
    `// removed` comments, no backwards-compatibility shims unless explicitly
    required.
+8. **Check comments**: Before hand-off, check each claim in a new or
+   changed comment against the code. If they differ, fix the comment or the
+   code.
 
 ### When Applying Coding Standards
 

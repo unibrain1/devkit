@@ -35,6 +35,6 @@ The user types the command. A command starts the next command only under the han
 | Milestone PR green | `/flow:release-milestone`. `/flow:review-milestone` can start it. If `release_checks` fails, fix it by hand first. Then `/clear`. Then `/flow:release-milestone`. | No |
 | `/flow:release-milestone` stopped before the merge | Fix the cause, then `/flow:release-milestone <version>`. It skips the steps it already completed. | No |
 | `/flow:release-milestone` stopped after the merge | `/flow:release-milestone <version>`. It finds the merged PR and resumes at the tag step. | No |
-| Release created | Deploy with the `deploy` procedure. Then `/flow:plan-milestone` for the next release. | Yes |
+| Release created | Deploy with the `deploy` procedure. If `release` is `draft`, publish the draft release at deploy. Then `/flow:plan-milestone` for the next release. | Yes |
 | Production broken, no issue in progress | `/flow:new-issue` (`signal:defect`). Its last step names `/flow:start-issue <N> --hotfix`. | Yes |
 | Production broken, issue in progress | `/flow:found`. Save the paused work on its branch. Then `/clear`. Then `/flow:start-issue <N> --hotfix`. | After the user saves the work |

@@ -32,7 +32,7 @@ A Claude Code review on a pull request, and on demand from a comment.
 | `review_model` | string | `claude-sonnet-5-5` | Model for `pr-to-milestone-review`. |
 | `review_effort` | string | `medium` | Effort for `pr-to-milestone-review`. |
 | `milestone_model` | string | `claude-fable-5-1` | Model for `milestone-review` and `comment-deep-review`. |
-| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. Do not add a git rule (see "No git read commands for Claude"). Do not add a tool that reads PR comments, for example `Bash(gh pr view:*)` or `Bash(gh api:*)` (see "Comment trust"). |
+| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. Do not add a git rule (see "No git read commands for Claude"). Do not add a tool that reads PR comments, for example `Bash(gh pr view:*)` or `Bash(gh api:*)` (see "Comment trust"). Do not add a bare `Read`, `Grep`, or `Glob`. It removes the path limit (see "File reach of the review"). |
 | `extra_instructions` | string | `""` | Text added to each prompt, under the heading "Project instructions". |
 
 ### Secret
@@ -169,6 +169,92 @@ comments. It also runs each fetch step with a fake `gh` and checks the
 files that the step writes. The step must write nothing in the work
 folder, its parent folder, or `HOME`.
 
+### File reach of the review
+
+In the Claude step of each review job, `--allowedTools` limits `Read`,
+`Grep`, and `Glob` to two paths (issue #47):
+
+- `Read(./**)`, `Grep(./**)`, and `Glob(./**)` reach the checkout.
+- `Read(/${{ runner.temp }}/pr-context/**)` and the same rule for `Grep` and
+  `Glob` reach the `pr-context` folder.
+
+`--add-dir ${{ runner.temp }}/pr-context` adds the folder to the session.
+The runner temp path starts with `/`, so the leading `/` in the rule gives
+the `//abs/path` form of an absolute rule.
+
+A bare `Read`, `Grep`, or `Glob` rule reaches each path on the runner. For
+example, a bare `Grep` reaches `/proc/self/environ`, which holds
+`CLAUDE_CODE_OAUTH_TOKEN` and `GITHUB_TOKEN`. The `Read` tool refuses that
+file, because it refuses device and process files. But a bare `Read` still
+reaches the file at `$GITHUB_EVENT_PATH` and the other files in
+`$RUNNER_TEMP`. In issue #30, the PR comments moved to
+`$RUNNER_TEMP/pr-context`, outside the workspace. The jobs kept the bare
+rules until issue #47.
+
+With the path rules, only `pr-context` is in reach in `$RUNNER_TEMP`. The
+other files, for example `event.json` in `_github_workflow`, are out of
+reach.
+
+A sandbox run checked the path rules (`unibrain1/devkit-sandbox`,
+claude-code-action v1.0.261). The run ID is in PR #70. The results
+follow:
+
+- `Read` opens `pr.json` and `comments.jsonl` in `pr-context`, and a file
+  in the checkout. `Grep` and `Glob` work in `pr-context`. The probe did not
+  run `Grep` or `Glob` in the checkout.
+- With no allow entry, `Grep` and `Glob` are not available at all. So they
+  stay in the list, with path rules. The probe is the evidence that a path
+  rule limits `Grep` and `Glob`.
+- Claude Code refuses a call outside the allowed paths, for example
+  `event.json`, another file in `$RUNNER_TEMP`, and a `Grep` of
+  `/proc/self/environ`.
+- Claude Code resolves a symlink in the checkout and checks its target. So
+  it refuses `leakdir/environ`, where `leakdir` links to `/proc/self`. The
+  workflow has no symlink guard step.
+- The `Read` tool also refuses device and process files, for example
+  `/proc/self/environ`.
+
+The probe did not run a `Grep` on `/proc/self/environ` with a bare rule. So
+the exposure of a bare `Grep` comes from the rule form, not from a test.
+
+The run had two probe jobs. The second job had the same `Read`, `Grep`, and
+`Glob` rules as the three review jobs. The first job had only the `Read`
+rules. A test checks that the three review jobs have the same rules. No test
+checks the Claude Code behavior. Run the sandbox probe again when the
+claude-code-action version changes.
+
+The probe did not test a `.claude/settings.json` in the checkout. The
+checkout holds the files of the PR, so the PR author controls that file. If
+the action loads it, a PR can add allow rules to `--allowedTools`. Then the
+path limit does not hold for that PR. Nothing stops this for a PR from the
+same repo. For a fork PR, `pr-to-milestone-review` and `comment-deep-review`
+stop with a fork check. `milestone-review` has no fork check. It runs only on
+`pull_request`, and GitHub gives a fork `pull_request` run no secrets.
+Issue #66 tracks this.
+
+The path limit is the main control. The second layer is the render filter
+(`RENDER_FILTER`, function `redact`). Before the Post review step posts the
+text, the filter replaces token-like strings in the summary and finding
+fields with `[redacted]`. These strings are `gh[pousr]_...`,
+`github_pat_...`, `sk-ant-...`, and a bare prefix.
+
+The filter has these limits:
+
+- It does not cover inline comments. The model posts them with
+  `mcp__github_inline_comment__create_inline_comment`, so no workflow step
+  sees the text.
+- It finds only plain-text tokens. A token that a space, a line break, or
+  another character outside the token class splits loses only its prefix.
+  A Markdown escape, an HTML entity, or a zero-width character
+  in a token stops the match.
+- The bare-prefix rule can also replace ordinary text, for example the
+  `ghs_` in `highs_`.
+
+`claude.yml` has the same exposure. It is not changed here (issue #65).
+
+Do not add a bare `Read`, `Grep`, or `Glob` with `extra_allowed_tools`. It
+removes the path limit.
+
 ### Tools in the review prompts
 
 `--allowedTools` lets Bash run only `gh pr diff` (and the rules in
@@ -184,6 +270,9 @@ So each review prompt has the same `## Tools` block:
 - `Grep` searches, and `Glob` lists files.
 - Bash runs only the bare `gh pr diff <PR number>` command that the prompt shows,
   with no `cd`, `;`, `&&`, `|`, `>`, or second command.
+
+`Read`, `Grep`, and `Glob` reach only the checkout and `pr-context` (see
+"File reach of the review").
 
 The milestone and deep-review prompts also read `merged-prs.txt`. Their
 "Read the merged ... list" section gives its full workspace path.
@@ -345,7 +434,7 @@ matcher read the command text before the shell removed the quotes. So
 is in issue #29, with Claude Code 2.1.312 and git 2.56.0. The review
 prompts use `gh pr diff` and read the files of the Fetch PR context step
 (see "Comment trust"). Claude reads full files with `Read`, `Grep`, and
-`Glob`.
+`Glob` (see "File reach of the review").
 
 The `@claude` step in `claude.yml` runs in tag mode. By default, tag mode
 in `claude-code-action` v1.0.261 adds its own rules: `Bash(git add:*)`,

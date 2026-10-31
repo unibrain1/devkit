@@ -33,29 +33,31 @@ other exceptions. Else git does not see the file.
 
 ## Keys
 
-| Key | Need | Use |
-| --- | --- | --- |
-| `test` | Necessary | The command that runs the tests. |
-| `test_quick` | Optional | A faster test set for work in progress. Commands use it during an issue, if present. Else they use `test`. |
-| `lint` | Necessary | The command that runs the linter or static analysis. |
-| `format` | Optional | The command that formats the code. |
-| `verify` | Optional | The full verification command before a review or release. |
-| `deploy` | Optional | The deploy guide or command. |
-| `standards` | Optional | Coding standards files that the agents read. Separate paths with a space. |
-| `plans` | Optional | The folder for plan files. It must be git-ignored. It holds `issues/` (issue plans) and `releases/` (release notes copies, retrospectives, review markers). `start-issue`, `execute-plan`, `finish-milestone`, `review-milestone`, and `release-milestone` stop without it. Other commands skip the plan step. |
-| `release_notes` | Optional | The path pattern for release notes. `{version}` is the milestone version. `release-milestone` stops without it. |
-| `ledger` | Optional | The list of deferred cleanup items. |
-| `private_paths` | Optional | Paths that must never go into a commit. Separate paths with a space. |
-| `milestone_setup` | Optional | A command that `start-milestone` runs after it makes the branch. |
-| `issue_checks` | Optional | A command that `execute-plan` runs after the code changes, and `review-pr` and `finish-issue` run before the merge. It gets the changed file names on stdin, one name on each line. |
-| `milestone_checks` | Optional | A command that `finish-milestone` runs before the milestone PR. |
-| `release_checks` | Optional | A command that `release-milestone` runs before the merge. |
-| `vault` | Optional, v1.1 | The hub note path in the Baalda vault. |
+| Key | Need | Value | If absent | Use |
+| --- | --- | --- | --- | --- |
+| `test` | Necessary | A command | Stop | The command that runs the tests. |
+| `test_quick` | Optional | A command | Use `test` | A faster test set for work in progress. Commands use it during an issue. |
+| `lint` | Necessary | A command | Stop | The command that runs the linter or static analysis. |
+| `format` | Optional | A command | No effect. No command reads it yet | The command that formats the code. |
+| `verify` | Optional | A command | Skip the step. `review-pr` runs `test` and `lint` instead | The full verification command before a review or release. |
+| `deploy` | Optional | Free text | The command asks the user | A pointer to the deploy document or command. A person or an agent reads it. No script reads it. |
+| `standards` | Optional | A list of paths, separated by spaces | Skip the step | Coding standards files that the agents read. |
+| `plans` | Optional | A path | `start-issue`, `execute-plan`, `finish-milestone`, `review-milestone`, and `release-milestone` stop. Other commands skip the plan step | The folder for plan files. It must be git-ignored. It holds `issues/` (issue plans) and `releases/` (release notes copies, retrospectives, review markers). |
+| `release_notes` | Optional | A path pattern with `{version}` | `release-milestone` stops. Other commands skip the step | The path pattern for release notes. `{version}` is the milestone version. |
+| `release` | Optional | One of `publish` or `draft` | Publish | How `release-milestone` creates the GitHub release. `publish` makes a published release and marks it Latest. `draft` makes a draft release, and the deploy procedure publishes it. Any other value stops the script with exit 2 before the merge. |
+| `ledger` | Optional | A path | Skip the step | The list of deferred cleanup items. |
+| `private_paths` | Optional | A list of paths, separated by spaces | Skip the check | Paths that must never go into a commit. |
+| `milestone_setup` | Optional | A command | Skip the step | A command that `start-milestone` runs after it makes the branch. |
+| `issue_checks` | Optional | A command | Skip the step | A command that `execute-plan` runs after the code changes, and `review-pr` and `finish-issue` run before the merge. It gets the changed file names on stdin, one name on each line. |
+| `milestone_checks` | Optional | A command | Skip the step | A command that `finish-milestone` runs before the milestone PR. |
+| `release_checks` | Optional | A command | Skip the step | A command that `release-milestone` runs before the merge. |
+| `vault` | Optional, v1.1 | A path | No effect. No command reads it yet | The hub note path in the Baalda vault. |
 
 ## Missing keys
 
 - If the file is missing, a shared command stops and tells you to create it.
-- If an optional key is missing, the command skips that step with no error.
+- If an optional key is missing, the command does what the **If absent** column
+  says. Most keys skip the step with no error.
   The scripts in `flow/bin/` follow one rule:
 
   | The key gates | Absent key |
@@ -64,6 +66,9 @@ other exceptions. Else git does not see the file.
   | One check in the script | The script prints `<check> skipped.` and goes on. Example: `private_paths` in `flow-commit-push-pr`. |
   | Work that cannot run without it | The script stops with exit 2 and names the key. Example: `release_notes` and `plans` in `flow-release-milestone`. |
 
+- The `release` key is different. If it is absent, `flow-release-milestone`
+  does not skip a step. It sets a behavior: it publishes the release.
+  A value that is not `publish` or `draft` exits 2, before the merge.
 - A check command (`*_checks`, `milestone_setup`) that exits non-zero stops
   the shared command.
 

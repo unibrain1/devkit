@@ -44,8 +44,10 @@ if ! existing="$(gh label list --repo "$repo" --limit 1000 --json name --jq '.[]
 fi
 
 missing="$(grep -vE '^(#|[[:space:]]*$)' "$template" | while IFS=$'\t' read -r name color description; do
-    # GitHub label names do not depend on case.
-    if ! printf '%s\n' "$existing" | grep -qixF -- "$name"; then
+    # GitHub label names do not depend on case. A here-string, not a pipe:
+    # grep -q exits at the first match, and under pipefail the EPIPE of the
+    # writer would make a label that exists read as missing.
+    if ! grep -qixF -- "$name" <<< "$existing"; then
         printf '%s\t%s\t%s\n' "$name" "$color" "$description"
     fi
 done)"

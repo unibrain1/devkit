@@ -27,6 +27,7 @@ The plan names the problem, the approach, the files, the tests, the data and sec
 - Acceptance criteria: an `## Acceptance criteria` section of `- [ ]` lines. The command copies them from the issue. If the issue has none, the command writes them and posts them to the issue body on approval. No approval while the section is empty.
 - Not doing: a `## Not doing` section with at least one line. It lists the edge cases and nearby ideas that the plan refuses. No approval while the section is empty.
 - Risk flag: the header has `**Risk flag:** yes` or `**Risk flag:** no`. Set `yes` when the change touches auth, sessions, or permissions, a database migration, an API endpoint contract, or payments.
+- Classification values: when the change adds a classification (a status, a type, a set of codes), a `## Classification values` section lists each value and the action for it.
 - Risk flag review: `/flow:commit-push-pr` copies the flag into the PR body. `/flow:finish-issue` reads it. When the flag is `yes`, `unknown`, or missing, the user must answer `I reviewed the diff` before merge. This is the only case where the user reviews the diff.
 
 If the issue is in a combine group, `/flow:start-issue` asks whether to plan the combined scope. One branch, one plan, and one PR cover all the issues. The plan header records the choice.
@@ -37,7 +38,7 @@ After approval, `/flow:execute-plan` builds the work. It does this in order:
 
 1. Checks the plan checklist against the repo.
 2. Implements the checklist. Runs parallel work where the plan allows.
-3. Writes and runs tests. Each new test must fail with the change reverted. The plan file records the result.
+3. Writes and runs tests, by "Prove each test can fail" in the `senior-test-engineer` agent. The plan file records the result.
 4. Runs the `issue_checks` command, if the key exists. Checks the cleanup ledger for the edited files.
 5. Updates the draft release notes. Skip this step for a hotfix.
 6. Runs the `/simplify` pass. The review in the next step then checks the simplified code.
@@ -127,7 +128,7 @@ Each change type has a standing test obligation. Do not negotiate coverage per i
 - Write one test per acceptance criterion. Add the negative case for any security-related change.
 - Any other test needs a named reason in the plan.
 - Never test a branch that a real user cannot reach.
-- Each new test must fail with the change reverted. `/flow:execute-plan` records this.
+- Each test follows "Prove each test can fail" in the `senior-test-engineer` agent.
 - Run the `test` command before the PR opens. Report the real output.
 - During an issue, run the `test_quick` command for fast feedback. If the key is missing, run `test`. The full `test` command always runs before the PR opens.
 

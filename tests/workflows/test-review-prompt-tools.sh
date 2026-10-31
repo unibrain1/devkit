@@ -8,9 +8,11 @@
 #
 # So each Claude step prompt must have the ## Tools block: Read with a full
 # path for each file, PR context files included, Grep and Glob to search,
-# and Bash for one bare "gh pr diff" command. Each "gh pr diff" example in
-# the prompt must be that bare command. The test checks the workflow text.
-# It cannot check what the model does.
+# and Bash for one bare "gh pr diff" command. The block also says that Read,
+# Grep, and Glob reach only the checkout and the PR context folder (issue
+# #47), so the model does not try a path that the allowlist refuses. Each
+# "gh pr diff" example in the prompt must be that bare command. The test
+# checks the workflow text. It cannot check what the model does.
 #
 # WORKFLOW_DIR points the test at a copy of .github/workflows.
 #
@@ -56,6 +58,7 @@ check_file() {
             need("This includes `${{ runner.temp }}/pr-context/pr.json` and `${{ runner.temp }}/pr-context/comments.jsonl`.")
             need("The checkout is at `${{ github.workspace }}`.")
             need("Search with `Grep`. List files with `Glob`.")
+            need("`Read`, `Grep`, and `Glob` reach only the checkout and `${{ runner.temp }}/pr-context`. The allowlist refuses all other paths.")
             need("Bash runs only `gh pr diff <PR number>`")
             need("Type it as one command, exactly as this prompt shows it.")
             need("Do not add `cd`, `;`, `&&`, `|`, `>`, or a second command.")
@@ -138,6 +141,11 @@ if [ -f "$REVIEW" ]; then
     defect "a gh pr diff pipe" "is not one bare command" 's/^\( *gh pr diff \${{ [a-z_.]* }}\)$/\1 | head/'
     defect "a cd before gh pr diff" "is not one bare command" 's/^\( *\)\(gh pr diff \${{ [a-z_.]* }}\)$/\1cd \/tmp; \2/'
     defect "a bare merged-prs.txt path" "no workspace path" 's/`${{ github.workspace }}\/merged-prs.txt`/`merged-prs.txt`/'
+    defect "no path-limit bullet" "lacks: \`Read\`, \`Grep\`, and \`Glob\` reach only" 's/reach only the checkout/reach the checkout/'
+    # Only the third prompt loses the bullet.
+    awk '/reach only the checkout and$/ && ++n == 3 { sub(/only /, "") } { print }' \
+        "$REVIEW" > "$TMPROOT/one prompt with no path-limit bullet.yml"
+    check_fixture "one prompt with no path-limit bullet" "lacks: \`Read\`, \`Grep\`, and \`Glob\` reach only"
     defect "no runner.temp path" "lacks: This includes" 's/This includes `${{ runner.temp }}/This includes `/'
     # Only the second prompt loses its Tools block. The check must look at
     # each prompt, not at the file as a whole.
