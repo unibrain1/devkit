@@ -282,10 +282,13 @@ Defer (leaves the issue open, out of the milestone):
 gh issue edit NNN --repo $REPO --remove-milestone
 ```
 
-Close (fails all three planning questions outright):
+Close (fails all three planning questions outright). Remove the milestone,
+then close the issue as not planned. If the milestone edit fails, do not
+close the issue. Report the failure:
 
 ```bash
-gh issue close NNN --repo $REPO \
+gh issue edit NNN --repo $REPO --remove-milestone
+gh issue close NNN --repo $REPO --reason "not planned" \
   --comment "Closing as low-value / make-work during milestone planning. Can be reopened if prioritized."
 ```
 
@@ -301,11 +304,13 @@ If consolidation candidates exist, ask second:
 
 For each accepted group: pick the primary issue (more complete scope, or
 lower number if unclear — ask the user if not obvious), fold the secondary
-issue's scope into its body, then close the secondary with a linking
-comment:
+issue's scope into its body. Then remove the milestone from the secondary,
+and close it as a duplicate of the primary, with a linking comment. If the
+milestone edit fails, do not close the issue. Report the failure:
 
 ```bash
-gh issue close NNN --repo $REPO \
+gh issue edit NNN --repo $REPO --remove-milestone
+gh issue close NNN --repo $REPO --duplicate-of PRIMARY \
   --comment "Consolidated into #PRIMARY — scope merged there."
 ```
 

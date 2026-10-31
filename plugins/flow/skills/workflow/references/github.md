@@ -30,8 +30,22 @@ gh api "repos/$(flow-repo)/issues?milestone=<number>&state=open"
 ## Milestones
 
 - The milestone description states the goal. It does not list issue numbers.
-- Clear closed issues from the milestone.
+- A milestone holds open work and shipped work only. Remove the milestone from an issue that closes as `not planned` or `duplicate`.
 - The title of a release milestone starts with the version.
+
+## Close reasons
+
+Each `gh issue close` in the flow commands gives a reason. With no reason, GitHub records `completed`, also for work that did not ship.
+
+| Reason | Flag | Meaning | Milestone |
+| --- | --- | --- | --- |
+| `completed` | `--reason "completed"` | The work shipped. Only `/flow:finish-issue` runs `gh issue close` with it. | The issue keeps it. |
+| `not planned` | `--reason "not planned"` | A cull: the issue fails the planning gate, the grooming sweep, or the age-out. | Remove it in the same step. |
+| `duplicate` | `--duplicate-of <N>` | A consolidation: issue `<N>` keeps the work. | Remove it in the same step. |
+
+When the issue has a milestone, run the milestone edit as its own command, directly before the close. Run the close only after that edit succeeds.
+
+`tests/commands/test-issue-close-reasons.sh` fails when a close in `plugins/flow/commands/` has no reason, or when a cull close has no milestone step directly before it.
 
 ## Comment markers
 

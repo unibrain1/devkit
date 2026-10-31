@@ -303,7 +303,8 @@ gh issue comment NNN --repo $REPO \
 For cut candidates: close outright if they failed all three questions:
 
 ```bash
-gh issue close NNN --repo $REPO \
+# No milestone to remove: the cut candidates have no milestone.
+gh issue close NNN --repo $REPO --reason "not planned" \
   --comment "Closing as low-value / make-work during milestone planning. Can be reopened if prioritized."
 ```
 
