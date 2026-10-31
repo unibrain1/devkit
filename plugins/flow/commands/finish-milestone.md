@@ -305,7 +305,10 @@ all take the release notes' existing content as ground truth.
 
      - Comment says **"Consolidated into #X"**: expected, no separate entry
        needed — confirm #X's existing entry actually covers this issue's
-       scope, then move on.
+       scope, then move on. `/flow:start-milestone` removes the milestone
+       from an issue that it closes as a duplicate, so that issue does not
+       show here. This case applies only to an issue that kept its
+       milestone, for example an issue closed by hand.
      - Comment says **"Superseded by #X"**: check #X's *current* milestone.
        If #X is in this same milestone, its entry already covers this issue
        — no action needed. **If #X is in a different milestone (or its work

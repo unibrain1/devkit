@@ -188,7 +188,9 @@ the check against a stale or wrong checkout.
     release-notes entry) shows as "moved out of milestone".
   - An issue closed as consolidated into or superseded by another issue
     (see `/flow:finish-milestone` Step 5.5) shows as "added to milestone,
-    missing from release notes".
+    missing from release notes". A consolidated issue shows only when it
+    kept its milestone, for example when someone closed it by hand. The
+    flow commands remove the milestone from a duplicate.
 
   A "still has WIP prefix in release notes" line is never intended here.
   `/flow:review-milestone` Step 1 stops on it. Stop and tell the user to type
