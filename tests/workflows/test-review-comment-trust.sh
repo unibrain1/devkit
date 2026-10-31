@@ -479,8 +479,8 @@ fi
 # this name. The PR_NUM part is empty when the step has no PR_NUM line.
 pr_num_of() {
     awk -v want="      - name: $1" -v n="$2" '
-        /^  [a-z][a-z0-9-]*:$/ { j = $0; sub(/^ +/, "", j); sub(/:$/, "", j) }
         on && (/^      - / || /^  [a-z]/) { exit }
+        /^  [a-z][a-z0-9-]*:$/ { j = $0; sub(/^ +/, "", j); sub(/:$/, "", j) }
         on && /^          PR_NUM: / { p = $0 }
         $0 == want { c++; if (c == n) on = 1 }
         END { if (on) print j "|" p }

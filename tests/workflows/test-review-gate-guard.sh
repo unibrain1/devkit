@@ -10,7 +10,7 @@
 # The step "Check workflow match" finds the cause. It compares blobs at the
 # default branch, the head, and the merge base. A lookup that fails counts as
 # no answer, so the guard fails closed. The steps "Post review" and "Gate"
-# read its result and give the matching message. The test checks three things
+# read its result and give the matching message. The test checks four things
 # for each of the 3 review jobs:
 #   - structure: the steps are in the right order, and the Gate calls no gh
 #   - match: the step gives edited, stale, or none for each blob case
@@ -206,8 +206,9 @@ if [ "$steps_ok" = 1 ]; then
 
         # Each env line must have its exact value. A wrong value passes a
         # run of the step, because the test sets the env itself. These
-        # lines are the same in each job. PR_NUM is not the same, so
-        # test-review-comment-trust.sh checks it.
+        # lines are the same in each job. PR_NUM is not the same.
+        # test-review-comment-trust.sh checks only that the Post review
+        # PR_NUM equals the fetch step PR_NUM of the same job.
         env_bad=""
         NL='
 '
@@ -215,7 +216,8 @@ if [ "$steps_ok" = 1 ]; then
             case "$which" in
                 mtext) t="$mtext" ;;
                 ptext) t="$ptext" ;;
-                *) t="$gtext" ;;
+                gtext) t="$gtext" ;;
+                *) env_bad="$env_bad [bad tag $which]"; continue ;;
             esac
             # A shell match, not grep, so the loop starts no process for
             # each line.
@@ -442,7 +444,7 @@ run_post() {
     mkdir -p "$TMPROOT/rt"
     : > "$TMPROOT/gho"
     POUT="$(cd "$TMPROOT" && env -i PATH="$BIN:$PATH" HOME="$TMPROOT/home" \
-        GH_TOKEN=x STRUCTURED_OUTPUT= HEAD_SHA="$HEAD40" PR_NUM=7 REPO=o/r \
+        GH_TOKEN=x STRUCTURED_OUTPUT= HEAD_SHA="$HEAD40" PR_NUM=7341 REPO=o/r \
         RUN_URL="$URL" EXECUTION_FILE= MATCH_RESULT= MATCH_PATH= CLAUDE_OUTCOME=failure \
         RUNNER_TEMP="$TMPROOT/rt" GITHUB_OUTPUT="$TMPROOT/gho" \
         STUB_POSTED_DIR="$posted" "$@" bash "$script" 2>&1)"
@@ -566,20 +568,27 @@ if [ "$post_ok" = 1 ]; then
         done
 
         # Valid output. The verdict line must be the last line of the body,
-        # because the flow scripts read only that line.
+        # because the flow scripts read only that line. The gh log must show
+        # the PR_NUM and REPO from the env. A fixed number or repo in the
+        # run: text sends the review to a different PR.
         for case_ in "0 0 $OUT0" "2 1 $OUT2"; do
             nb="${case_%% *}"; rest="${case_#* }"; ni="${rest%% *}"; out="${rest#* }"
+            rm -f "$TMPROOT/ghlog"
             run_post "$s" "$posted" MATCH_RESULT=none CLAUDE_OUTCOME=success \
-                EXECUTION_FILE="$TMPROOT/execution.json" "STRUCTURED_OUTPUT=$out"
+                EXECUTION_FILE="$TMPROOT/execution.json" "STRUCTURED_OUTPUT=$out" \
+                STUB_LOG="$TMPROOT/ghlog"
             want="<!-- claude-review-verdict sha=$HEAD40 blocking=$nb important=$ni -->"
             got_b="$(grep '^blocking=' "$TMPROOT/gho" | tail -1 | cut -d= -f2-)"
             last="$(tail -n 1 "$posted/1.md" 2> /dev/null)"
+            calls="$(grep -c '^pr comment ' "$TMPROOT/ghlog" 2> /dev/null)"
+            good="$(grep -c '^pr comment 7341 --repo o/r --body-file ' "$TMPROOT/ghlog" 2> /dev/null)"
             if [ "$PRC" = 0 ] && [ "$(posted_count "$posted")" = 1 ] && [ "$PVERDICT" = ok ] \
-                && [ "$got_b" = "$nb" ] && [ "$last" = "$want" ]; then
+                && [ "$got_b" = "$nb" ] && [ "$last" = "$want" ] \
+                && [ "$calls" = 1 ] && [ "$good" = 1 ]; then
                 pass "$l: valid output with $nb blocking posts the review and records verdict ok"
             else
                 fail "$l: valid output with $nb blocking posts the review and records verdict ok" \
-                    "exit $PRC, comments $(posted_count "$posted"), verdict $PVERDICT, blocking $got_b, last line [$last]: $POUT"
+                    "exit $PRC, comments $(posted_count "$posted"), verdict $PVERDICT, blocking $got_b, last line [$last], gh log: $(tr '\n' ' ' < "$TMPROOT/ghlog" 2> /dev/null): $POUT"
             fi
         done
 
