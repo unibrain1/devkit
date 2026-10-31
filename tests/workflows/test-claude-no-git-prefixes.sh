@@ -134,7 +134,7 @@ done
 # A git rule in the last of 3 steps must fail the check at that step's
 # line. claude.yml has only 1 step, so this case tests the step boundary.
 last="$(grep -n '"mcp__github_inline_comment' "$WORKFLOW_DIR/claude-review.yml" | tail -1 | cut -d: -f1)"
-awk -v n="$last" 'NR == n { sub(/Read,/, "Bash(git show:*),Read,") } { print }' \
+awk -v n="$last" 'NR == n { sub(/Bash\(gh pr diff:\*\),/, "Bash(gh pr diff:*),Bash(git show:*),") } { print }' \
     "$WORKFLOW_DIR/claude-review.yml" > "$TMPROOT/last-step.yml"
 if bad_steps "$TMPROOT/last-step.yml" | grep -q ":$last git rule"; then
     pass "a git rule in the last step fails the check at line $last"
