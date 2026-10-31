@@ -185,7 +185,8 @@ the `//abs/path` form of an absolute rule.
 A bare `Read`, `Grep`, or `Glob` rule reaches each path on the runner. One
 example is `/proc/self/environ`. It holds `CLAUDE_CODE_OAUTH_TOKEN` and
 `GITHUB_TOKEN`. The `Read` tool refuses that file (see below). The probe
-did not test a bare `Grep` on it. Another example is the file at
+did not run a `Grep` on it with a bare rule. With the path rules, Claude
+Code refuses it (see below). Another example is the file at
 `$GITHUB_EVENT_PATH`. In issue #30, the PR comments moved to
 `$RUNNER_TEMP/pr-context`, outside the workspace. The jobs kept the bare
 rules until issue #47.
@@ -237,8 +238,9 @@ The filter has these limits:
 - It does not cover inline comments. The model posts them with
   `mcp__github_inline_comment__create_inline_comment`, so no workflow step
   sees the text.
-- It finds only plain-text tokens. A token that a space splits loses only
-  its prefix. A Markdown escape, an HTML entity, or a zero-width character
+- It finds only plain-text tokens. A token that a space, a line break, or
+  another character outside the token class splits loses only its prefix.
+  A Markdown escape, an HTML entity, or a zero-width character
   in a token stops the match.
 - The bare-prefix rule can also replace ordinary text, for example the
   `ghs_` in `highs_`.
@@ -427,7 +429,7 @@ matcher read the command text before the shell removed the quotes. So
 is in issue #29, with Claude Code 2.1.312 and git 2.56.0. The review
 prompts use `gh pr diff` and read the files of the Fetch PR context step
 (see "Comment trust"). Claude reads full files with `Read`, `Grep`, and
-`Glob`.
+`Glob` (see "File reach of the review").
 
 The `@claude` step in `claude.yml` runs in tag mode. By default, tag mode
 in `claude-code-action` v1.0.261 adds its own rules: `Bash(git add:*)`,

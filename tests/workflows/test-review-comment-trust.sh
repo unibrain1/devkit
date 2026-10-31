@@ -39,8 +39,9 @@ TOOLS_BASE='mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*)
 # shellcheck disable=SC2016 # the expression is literal workflow text
 TOOLS_SUFFIX='${{ inputs.extra_allowed_tools != '"''"' && format('"'"',{0}'"'"', inputs.extra_allowed_tools) || '"''"' }}'
 WANT_TOOLS="\"$TOOLS_BASE$TOOLS_SUFFIX\""
-# The --add-dir line that gives the path-scoped rules their second path. Without
-# it, the pr-context rules cover a folder that the tools cannot open.
+# The --add-dir line that adds pr-context to the session. The sandbox probe
+# (run 41214172279) ran the pr-context rules only with this line, so the
+# test holds each step to that tested form.
 # shellcheck disable=SC2016 # the expression is literal workflow text
 WANT_ADDDIR='--add-dir ${{ runner.temp }}/pr-context'
 
@@ -77,11 +78,14 @@ read_filter() {
 #     model could run after the fetch step fails.
 #   - The Claude step has a with: key other than claude_code_oauth_token,
 #     claude_args, and prompt. Or a claude_args line is not one of these:
-#     a "--allowedTools" line, its value line equal to WANT_TOOLS, a
-#     "--add-dir" line equal to WANT_ADDDIR, a
-#     "--model ${{ inputs.<name> }}" line, a "--effort ${{ inputs.<name> }}"
-#     line, or a "--json-schema '<schema>'" line. It must have exactly one
-#     --allowedTools line and exactly one --add-dir line.
+#       - a "--allowedTools" line
+#       - its value line, equal to WANT_TOOLS
+#       - a "--add-dir" line, equal to WANT_ADDDIR
+#       - a "--model ${{ inputs.<name> }}" line
+#       - a "--effort ${{ inputs.<name> }}" line
+#       - a "--json-schema '<schema>'" line
+#     It must have exactly one --allowedTools line and exactly one --add-dir
+#     line.
 # A step ends at the next step ("      - ") or the next job. With no Claude
 # step at all, it prints a problem, because a loop over no steps checks
 # nothing.

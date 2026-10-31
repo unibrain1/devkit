@@ -6,6 +6,8 @@
 # a token-like string with [redacted] in summary_markdown and in the title,
 # location, and detail of each finding. It must do so also when a removed
 # HTML comment marker joins the token, and for a bare prefix with no body.
+# The test also checks that nested markers leave no marker text, and that
+# ordinary text near a prefix passes with no change.
 #
 # The test reads the 3 RENDER_FILTER values from the workflow text, checks
 # that they are the same, and runs them with jq on fixture JSON. It cannot
@@ -237,6 +239,73 @@ else
         fail "a filter without the gh body rule leaks, so the body check can fail" \
             "jq exit $RENDER_RC"
     fi
+fi
+
+# markers_left <output>
+# Returns 0 when the output still holds "<!--", "-->", or the verdict
+# marker text in any case.
+markers_left() {
+    case "$1" in *'<!--'* | *'-->'*) return 0 ;; esac
+    printf '%s' "$1" | grep -qi 'claude-review-verdict'
+}
+
+# Scenario 8: nested markers. One pass of clean joins the halves into a new
+# marker, so only the repeat loop in clean removes them. Each value goes in
+# each field.
+NESTED_JSON="$TMPROOT/nested.json"
+mkjson "S x <!<!---->-- hidden --> claude-review-claude-review-verdictverdict y" \
+    "T --<!---->> CLAUDE-review-<!---->VERDICT" \
+    "L <!<!---->-- x" \
+    "D claude-review-claude-review-verdictverdict" "$NESTED_JSON"
+render "$FILTER" "$NESTED_JSON"; out="$RENDER_OUT"
+label="nested markers leave no <!--, -->, or verdict text"
+if [ "$RENDER_RC" != 0 ]; then
+    fail "$label" "jq exit $RENDER_RC"
+elif markers_left "$out"; then
+    fail "$label" "marker text remains: $out"
+else
+    pass "$label"
+fi
+# A clean that runs only once must fail the check above.
+# shellcheck disable=SC2016 # the sed expression is literal
+ONE_PASS="$(printf '%s' "$FILTER" | sed 's/else (\$out | clean)/else ($out | redact)/')"
+render "$ONE_PASS" "$NESTED_JSON"; out="$RENDER_OUT"
+if [ "$ONE_PASS" != "$FILTER" ] && [ "$RENDER_RC" = 0 ] && markers_left "$out"; then
+    pass "a clean with no repeat loop leaves marker text, so the check can fail"
+else
+    fail "a clean with no repeat loop leaves marker text, so the check can fail" \
+        "jq exit $RENDER_RC"
+fi
+
+# Scenario 9: ordinary review text passes through redact with no change.
+# The words look like a prefix but are not one. A pattern that is too wide
+# would change words in each review.
+# shellcheck disable=SC2016 # the backticks are literal Markdown
+PLAIN='Use `ghx_tool` and **sk-anthropic** in src/a.sh:12, GH_TOKEN, ghost_x, gh-pages_x'
+mkjson "$PLAIN" "$PLAIN" "$PLAIN" "$PLAIN" "$TMPROOT/plain.json"
+# plain_ok <output>
+# Returns 0 when the summary line and the finding line hold PLAIN with no
+# change, and no [redacted] appears.
+plain_ok() {
+    case "$1" in *'[redacted]'*) return 1 ;; esac
+    printf '%s\n' "$1" | grep -qxF -e "$PLAIN" \
+        && printf '%s\n' "$1" | grep -qxF -e "- **$PLAIN** ($PLAIN) — $PLAIN"
+}
+render "$FILTER" "$TMPROOT/plain.json"; out="$RENDER_OUT"
+label="ordinary text near a token prefix passes with no change"
+if [ "$RENDER_RC" = 0 ] && plain_ok "$out"; then
+    pass "$label"
+else
+    fail "$label" "jq exit $RENDER_RC, output: $out"
+fi
+# A bare-prefix rule that is too wide must fail the check above.
+WIDE="$(printf '%s' "$FILTER" | sed 's/gh\[pousr\]_|/gh[a-z]_|/')"
+render "$WIDE" "$TMPROOT/plain.json"; out="$RENDER_OUT"
+if [ "$WIDE" != "$FILTER" ] && [ "$RENDER_RC" = 0 ] && ! plain_ok "$out"; then
+    pass "a too-wide prefix rule changes ordinary text, so the check can fail"
+else
+    fail "a too-wide prefix rule changes ordinary text, so the check can fail" \
+        "jq exit $RENDER_RC"
 fi
 
 harness_report

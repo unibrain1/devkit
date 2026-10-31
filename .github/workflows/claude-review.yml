@@ -667,6 +667,7 @@ jobs:
           # clean removes the verdict marker text and HTML comment
           # delimiters from model text. It repeats until nothing changes,
           # because one removal can join two halves into a new marker.
+          # Then it calls redact on the result.
           # With no "<!--", model text cannot form an HTML comment, so a
           # marker split by spaces or newlines cannot hide in the comment
           # either.
