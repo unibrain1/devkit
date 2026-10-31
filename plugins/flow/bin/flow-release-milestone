@@ -119,7 +119,8 @@ require_fact() {
   elif [ "$status" -ne 0 ]; then
     exit 2
   elif [ -z "$FACT_VALUE" ]; then
-    # An empty plans value would put the notes copy at /releases/.
+    # An empty value gives a bad path: plans puts the notes copy at
+    # /releases/, and release_notes names no notes file.
     echo "flow-release-milestone: the '${key}' key in .claude/project.md is empty. Give it a value. This script needs it to release." >&2
     exit 2
   fi
