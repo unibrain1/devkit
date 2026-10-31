@@ -16,6 +16,9 @@
 #   - match: the step gives edited, stale, or none for each blob case
 #   - post and gate: each result gives the right comment and exit code. Post
 #     review also posts nothing when the Claude step did not run.
+#   - valid output: Post review posts the review with its verdict line for 0
+#     and 2 blocking findings. When gh pr comment fails, the step fails and
+#     records post_failed, not ok.
 #
 # The test runs the run: block of each step with a fake gh. It cannot check
 # how GitHub Actions runs the workflow.
@@ -41,6 +44,12 @@ BIN="$TMPROOT/bin"
 gh_stub_install "$BIN"
 mkdir -p "$TMPROOT/home" "$TMPROOT/scripts"
 printf '[]\n' > "$TMPROOT/execution.json"
+# Valid structured output: no findings, and 2 blocking and 1 important.
+OUT0='{"summary_markdown":"ok","findings":[]}'
+OUT2='{"summary_markdown":"ok","findings":[
+{"severity":"blocking","location":"a:1","title":"t1","detail":"d1"},
+{"severity":"blocking","location":"a:2","title":"t2","detail":"d2"},
+{"severity":"important","location":"a:3","title":"t3","detail":"d3"}]}'
 
 JOBS="pr-to-milestone-review milestone-review comment-deep-review"
 MATCH_NAME="Check workflow match"
@@ -195,31 +204,52 @@ if [ "$steps_ok" = 1 ]; then
             fail "$job: Gate reads MATCH_RESULT from the match step"
         fi
 
-        env_ok=1
+        # Each env line must have its exact value. A wrong value passes a
+        # run of the step, because the test sets the env itself. These
+        # lines are the same in each job. PR_NUM is not the same, so
+        # test-review-comment-trust.sh checks it.
         env_bad=""
-        for want in \
-            "ptext|          MATCH_PATH: \${{ steps.match.outputs.path }}" \
-            "ptext|          CLAUDE_OUTCOME: \${{ steps.claude-review.outcome }}" \
-            "gtext|          MATCH_PATH: \${{ steps.match.outputs.path }}"; do
-            which="${want%%|*}"
-            line="${want#*|}"
-            if [ "$which" = ptext ]; then t="$ptext"; else t="$gtext"; fi
-            printf '%s\n' "$t" | grep -qxF -- "$line" || { env_ok=0; env_bad="$env_bad [$which $line]"; }
-        done
-        for want in "gtext|RUN_URL" "mtext|EXECUTION_FILE" "mtext|WF_REF" \
-            "mtext|DEFAULT_BRANCH" "mtext|HEAD_SHA"; do
-            which="${want%%|*}"
-            key="${want#*|}"
+        NL='
+'
+        while IFS='|' read -r which line; do
             case "$which" in
-                gtext) t="$gtext" ;;
-                *) t="$mtext" ;;
+                mtext) t="$mtext" ;;
+                ptext) t="$ptext" ;;
+                *) t="$gtext" ;;
             esac
-            printf '%s\n' "$t" | grep -q "^          $key: " || { env_ok=0; env_bad="$env_bad [$which $key]"; }
-        done
-        if [ "$env_ok" = 1 ]; then
-            pass "$job: Post review, Gate, and match steps have the env keys they read"
+            # A shell match, not grep, so the loop starts no process for
+            # each line.
+            case "$NL$t$NL" in
+                *"$NL$line$NL"*) ;;
+                *) env_bad="$env_bad [$which $line]" ;;
+            esac
+        done << 'ENV'
+mtext|          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+mtext|          REPO: ${{ github.repository }}
+mtext|          HEAD_SHA: ${{ steps.head.outputs.sha }}
+mtext|          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+mtext|          WF_REF: ${{ github.workflow_ref }}
+mtext|          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+ptext|          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+ptext|          STRUCTURED_OUTPUT: ${{ steps.claude-review.outputs.structured_output }}
+ptext|          HEAD_SHA: ${{ steps.head.outputs.sha }}
+ptext|          REPO: ${{ github.repository }}
+ptext|          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+ptext|          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+ptext|          MATCH_PATH: ${{ steps.match.outputs.path }}
+ptext|          CLAUDE_OUTCOME: ${{ steps.claude-review.outcome }}
+gtext|          VERDICT: ${{ steps.post.outputs.verdict }}
+gtext|          BLOCKING: ${{ steps.post.outputs.blocking }}
+gtext|          HEAD_SHA: ${{ steps.head.outputs.sha }}
+gtext|          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+gtext|          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+gtext|          MATCH_PATH: ${{ steps.match.outputs.path }}
+gtext|          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+ENV
+        if [ -z "$env_bad" ]; then
+            pass "$job: Post review, Gate, and match steps have the exact env lines"
         else
-            fail "$job: Post review, Gate, and match steps have the env keys they read" "missing:$env_bad"
+            fail "$job: Post review, Gate, and match steps have the exact env lines" "missing:$env_bad"
         fi
 
         # The Gate reads outputs only. A gh call in it could fail for a
@@ -534,6 +564,37 @@ if [ "$post_ok" = 1 ]; then
                     "exit $PRC, comments $(posted_count "$posted"): $POUT"
             fi
         done
+
+        # Valid output. The verdict line must be the last line of the body,
+        # because the flow scripts read only that line.
+        for case_ in "0 0 $OUT0" "2 1 $OUT2"; do
+            nb="${case_%% *}"; rest="${case_#* }"; ni="${rest%% *}"; out="${rest#* }"
+            run_post "$s" "$posted" MATCH_RESULT=none CLAUDE_OUTCOME=success \
+                EXECUTION_FILE="$TMPROOT/execution.json" "STRUCTURED_OUTPUT=$out"
+            want="<!-- claude-review-verdict sha=$HEAD40 blocking=$nb important=$ni -->"
+            got_b="$(grep '^blocking=' "$TMPROOT/gho" | tail -1 | cut -d= -f2-)"
+            last="$(tail -n 1 "$posted/1.md" 2> /dev/null)"
+            if [ "$PRC" = 0 ] && [ "$(posted_count "$posted")" = 1 ] && [ "$PVERDICT" = ok ] \
+                && [ "$got_b" = "$nb" ] && [ "$last" = "$want" ]; then
+                pass "$l: valid output with $nb blocking posts the review and records verdict ok"
+            else
+                fail "$l: valid output with $nb blocking posts the review and records verdict ok" \
+                    "exit $PRC, comments $(posted_count "$posted"), verdict $PVERDICT, blocking $got_b, last line [$last]: $POUT"
+            fi
+        done
+
+        # A check of the last verdict is not enough. No line of the output
+        # can be verdict=ok, not even a line written before the post.
+        run_post "$s" "$posted" MATCH_RESULT=none CLAUDE_OUTCOME=success \
+            EXECUTION_FILE="$TMPROOT/execution.json" "STRUCTURED_OUTPUT=$OUT0" \
+            STUB_GH_FAIL_PR_COMMENT=1
+        if [ "$PRC" != 0 ] && [ "$(posted_count "$posted")" = 0 ] && [ "$PVERDICT" = post_failed ] \
+            && ! grep -qx 'verdict=ok' "$TMPROOT/gho"; then
+            pass "$l: a failed post exits non-zero and records post_failed, not ok"
+        else
+            fail "$l: a failed post exits non-zero and records post_failed, not ok" \
+                "exit $PRC, comments $(posted_count "$posted"), verdict $PVERDICT, output: $(tr '\n' ' ' < "$TMPROOT/gho")"
+        fi
     done
 fi
 
