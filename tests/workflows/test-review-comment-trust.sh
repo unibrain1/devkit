@@ -32,8 +32,18 @@ REVIEW="$WORKFLOW_DIR/claude-review.yml"
 
 # The only --allowedTools value that a Claude step may have. An allow-list
 # also catches a new tool that reads PR comments, such as Bash(gh api:*).
+# Read, Grep, and Glob have a path scope (issue #47). A bare rule reaches each
+# path on the runner, /proc/self/environ included, so a bare rule must fail.
+# shellcheck disable=SC2016 # the expressions are literal workflow text
+TOOLS_BASE='mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)'
 # shellcheck disable=SC2016 # the expression is literal workflow text
-WANT_TOOLS='"mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '"''"' && format('"'"',{0}'"'"', inputs.extra_allowed_tools) || '"''"' }}"'
+TOOLS_SUFFIX='${{ inputs.extra_allowed_tools != '"''"' && format('"'"',{0}'"'"', inputs.extra_allowed_tools) || '"''"' }}'
+WANT_TOOLS="\"$TOOLS_BASE$TOOLS_SUFFIX\""
+# The --add-dir line that adds pr-context to the session. The sandbox probe
+# (run 41214172279) ran the pr-context rules only with this line, so the
+# test holds each step to that tested form.
+# shellcheck disable=SC2016 # the expression is literal workflow text
+WANT_ADDDIR='--add-dir ${{ runner.temp }}/pr-context'
 
 # read_filter <file>
 # Prints the value of the workflow-level TRUSTED_COMMENTS_JQ key. The key is
@@ -68,15 +78,19 @@ read_filter() {
 #     model could run after the fetch step fails.
 #   - The Claude step has a with: key other than claude_code_oauth_token,
 #     claude_args, and prompt. Or a claude_args line is not one of these:
-#     a "--allowedTools" line, its value line equal to WANT_TOOLS, a
-#     "--model ${{ inputs.<name> }}" line, a "--effort ${{ inputs.<name> }}"
-#     line, or a "--json-schema '<schema>'" line. It must have exactly one
-#     --allowedTools line.
+#       - a "--allowedTools" line
+#       - its value line, equal to WANT_TOOLS
+#       - a "--add-dir" line, equal to WANT_ADDDIR
+#       - a "--model ${{ inputs.<name> }}" line
+#       - a "--effort ${{ inputs.<name> }}" line
+#       - a "--json-schema '<schema>'" line
+#     It must have exactly one --allowedTools line and exactly one --add-dir
+#     line.
 # A step ends at the next step ("      - ") or the next job. With no Claude
 # step at all, it prints a problem, because a loop over no steps checks
 # nothing.
 check_file() {
-    awk -v file="$1" -v want="$WANT_TOOLS" '
+    awk -v file="$1" -v want="$WANT_TOOLS" -v wantdir="$WANT_ADDDIR" '
         # flat is seg with each line break and its indent as one space, so a
         # re-wrap of the prompt does not split a phrase.
         function need(text, what) {
@@ -115,7 +129,8 @@ check_file() {
             if (sseg ~ /\n        ["\x27]?continue-on-error["\x27]? *:/) print file ":" c " Claude step has continue-on-error"
             if (ntools != 1) print file ":" c " Claude step has " ntools + 0 " --allowedTools lines, not 1"
             if (tools != want) print file ":" c " --allowedTools is not the allowed list: " tools
-            c = 0; tools = ""; ntools = 0; block = ""
+            if (nadd != 1) print file ":" c " Claude step has " nadd + 0 " --add-dir lines, not 1"
+            c = 0; tools = ""; ntools = 0; nadd = 0; block = ""
         }
         function close_step() { close_fetch(); close_claude() }
         /^ *TRUSTED_COMMENTS_JQ:/ { keys++; if (!inenv || !/^  TRUSTED_COMMENTS_JQ:/) badkey = NR }
@@ -153,6 +168,7 @@ check_file() {
             line = $0; sub(/^ +/, "", line)
             if (after_tools) { tools = line; after_tools = 0 }
             else if (line == "--allowedTools") { after_tools = 1; ntools++ }
+            else if (line == wantdir) nadd++
             else if (line ~ /^--(model|effort) \$\{\{ inputs\.[a-z_]+ \}\}$/) { }
             else if (line ~ /^--json-schema \x27[^\x27]*\x27$/) { }
             else print file ":" NR " claude_args line is not on the allowed list: " line
@@ -208,8 +224,8 @@ emit_env() {
 # emit_job <name> <variant>: writes one fixture job to stdout. variant is
 # "good", or one of the broken variants in the loop below.
 emit_job() {
-    local tools='mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read,Grep,Glob'
-    local suffix='${{ inputs.extra_allowed_tools != '"''"' && format('"'"',{0}'"'"', inputs.extra_allowed_tools) || '"''"' }}'
+    local tools="$TOOLS_BASE"
+    local suffix="$TOOLS_SUFFIX"
     local jqline='          printf "%s" "$RAW" | jq -c "$TRUSTED_COMMENTS_JQ" > "$OUT/comments.jsonl"'
     echo "  $1:"
     echo '    steps:'
@@ -240,6 +256,9 @@ emit_job() {
     case "$2" in
         api-tool) tools="$tools,Bash(gh api:*)" ;;
         issue-tool) tools="$tools,Bash(gh issue view:*)" ;;
+        bare-read) tools="$tools,Read" ;;
+        bare-grep) tools="$tools,Grep" ;;
+        bare-glob) tools="$tools,Glob" ;;
     esac
     echo '      - name: Run Claude'
     [ "$2" = claude-if ] && echo '        if: always()'
@@ -260,6 +279,11 @@ emit_job() {
     [ "$2" = schema-plus ] && echo "            --json-schema '{}' --allowedTools Bash"
     echo '            --allowedTools'
     echo "            \"$tools$suffix\""
+    case "$2" in
+        no-add-dir) ;;
+        add-dir-wrong) echo '            --add-dir /' ;;
+        *) echo "            $WANT_ADDDIR" ;;
+    esac
     [ "$2" = input-tools ] && echo '          allowed_tools: "Bash(gh:*)"'
     [ "$2" = settings-input ] && echo '          settings: "{}"'
     echo '          prompt: |'
@@ -295,7 +319,8 @@ for variant in no-fetch commented-fetch fetch-if fetch-continue fetch-or-true \
     fetch-exit0 commented-set set-late set-plus-e github-env github-env-heredoc \
     no-trust prompt-fetch api-tool issue-tool step-env two-tools oneline-tools \
     dash-tools input-tools settings-input bypass skip-perms settings-arg \
-    model-plus schema-plus claude-if claude-continue; do
+    model-plus schema-plus claude-if claude-continue bare-read bare-grep bare-glob \
+    no-add-dir add-dir-wrong; do
     fixture "$TMPROOT/$variant.yml" "$variant"
     expect "a fixture with a $variant job fails" "$TMPROOT/$variant.yml" fail
 done

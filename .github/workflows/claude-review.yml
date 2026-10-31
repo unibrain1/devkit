@@ -134,6 +134,12 @@ name: Claude Code Review
 # or another tool that reads PR comments, with extra_allowed_tools. The list
 # of such tools is in docs/ci-workflows.md, "Comment trust". Nothing checks
 # that input yet (issue #40).
+# The Read, Grep and Glob rules in allowedTools are path-scoped to the
+# checkout and $RUNNER_TEMP/pr-context, which --add-dir adds (issue #47). A
+# bare rule reaches each path on the runner, /proc/self/environ included. A
+# caller must not add a bare Read, Grep or Glob with extra_allowed_tools.
+# As a second layer, the render filter redacts token-like strings in the
+# model text before the step posts it.
 
 on:
   workflow_call:
@@ -332,9 +338,12 @@ jobs:
           # from the prompt input.
           # --allowedTools has no git prefix (issue #29). The reason is in
           # docs/ci-workflows.md, "No git read commands for Claude".
+          # Read, Grep and Glob are path-scoped (issue #47). The reason is in
+          # docs/ci-workflows.md, "File reach of the review".
           claude_args: >-
             --allowedTools
-            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            --add-dir ${{ runner.temp }}/pr-context
             --model ${{ inputs.review_model }}
             --effort ${{ inputs.review_effort }}
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary_markdown","findings"],"properties":{"summary_markdown":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","location","title","detail"],"properties":{"severity":{"type":"string","enum":["blocking","important","note","suggestion"]},"location":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}}}}'
@@ -375,6 +384,9 @@ jobs:
               `${{ runner.temp }}/pr-context/comments.jsonl`. The checkout
               is at `${{ github.workspace }}`.
             - Search with `Grep`. List files with `Glob`.
+            - `Read`, `Grep`, and `Glob` reach only the checkout and
+              `${{ runner.temp }}/pr-context`. The allowlist refuses all
+              other paths.
             - Bash runs only `gh pr diff <PR number>`, and any rule that
               this project adds. Type it as one command, exactly as this
               prompt shows it. Do not add `cd`, `;`, `&&`, `|`, `>`, or a
@@ -655,18 +667,28 @@ jobs:
           # clean removes the verdict marker text and HTML comment
           # delimiters from model text. It repeats until nothing changes,
           # because one removal can join two halves into a new marker.
+          # Then it calls redact on the result.
           # With no "<!--", model text cannot form an HTML comment, so a
           # marker split by spaces or newlines cannot hide in the comment
           # either.
           # oneline changes each line break in a finding field to a space.
           # Then a field cannot leave its list item and start a fake
           # heading. summary_markdown keeps its line breaks.
+          # redact is a second layer behind the path limit (issue #47).
+          # clean calls it after the last marker is gone, so a token that a
+          # removed marker joins is redacted whole. See docs/ci-workflows.md,
+          # "File reach of the review".
           # shellcheck disable=SC2016
           RENDER_FILTER='
+            def redact:
+              gsub("gh[pousr]_[A-Za-z0-9]{20,}"; "[redacted]")
+              | gsub("github_pat_[A-Za-z0-9_]{20,}"; "[redacted]")
+              | gsub("sk-ant-[A-Za-z0-9_-]{20,}"; "[redacted]")
+              | gsub("gh[pousr]_|github_pat_|sk-ant-"; "[redacted]");
             def clean:
               . as $in
               | (gsub("(?i)claude-review-verdict"; "") | gsub("<!--"; "") | gsub("-->"; "")) as $out
-              | if $out == $in then $out else ($out | clean) end;
+              | if $out == $in then ($out | redact) else ($out | clean) end;
             def oneline: gsub("[\r\n]+"; " ");
             def section($severity; $heading):
               [.findings[] | select(.severity == $severity)] as $items
@@ -947,9 +969,12 @@ jobs:
           # Do NOT set track_progress — see pr-to-milestone-review above.
           # --allowedTools has no git prefix (issue #29). The reason is in
           # docs/ci-workflows.md, "No git read commands for Claude".
+          # Read, Grep and Glob are path-scoped (issue #47). The reason is in
+          # docs/ci-workflows.md, "File reach of the review".
           claude_args: >-
             --allowedTools
-            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            --add-dir ${{ runner.temp }}/pr-context
             --model ${{ inputs.milestone_model }}
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary_markdown","findings"],"properties":{"summary_markdown":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","location","title","detail"],"properties":{"severity":{"type":"string","enum":["blocking","important","note","suggestion"]},"location":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}}}}'
           prompt: |
@@ -994,6 +1019,9 @@ jobs:
               `${{ runner.temp }}/pr-context/comments.jsonl`. The checkout
               is at `${{ github.workspace }}`.
             - Search with `Grep`. List files with `Glob`.
+            - `Read`, `Grep`, and `Glob` reach only the checkout and
+              `${{ runner.temp }}/pr-context`. The allowlist refuses all
+              other paths.
             - Bash runs only `gh pr diff <PR number>`, and any rule that
               this project adds. Type it as one command, exactly as this
               prompt shows it. Do not add `cd`, `;`, `&&`, `|`, `>`, or a
@@ -1282,12 +1310,21 @@ jobs:
               and (.title | type) == "string"
               and (.detail | type) == "string"))'
 
+          # redact is a second layer behind the path limit (issue #47).
+          # clean calls it after the last marker is gone, so a token that a
+          # removed marker joins is redacted whole. See docs/ci-workflows.md,
+          # "File reach of the review".
           # shellcheck disable=SC2016
           RENDER_FILTER='
+            def redact:
+              gsub("gh[pousr]_[A-Za-z0-9]{20,}"; "[redacted]")
+              | gsub("github_pat_[A-Za-z0-9_]{20,}"; "[redacted]")
+              | gsub("sk-ant-[A-Za-z0-9_-]{20,}"; "[redacted]")
+              | gsub("gh[pousr]_|github_pat_|sk-ant-"; "[redacted]");
             def clean:
               . as $in
               | (gsub("(?i)claude-review-verdict"; "") | gsub("<!--"; "") | gsub("-->"; "")) as $out
-              | if $out == $in then $out else ($out | clean) end;
+              | if $out == $in then ($out | redact) else ($out | clean) end;
             def oneline: gsub("[\r\n]+"; " ");
             def section($severity; $heading):
               [.findings[] | select(.severity == $severity)] as $items
@@ -1608,9 +1645,12 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # --allowedTools has no git prefix (issue #29). The reason is in
           # docs/ci-workflows.md, "No git read commands for Claude".
+          # Read, Grep and Glob are path-scoped (issue #47). The reason is in
+          # docs/ci-workflows.md, "File reach of the review".
           claude_args: >-
             --allowedTools
-            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            --add-dir ${{ runner.temp }}/pr-context
             --model ${{ inputs.milestone_model }}
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary_markdown","findings"],"properties":{"summary_markdown":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","location","title","detail"],"properties":{"severity":{"type":"string","enum":["blocking","important","note","suggestion"]},"location":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}}}}'
           prompt: |
@@ -1650,6 +1690,9 @@ jobs:
               `${{ runner.temp }}/pr-context/comments.jsonl`. The checkout
               is at `${{ github.workspace }}`.
             - Search with `Grep`. List files with `Glob`.
+            - `Read`, `Grep`, and `Glob` reach only the checkout and
+              `${{ runner.temp }}/pr-context`. The allowlist refuses all
+              other paths.
             - Bash runs only `gh pr diff <PR number>`, and any rule that
               this project adds. Type it as one command, exactly as this
               prompt shows it. Do not add `cd`, `;`, `&&`, `|`, `>`, or a
@@ -1897,12 +1940,21 @@ jobs:
               and (.title | type) == "string"
               and (.detail | type) == "string"))'
 
+          # redact is a second layer behind the path limit (issue #47).
+          # clean calls it after the last marker is gone, so a token that a
+          # removed marker joins is redacted whole. See docs/ci-workflows.md,
+          # "File reach of the review".
           # shellcheck disable=SC2016
           RENDER_FILTER='
+            def redact:
+              gsub("gh[pousr]_[A-Za-z0-9]{20,}"; "[redacted]")
+              | gsub("github_pat_[A-Za-z0-9_]{20,}"; "[redacted]")
+              | gsub("sk-ant-[A-Za-z0-9_-]{20,}"; "[redacted]")
+              | gsub("gh[pousr]_|github_pat_|sk-ant-"; "[redacted]");
             def clean:
               . as $in
               | (gsub("(?i)claude-review-verdict"; "") | gsub("<!--"; "") | gsub("-->"; "")) as $out
-              | if $out == $in then $out else ($out | clean) end;
+              | if $out == $in then ($out | redact) else ($out | clean) end;
             def oneline: gsub("[\r\n]+"; " ");
             def section($severity; $heading):
               [.findings[] | select(.severity == $severity)] as $items
