@@ -52,7 +52,7 @@ It checks that the CI review posted and CI is green. `flow-verify-ci-review` acc
 
 - No Blocking or Important finding is open. If one is open, the command fixes nothing. It tells the user to run `/flow:review-milestone <version>`.
 - The milestone scope matches the release notes.
-- The version is newer than the last tag. Run `flow-check-version-newer <version>`.
+- The version is newer than the last tag. Run `flow-check-version-newer <version>`. The version must start with `v`. The last tag may lack it.
 - The deploy sheet is fresh.
 
 After the user approves, `flow-release-milestone` merges the PR, tags the merge commit, creates a GitHub release, and closes the milestone. It removes the `milestone/*` branch.

@@ -4,6 +4,8 @@
 
 `/flow:plan-milestone <version>` runs one planning session per milestone. The session takes about 30 minutes. It ends with a sealed milestone.
 
+`/flow:plan-milestone` and `/flow:start-milestone` check the version form (`vX.Y.Z` or `vX.Y.Z.N`) and that the version is newer than the last tag, before any change.
+
 ### Pick the theme
 
 - Read the signals since the last planning: user contacts, analytics anomalies, error logs, new backlog issues.
