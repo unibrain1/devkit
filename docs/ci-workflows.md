@@ -184,12 +184,14 @@ the `//abs/path` form of an absolute rule.
 
 A bare `Read`, `Grep`, or `Glob` rule reaches each path on the runner. One
 example is `/proc/self/environ`. It holds `CLAUDE_CODE_OAUTH_TOKEN` and
-`GITHUB_TOKEN`. The `Read` tool refuses that file (see below). The probe
-did not run a `Grep` on it with a bare rule. With the path rules, Claude
-Code refuses it (see below). Another example is the file at
-`$GITHUB_EVENT_PATH`. In issue #30, the PR comments moved to
-`$RUNNER_TEMP/pr-context`, outside the workspace. The jobs kept the bare
-rules until issue #47.
+`GITHUB_TOKEN`. Another example is the file at `$GITHUB_EVENT_PATH`. In
+issue #30, the PR comments moved to `$RUNNER_TEMP/pr-context`, outside the
+workspace. The jobs kept the bare rules until issue #47.
+
+The probe did not run a `Grep` on `/proc/self/environ` with a bare rule.
+With the path rules, Claude Code refuses that `Grep`. The `Read` tool
+refuses that file, because it refuses device and process files. The probe
+results follow.
 
 In `$RUNNER_TEMP`, only `pr-context` is in reach. The other files, for example
 `event.json` in `_github_workflow`, are out of reach.
