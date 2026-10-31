@@ -442,9 +442,9 @@ else
     fail "Case 6b: a repo that gh cannot resolve -> exit 1" "exit: $STATUS6D (want 1)" "output: [$OUT6D]"
 fi
 
-# --- Case 6b: an empty project fact -> 2, nothing changes ----------
+# --- Case 6c: an empty project fact -> 2, nothing changes ----------
 # An empty plans value would send the notes copy to /releases/.
-setup_case case6b
+setup_case case6c
 BEFORE6B="$(git -C "$ORIGIN" for-each-ref)"
 project_md_write "$WORK" 'release_notes: `docs/releases/RELEASE_NOTES_{version}.md`' 'plans: ``'
 OUT6BA="$(run_release "$VERSION" "$PR" "$MS" 2>&1 >/dev/null)"
@@ -457,9 +457,9 @@ if [ "$STATUS6BA" -eq 2 ] && [ "$STATUS6BB" -eq 2 ] \
     && [ "$OUT6BA" = "flow-release-milestone: the 'plans' key in .claude/project.md is empty. Give it a value. This script needs it to release." ] \
     && [ "$OUT6BB" = "flow-release-milestone: the 'release_notes' key in .claude/project.md is empty. Give it a value. This script needs it to release." ] \
     && [ "$BEFORE6B" = "$AFTER6B" ] && ! grep -qE '^(pr merge|release create)' "$STATE/calls"; then
-    pass "Case 6b: empty plans -> 2, empty release_notes -> 2, nothing changed"
+    pass "Case 6c: empty plans -> 2, empty release_notes -> 2, nothing changed"
 else
-    fail "Case 6b: empty project fact -> 2" "exits: $STATUS6BA $STATUS6BB (want 2 2)" "plans: [$OUT6BA]" "release_notes: [$OUT6BB]"
+    fail "Case 6c: empty project fact -> 2" "exits: $STATUS6BA $STATUS6BB (want 2 2)" "plans: [$OUT6BA]" "release_notes: [$OUT6BB]"
 fi
 
 # --- Case 7: dry run -> 0, nothing changes -------------------------------
