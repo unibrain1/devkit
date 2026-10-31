@@ -64,6 +64,10 @@ closes() {
 #      a "gh issue edit" with --remove-milestone for the same issue, or a
 #      "# No milestone to remove:" comment that says why the issue has no
 #      milestone.
+#   4. A completed close does not follow a step that removes the milestone
+#      (--remove-milestone or --milestone "") for the same issue. A shipped
+#      issue keeps its milestone, or the release scope and the milestone
+#      counts are wrong.
 check_closes() {
     awk -F '\t' -v file="$1" '
         function strip(s) { gsub(/--(comment|body) "[^"]*"/, "", s); return s }
@@ -87,6 +91,10 @@ check_closes() {
                 !(prev ~ /gh issue edit/ && prev ~ /--remove-milestone/ && target(prev) == target(cmd)) &&
                 prev !~ /^[ \t]*# No milestone to remove:/)
                 print file ":" $1 " cull close with no milestone step before it"
+            if (completed &&
+                prev ~ /gh issue edit/ && target(prev) == target(cmd) &&
+                (prev ~ /--remove-milestone/ || prev ~ /--milestone ""/))
+                print file ":" $1 " completed close removes the milestone"
         }
     '
 }
@@ -257,6 +265,32 @@ if bad_closes "$TMPROOT/completed-cull/command.md" | grep -q 'completed close ou
     pass "a completed close outside finish-issue.md fails the check"
 else
     fail "a completed close outside finish-issue.md fails the check"
+fi
+
+# A completed close in finish-issue.md must not follow a step that removes
+# the milestone of the same issue, in either form of the flag.
+fixture completed-removes-milestone 'gh issue edit 1 --remove-milestone
+gh issue close 1 --reason "completed"' finish-issue.md
+if bad_closes "$TMPROOT/completed-removes-milestone/finish-issue.md" | grep -q 'completed close removes the milestone'; then
+    pass "a completed close after --remove-milestone fails the check"
+else
+    fail "a completed close after --remove-milestone fails the check"
+fi
+fixture completed-empty-milestone 'gh issue edit 1 --milestone ""
+gh issue close 1 --reason "completed"' finish-issue.md
+if bad_closes "$TMPROOT/completed-empty-milestone/finish-issue.md" | grep -q 'completed close removes the milestone'; then
+    pass "a completed close after --milestone \"\" fails the check"
+else
+    fail "a completed close after --milestone \"\" fails the check"
+fi
+
+# A milestone edit for a different issue does not break the completed rule.
+fixture completed-other-edit 'gh issue edit 999 --remove-milestone
+gh issue close 1 --reason "completed"' finish-issue.md
+if accepted "$TMPROOT/completed-other-edit/finish-issue.md"; then
+    pass "a milestone removal for a different issue does not fail a completed close"
+else
+    fail "a milestone removal for a different issue does not fail a completed close" "$(bad_closes "$TMPROOT/completed-other-edit/finish-issue.md")"
 fi
 
 # A reason flag in the comment text is not a reason. A double-quoted
