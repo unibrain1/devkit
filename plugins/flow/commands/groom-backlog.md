@@ -331,14 +331,20 @@ gh issue edit NNN --repo $REPO --add-label "stale"
 gh issue comment NNN --repo $REPO \
   --body "Marked stale: no activity in 180 days. This issue closes in 14 days unless someone comments with a reason to keep it."
 
-# Age-out: close. Leave out --remove-milestone when the issue has no milestone
-gh issue edit NNN --repo $REPO --add-label "stale-no-demand" --remove-milestone
+# Age-out: close. Leave out the milestone edit when the issue has no milestone
+gh issue edit NNN --repo $REPO --add-label "stale-no-demand"
+gh issue edit NNN --repo $REPO --remove-milestone
 gh issue close NNN --repo $REPO --reason "not planned" \
   --comment "Closed: no demand in the 14 days after the stale warning. A new signal reopens it."
 
 # Age-out: remove stale
 gh issue edit NNN --repo $REPO --remove-label "stale"
 ```
+
+When the issue has a milestone, run the close only after its
+`--remove-milestone` edit succeeds. If that edit fails, do not close the
+issue. Report the failure. A close after a failed edit leaves a culled
+issue in its milestone.
 
 The warning comment must start with `Marked stale:`. Step 3.5 ignores
 comments that start with it, so the warning does not count as demand.

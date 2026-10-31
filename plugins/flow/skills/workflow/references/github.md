@@ -43,6 +43,8 @@ Each `gh issue close` in the flow commands gives a reason. With no reason, GitHu
 | `not planned` | `--reason "not planned"` | A cull: the issue fails the planning gate, the grooming sweep, or the age-out. | Remove it in the same step. |
 | `duplicate` | `--duplicate-of <N>` | A consolidation: issue `<N>` keeps the work. | Remove it in the same step. |
 
+When the issue has a milestone, run the milestone edit as its own command, directly before the close. Run the close only after that edit succeeds.
+
 `tests/commands/test-issue-close-reasons.sh` fails when a close in `plugins/flow/commands/` has no reason, or when a cull close has no milestone step directly before it.
 
 ## Comment markers

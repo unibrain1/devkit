@@ -1,8 +1,8 @@
 #!/bin/bash
 #
 # Tests that each "gh issue close" in the flow commands records why the
-# issue closed (issue #33). With no --reason, GitHub records "completed",
-# also for culled work that did not ship. A cull close must also remove the
+# issue closed. With no --reason, GitHub records "completed", also for
+# culled work that did not ship. A cull close must also remove the
 # milestone in the same step, because a milestone shows only open work and
 # shipped work. Only shipped work closes as "completed", and it keeps its
 # milestone. The test also checks that the workflow skill says what each
@@ -31,10 +31,10 @@ SKILL_FILE="${SKILL_FILE:-$REAL_REPO/plugins/flow/skills/workflow/references/git
 
 # closes <file>
 # Prints "<line>\t<previous>\t<command>" for each "gh issue close" in a
-# fenced code block (``` or ~~~) of <file>. A line that ends in "\" joins the next line,
-# so a flag on a continuation line counts. <line> is the first line of the
-# command. <previous> is the command or comment directly before it in the
-# same code block, blank lines not counted.
+# fenced code block (``` or ~~~) of <file>. A line that ends in "\" joins
+# the next line, so a flag on a continuation line counts. <line> is the
+# first line of the command. <previous> is the command or comment directly
+# before it in the same code block, blank lines not counted.
 closes() {
     awk '
         /^[ \t]*(```|~~~)/ { in_code = !in_code; cmd = ""; prev = ""; next }
@@ -123,12 +123,17 @@ bad_skill() {
 }
 
 total=0
+# A file that awk cannot read prints nothing, which looks the same as a file
+# with no closes. So each read error fails here, not only through the count.
 for path in "$COMMANDS_DIR"/*.md; do
-    found="$(closes "$path")"
+    f="$(basename "$path")"
+    if ! found="$(closes "$path")"; then
+        fail "$f: the test can read the command file" "$path"
+        continue
+    fi
     [ -z "$found" ] && continue
     n="$(printf '%s\n' "$found" | grep -c .)"
     total=$((total + n))
-    f="$(basename "$path")"
     bad="$(printf '%s\n' "$found" | check_closes "$f")"
     if [ -z "$bad" ]; then
         pass "$f: $n close(s) with a reason and a milestone step"
@@ -152,14 +157,22 @@ else
     fail "finish-issue.md closes shipped work as completed"
 fi
 
-bad="$(bad_skill "$SKILL_FILE")"
-if [ -z "$bad" ]; then
+if ! bad="$(bad_skill "$SKILL_FILE")"; then
+    fail "github.md says what each close reason means" "cannot read $SKILL_FILE"
+elif [ -z "$bad" ]; then
     pass "github.md says what each close reason means"
 else
     fail "github.md says what each close reason means" "$bad"
 fi
 
 TMPROOT="$(mktemp -d)"
+
+# accepted <file>
+# True when closes finds exactly one close in <file> and check_closes accepts
+# it. An empty bad_closes alone also passes when closes finds nothing.
+accepted() {
+    [ "$(closes "$1" | grep -c .)" -eq 1 ] && [ -z "$(bad_closes "$1")" ]
+}
 
 # fixture <name> <body> [file-name]
 # Writes $TMPROOT/<name>/<file-name> (default command.md), a command file
@@ -183,7 +196,7 @@ fixture continuation 'gh issue edit 1 --remove-milestone
 gh issue close 1 \
   --reason "not planned" \
   --comment "Closing."'
-if [ -z "$(bad_closes "$TMPROOT/continuation/command.md")" ]; then
+if accepted "$TMPROOT/continuation/command.md"; then
     pass "a reason on a continuation line passes"
 else
     fail "a reason on a continuation line passes" "$(bad_closes "$TMPROOT/continuation/command.md")"
@@ -192,7 +205,7 @@ fi
 # --duplicate-of sets the reason duplicate, so it must pass.
 fixture duplicate 'gh issue edit 1 --remove-milestone
 gh issue close 1 --duplicate-of 2 --comment "Consolidated into #2."'
-if [ -z "$(bad_closes "$TMPROOT/duplicate/command.md")" ]; then
+if accepted "$TMPROOT/duplicate/command.md"; then
     pass "--duplicate-of passes as a reason"
 else
     fail "--duplicate-of passes as a reason" "$(bad_closes "$TMPROOT/duplicate/command.md")"
@@ -221,7 +234,7 @@ fi
 # The no-milestone note directly before a close must pass.
 fixture note '# No milestone to remove: these issues have no milestone.
 gh issue close 1 --reason "not planned"'
-if [ -z "$(bad_closes "$TMPROOT/note/command.md")" ]; then
+if accepted "$TMPROOT/note/command.md"; then
     pass "the no-milestone note passes as a milestone step"
 else
     fail "the no-milestone note passes as a milestone step" "$(bad_closes "$TMPROOT/note/command.md")"
@@ -230,7 +243,7 @@ fi
 # A completed close in finish-issue.md keeps its milestone, so it needs no
 # milestone step.
 fixture completed 'gh issue close 1 --reason "completed" --comment "Resolved via PR #2."' finish-issue.md
-if [ -z "$(bad_closes "$TMPROOT/completed/finish-issue.md")" ]; then
+if accepted "$TMPROOT/completed/finish-issue.md"; then
     pass "a completed close in finish-issue.md needs no milestone step"
 else
     fail "a completed close in finish-issue.md needs no milestone step" "$(bad_closes "$TMPROOT/completed/finish-issue.md")"
@@ -287,7 +300,9 @@ fi
 # The finish-issue.md check reads the closes output. With no
 # --reason "completed" in finish-issue.md, that output has no completed reason.
 sed 's/ --reason "completed"//' "$COMMANDS_DIR/finish-issue.md" > "$TMPROOT/finish-issue.md"
-if closes "$TMPROOT/finish-issue.md" | grep -q -- '--reason "completed"'; then
+if [ ! -s "$TMPROOT/finish-issue.md" ]; then
+    fail "closes finds no completed reason after the sed edit" "cannot read $COMMANDS_DIR/finish-issue.md"
+elif closes "$TMPROOT/finish-issue.md" | grep -q -- '--reason "completed"'; then
     fail "closes finds no completed reason after the sed edit"
 else
     pass "closes finds no completed reason after the sed edit"

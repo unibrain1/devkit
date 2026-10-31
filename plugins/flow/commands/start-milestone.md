@@ -283,7 +283,8 @@ gh issue edit NNN --repo $REPO --remove-milestone
 ```
 
 Close (fails all three planning questions outright). Remove the milestone,
-then close the issue as not planned:
+then close the issue as not planned. If the milestone edit fails, do not
+close the issue. Report the failure:
 
 ```bash
 gh issue edit NNN --repo $REPO --remove-milestone
@@ -304,7 +305,8 @@ If consolidation candidates exist, ask second:
 For each accepted group: pick the primary issue (more complete scope, or
 lower number if unclear — ask the user if not obvious), fold the secondary
 issue's scope into its body. Then remove the milestone from the secondary,
-and close it as a duplicate of the primary, with a linking comment:
+and close it as a duplicate of the primary, with a linking comment. If the
+milestone edit fails, do not close the issue. Report the failure:
 
 ```bash
 gh issue edit NNN --repo $REPO --remove-milestone
