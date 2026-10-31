@@ -182,22 +182,22 @@ In the Claude step of each review job, `--allowedTools` limits `Read`,
 The runner temp path starts with `/`, so the leading `/` in the rule gives
 the `//abs/path` form of an absolute rule.
 
-A bare `Read`, `Grep`, or `Glob` rule reaches each path on the runner. One
-example is `/proc/self/environ`. It holds `CLAUDE_CODE_OAUTH_TOKEN` and
-`GITHUB_TOKEN`. Another example is the file at `$GITHUB_EVENT_PATH`. In
-issue #30, the PR comments moved to `$RUNNER_TEMP/pr-context`, outside the
-workspace. The jobs kept the bare rules until issue #47.
+A bare `Read`, `Grep`, or `Glob` rule reaches each path on the runner. For
+example, a bare `Grep` reaches `/proc/self/environ`, which holds
+`CLAUDE_CODE_OAUTH_TOKEN` and `GITHUB_TOKEN`. The `Read` tool refuses that
+file, because it refuses device and process files. But a bare `Read` still
+reaches the file at `$GITHUB_EVENT_PATH` and the other files in
+`$RUNNER_TEMP`. In issue #30, the PR comments moved to
+`$RUNNER_TEMP/pr-context`, outside the workspace. The jobs kept the bare
+rules until issue #47.
 
-The probe did not run a `Grep` on `/proc/self/environ` with a bare rule.
-With the path rules, Claude Code refuses that `Grep`. The `Read` tool
-refuses that file, because it refuses device and process files. The probe
-results follow.
+With the path rules, only `pr-context` is in reach in `$RUNNER_TEMP`. The
+other files, for example `event.json` in `_github_workflow`, are out of
+reach.
 
-In `$RUNNER_TEMP`, only `pr-context` is in reach. The other files, for example
-`event.json` in `_github_workflow`, are out of reach.
-
-A sandbox run checked this (`unibrain1/devkit-sandbox`, run 41214172279,
-claude-code-action v1.0.261):
+A sandbox run checked the path rules (`unibrain1/devkit-sandbox`,
+claude-code-action v1.0.261). The run ID is in PR #70. The results
+follow:
 
 - `Read` opens `pr.json` and `comments.jsonl` in `pr-context`, and a file
   in the checkout. `Grep` and `Glob` work in `pr-context`. The probe did not
@@ -213,6 +213,9 @@ claude-code-action v1.0.261):
   workflow has no symlink guard step.
 - The `Read` tool also refuses device and process files, for example
   `/proc/self/environ`.
+
+The probe did not run a `Grep` on `/proc/self/environ` with a bare rule. So
+the exposure of a bare `Grep` comes from the rule form, not from a test.
 
 The run had two probe jobs. The second job had the same `Read`, `Grep`, and
 `Glob` rules as the three review jobs. The first job had only the `Read`

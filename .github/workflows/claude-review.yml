@@ -139,7 +139,8 @@ name: Claude Code Review
 # bare rule reaches each path on the runner, /proc/self/environ included. A
 # caller must not add a bare Read, Grep or Glob with extra_allowed_tools.
 # As a second layer, the render filter redacts token-like strings in the
-# model text before the step posts it.
+# summary and findings before the Post review step posts them. It does not
+# see inline comments, because the model posts them directly.
 
 on:
   workflow_call:
