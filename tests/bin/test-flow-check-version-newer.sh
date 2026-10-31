@@ -5,9 +5,10 @@
 # fourth number of a patch release from main (v2.30.4.1). The candidate
 # must start with 'v'. The last tag may lack it.
 #
-# HERMETIC: every case passes the last tag as the second argument, so the
-# script never runs `git describe`. The one `git describe` case runs in a
-# throwaway repo under a temp dir.
+# HERMETIC: each expect case passes the last tag as the second argument,
+# so the script does not run `git describe`. The expect_stderr cases run in
+# a temp dir that is not a git repo. Each other `git describe` case runs in
+# a throwaway repo under the temp dir. No case reads the devkit tags.
 #
 # Usage: bash tests/bin/test-flow-check-version-newer.sh
 # Exit code: 0 if all scenarios pass, 1 otherwise.
@@ -96,6 +97,12 @@ expect_stderr 2 'vX.Y.Z or vX.Y.Z.N'
 expect_stderr 2 'Usage: flow-check-version-newer'
 expect_stderr 1 'v2.30.4' v2.30.3 v2.30.4
 
+# Step 0b in plan-milestone.md and start-milestone.md picks its exit 2 path
+# from these three texts. A reworded message breaks that choice.
+expect_stderr 2 'Could not parse candidate version' 1.2.0 v1.1.0
+expect_stderr 2 'Could not parse last tag' v1.2.0 latest
+expect_stderr 2 'git describe --tags --abbrev=0 failed' v1.2.0
+
 # --- Last tag from `git describe` is a four-part tag -> exit 0 ------------
 REPO="$TMPROOT/repo"
 mkdir -p "$REPO"
@@ -115,6 +122,48 @@ if [ "$STATUS" -eq 0 ] && printf '%s' "$OUT" | grep -q 'v2.30.5 is newer than v2
     pass "last tag from git describe is v2.30.4.1 -> exit 0"
 else
     fail "last tag from git describe is v2.30.4.1 -> exit 0" "exit: $STATUS output: [$OUT]"
+fi
+
+# --- A repo with no tags: git describe fails -> exit 2 ---------------------
+NOTAGS="$TMPROOT/notags"
+mkdir -p "$NOTAGS"
+(
+    cd "$NOTAGS" || exit 1
+    git init -q
+    git config user.name "test-check-version-newer"
+    git config user.email "test-check-version-newer@localhost"
+    git commit -q --allow-empty -m "first"
+) || exit 1
+OUT="$(cd "$NOTAGS" && "$SCRIPT" v1.2.0 2>&1)"
+STATUS=$?
+if [ "$STATUS" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'git describe --tags --abbrev=0 failed'; then
+    pass "repo with no tags -> exit 2, git describe message"
+else
+    fail "repo with no tags -> exit 2, git describe message" "exit: $STATUS output: [$OUT]"
+fi
+
+# The script checks the candidate before git describe, so a bad candidate
+# gets the form message, not the git describe message.
+OUT="$(cd "$NOTAGS" && "$SCRIPT" 1.2.0 2>&1)"
+STATUS=$?
+if [ "$STATUS" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'Could not parse candidate version' \
+    && ! printf '%s' "$OUT" | grep -qF 'git describe'; then
+    pass "bad candidate in a repo with no tags -> form message only"
+else
+    fail "bad candidate in a repo with no tags -> form message only" "exit: $STATUS output: [$OUT]"
+fi
+
+# --- Nearest tag is not a release tag -> exit 2, last tag message -----------
+(
+    cd "$NOTAGS" || exit 1
+    git tag skills-latest
+) || exit 1
+OUT="$(cd "$NOTAGS" && "$SCRIPT" v1.2.0 2>&1)"
+STATUS=$?
+if [ "$STATUS" -eq 2 ] && printf '%s' "$OUT" | grep -qF "Could not parse last tag 'skills-latest'"; then
+    pass "nearest tag skills-latest -> exit 2, last tag message"
+else
+    fail "nearest tag skills-latest -> exit 2, last tag message" "exit: $STATUS output: [$OUT]"
 fi
 
 harness_report

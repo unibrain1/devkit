@@ -23,8 +23,8 @@
 # Exit codes:
 #   0 = candidate is strictly newer than the last tag — proceed
 #   1 = candidate is NOT newer (equal or older) — do not proceed
-#   2 = could not parse one or both versions as vX.Y.Z or vX.Y.Z.N — ambiguous,
-#       stop and ask
+#   2 = could not parse one or both versions as vX.Y.Z or vX.Y.Z.N, or
+#       `git describe` failed to find a last tag — ambiguous, stop and ask
 
 set -euo pipefail
 

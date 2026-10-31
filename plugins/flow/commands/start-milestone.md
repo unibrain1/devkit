@@ -68,18 +68,23 @@ flow-check-version-newer "$ARGUMENTS"
      `vX.Y.Z` or `vX.Y.Z.N`, for example `v2.17.0`, or `v2.17.0.1` for a
      patch release. Then type the command again."
   2. `git describe --tags --abbrev=0 failed` — run
-     `git fetch origin --tags`, then run the check again. If it fails
-     again and `git tag --list 'v*'` prints nothing, the repo has no
-     release yet. Run `flow-check-version-newer "$ARGUMENTS" v0.0.0`, which
-     checks only the form. Read its exit code as above. If
+     `git fetch origin --tags`. If the fetch fails, stop and show its
+     stderr. Then run the check again. If it fails again and
+     `git tag --list 'v*'` prints nothing, the repo has no release yet.
+     Run `flow-check-version-newer "$ARGUMENTS" v0.0.0`. This checks the
+     form, and that the version is newer than `v0.0.0`. Read its exit code
+     as above. If
      `git tag --list 'v*'` prints a tag, stop and show the stderr.
   3. `Could not parse last tag` — the nearest tag is not a release tag
-     (for example `skills-latest`). Run
-     `git tag --list 'v*' --sort=-v:refname | head -1`. If it prints a tag,
-     pass that tag as the second argument, and show the user which tag you
-     used. If it prints nothing, the repo has no release yet: pass
-     `v0.0.0`. Read the exit code as above. If this run also gives
-     `Could not parse last tag`, stop and show the stderr.
+     (for example `skills-latest`). Find the newest tag in the form
+     `vX.Y.Z` or `vX.Y.Z.N`. A prerelease tag such as `v2.0.0-rc1` sorts
+     first, so filter the list:
+     `git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' | head -1`.
+     If it prints a tag, pass that tag as the second argument, and show the
+     user which tag you used. If it prints nothing, the repo has no release
+     yet: pass `v0.0.0`. Read the exit code as above. If this run also
+     gives `Could not parse last tag`, stop and show the stderr.
+  4. Any other stderr — stop and show the stderr.
 - **Any other exit code** — stop and show the stderr.
 
 ## Workflow

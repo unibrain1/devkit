@@ -10,8 +10,9 @@
 # in "\" joins the next line, so a flag on a continuation line counts.
 #
 # The test also checks that the "## Step 0b: Check the version" section
-# names the expected form for exit 2 and the last tag for exit 1, and that
-# both bullets say to stop.
+# names the expected form for exit 2 and the last tag for exit 1, that the
+# exit 1 bullet says to stop, and that the exit 2 text has a stop
+# instruction. It also checks that the call quotes "$ARGUMENTS".
 #
 # COMMANDS_DIR points the test at a copy of plugins/flow/commands.
 #
@@ -39,7 +40,12 @@ first_lines() {
         {
             line = $0
             if (cmd == "") start = NR
-            if (sub(/\\[ \t]*$/, "", line)) { cmd = cmd line " "; next }
+            # Read the trailing "\" before the comment strip. A "#" in a
+            # quoted value would otherwise remove it.
+            cont = sub(/\\[ \t]*$/, "", line)
+            # A check in a shell comment does not run.
+            sub(/(^|[ \t])#.*/, "", line)
+            if (cont) { cmd = cmd line " "; next }
             cmd = cmd line
             if (!check && cmd ~ /flow-check-version-newer/) check = start
             if (!write && (cmd ~ /gh api/ && cmd ~ /(^|[ \t])(-f|-F|--field|--raw-field|-X|--method|--input)[ \t]/ ||
@@ -113,6 +119,13 @@ for f in plan-milestone.md start-milestone.md; do
     else
         fail "$f: Step 0b names the form for exit 2 and the last tag for exit 1" "$bad"
     fi
+    # Without the quotes, an extra word in $ARGUMENTS becomes the last tag.
+    if grep -qF 'flow-check-version-newer "$ARGUMENTS"' "$path" \
+        && ! grep -qF 'flow-check-version-newer $ARGUMENTS' "$path"; then
+        pass "$f: the check quotes \"\$ARGUMENTS\""
+    else
+        fail "$f: the check quotes \"\$ARGUMENTS\"" "$(grep -n 'flow-check-version-newer' "$path")"
+    fi
 done
 
 TMPROOT="$(mktemp -d)"
@@ -172,6 +185,23 @@ else
     fail "a write flag on a continuation line counts"
 fi
 
+# A "#" in a quoted value does not hide the trailing "\".
+fixture hash-continuation '# Fixture
+
+```bash
+gh api "repos/$REPO/milestones" -H "X-Note: see #1" \
+  -f title="v1"
+```
+
+```bash
+flow-check-version-newer "$ARGUMENTS"
+```'
+if bad_order "$TMPROOT/hash-continuation.md" | grep -q 'comes before the check'; then
+    pass "a # in a quoted value keeps the continuation"
+else
+    fail "a # in a quoted value keeps the continuation"
+fi
+
 # A read-only gh api call before the check does not fail the order check.
 fixture read-only '# Fixture
 
@@ -199,6 +229,20 @@ if bad_order "$TMPROOT/prose.md" | grep -q 'no flow-check-version-newer'; then
     pass "a check in prose only fails"
 else
     fail "a check in prose only fails"
+fi
+
+# A check in a shell comment is not a command.
+fixture commented '# Fixture
+
+```bash
+# flow-check-version-newer runs later
+git push origin milestone/v1
+flow-check-version-newer "$ARGUMENTS"
+```'
+if bad_order "$TMPROOT/commented.md" | grep -q 'comes before the check'; then
+    pass "a check in a shell comment does not count"
+else
+    fail "a check in a shell comment does not count"
 fi
 
 # A Step 0b with no form or no last tag fails the text check.
