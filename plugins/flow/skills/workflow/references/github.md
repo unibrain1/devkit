@@ -26,6 +26,7 @@ gh api "repos/$(flow-repo)/issues?milestone=<number>&state=open"
 | `stale`, `stale-no-demand` | Age-out. See `backlog.md`. |
 | `help-wanted` | Open to the occasional contributor lane. See `capture.md`. |
 | `component: security` | Security work. Exempt from age-out. |
+| `deep-review` | Starts a new milestone review in CI. `flow-verify-ci-review --trigger=label` removes and adds it again to start a recovery review. |
 
 ## Milestones
 

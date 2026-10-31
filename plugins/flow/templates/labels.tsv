@@ -17,3 +17,4 @@ stale-no-demand	ededed	Closed after the stale warning. A new signal reopens it
 help-wanted	128a0c	Open to an occasional contributor. Reviewed before merge
 component: security	d62728	Security work. Exempt from age-out
 in progress	0075ca	Work is actively underway
+deep-review	5319e7	Start a new Claude milestone review of the PR
