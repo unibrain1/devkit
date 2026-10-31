@@ -315,8 +315,10 @@ per-item. Wait for approval before Step 5.
 Only after approval:
 
 ```bash
-# Closures
-gh issue close NNN --repo $REPO --comment "<one-line reason, matching the table>"
+# Closures. Leave out the edit when the issue has no milestone
+gh issue edit NNN --repo $REPO --remove-milestone
+gh issue close NNN --repo $REPO --reason "not planned" \
+  --comment "<one-line reason, matching the table>"
 
 # New milestone(s): the full title from the Step 4 table
 gh api repos/$REPO/milestones -f title="<full title>" -f description="<theme sentence>"
@@ -329,8 +331,8 @@ gh issue edit NNN --repo $REPO --add-label "stale"
 gh issue comment NNN --repo $REPO \
   --body "Marked stale: no activity in 180 days. This issue closes in 14 days unless someone comments with a reason to keep it."
 
-# Age-out: close
-gh issue edit NNN --repo $REPO --add-label "stale-no-demand"
+# Age-out: close. Leave out --remove-milestone when the issue has no milestone
+gh issue edit NNN --repo $REPO --add-label "stale-no-demand" --remove-milestone
 gh issue close NNN --repo $REPO --reason "not planned" \
   --comment "Closed: no demand in the 14 days after the stale warning. A new signal reopens it."
 

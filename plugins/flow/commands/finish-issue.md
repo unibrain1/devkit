@@ -439,7 +439,8 @@ Do these steps for `<issue-number>` and for each issue `<N>` in
 2. If the state is `OPEN`, close it:
 
    ```bash
-   gh issue close <N> --repo <repo> --comment "Resolved via PR #<pr-number>."
+   gh issue close <N> --repo <repo> --reason "completed" \
+     --comment "Resolved via PR #<pr-number>."
    ```
 
 3. If it has the `in progress` label, remove the label:
