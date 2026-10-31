@@ -91,11 +91,17 @@ bad_step_text() {
         /^- \*\*Exit 1\*\* — stop/ { stop1 = 1 }
         where == 1 { exit1 = exit1 $0 "\n" }
         where == 2 { exit2 = exit2 $0 "\n" }
+        # The stop for a bad form is the main rule of the check. Other
+        # sub-items also say "stop", so the exit 2 bullet as a whole cannot
+        # prove it. Read the one sub-item line for the parse error.
+        where == 2 && /^[ \t]+[0-9]+\. `Could not parse candidate version`/ { cand = $0 }
         END {
             if (!found) { print "no \"## Step 0b: Check the version\" section"; exit }
             if (exit1 !~ /last tag/) print "the exit 1 text does not name the last tag"
             if (!stop1) print "the exit 1 text does not say stop"
             if (exit2 !~ /— stop/) print "the exit 2 text does not say stop"
+            if (cand == "") print "the exit 2 text has no sub-item for Could not parse candidate version"
+            else if (cand !~ /— stop/) print "the Could not parse candidate version sub-item does not say stop"
             if (exit2 !~ /vX\.Y\.Z`? or `?vX\.Y\.Z\.N/) print "the exit 2 text does not name vX.Y.Z or vX.Y.Z.N"
         }
     ' "$1"
@@ -292,6 +298,43 @@ if bad_step_text "$TMPROOT/not-stop-step.md" | grep -q 'exit 1 text does not say
     pass "an exit 1 text with \"do not stop\" fails the text check"
 else
     fail "an exit 1 text with \"do not stop\" fails the text check"
+fi
+
+# Only the "Could not parse candidate version" sub-item says "continue". The
+# other sub-items say "stop", so a check on the whole exit 2 bullet passes.
+# The check must still fail, because a bad form must stop the command.
+fixture cand-continue-step '# Fixture
+
+## Step 0b: Check the version
+
+- **Exit 1** — stop. Name the last tag.
+- **Exit 2** — read stderr:
+  1. `Could not parse candidate version` — continue with the next step.
+     Use `vX.Y.Z` or `vX.Y.Z.N`.
+  2. `git describe --tags --abbrev=0 failed` — stop and show the stderr.
+  3. Any other stderr — stop.'
+bad="$(bad_step_text "$TMPROOT/cand-continue-step.md")"
+if printf '%s' "$bad" | grep -q 'candidate version sub-item does not say stop' \
+    && ! printf '%s' "$bad" | grep -q 'exit 2 text does not say stop'; then
+    pass "a candidate version sub-item that continues fails the text check"
+else
+    fail "a candidate version sub-item that continues fails the text check" "$bad"
+fi
+
+# The same Step 0b with "stop" in the candidate version sub-item passes.
+fixture cand-stop-step '# Fixture
+
+## Step 0b: Check the version
+
+- **Exit 1** — stop. Name the last tag.
+- **Exit 2** — read stderr:
+  1. `Could not parse candidate version` — stop. Use `vX.Y.Z` or `vX.Y.Z.N`.
+  2. `git describe --tags --abbrev=0 failed` — continue.'
+bad="$(bad_step_text "$TMPROOT/cand-stop-step.md")"
+if [ -z "$bad" ]; then
+    pass "a candidate version sub-item that stops passes the text check"
+else
+    fail "a candidate version sub-item that stops passes the text check" "$bad"
 fi
 
 harness_report
