@@ -15,10 +15,11 @@
 # Line 1 is always the caller path. Each project must name its caller
 # .github/workflows/claude-code-review.yml (docs/ci-workflows.md). Then one
 # line for each local `uses: ./.github/workflows/<file>.yml` (or .yaml) in
-# the caller, without the "./", with no duplicates. The script reads only a
-# block-style `uses:` line, not a flow-style `{ uses: ... }` map. A missing
-# caller file gives line 1 only, with a warning on stderr. The script reads
-# the caller from the work tree, so run it on the PR head branch.
+# the caller, without the "./". A path that two uses: lines name prints
+# once. The script reads only a block-style `uses:` line, not a flow-style
+# `{ uses: ... }` map. A missing caller file gives line 1 only, with a
+# warning on stderr. The script reads the caller from the work tree, so run
+# it on the PR head branch.
 #
 # Usage: flow-review-workflow-files
 #

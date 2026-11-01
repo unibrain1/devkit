@@ -326,11 +326,16 @@ flow-verify-ci-review <pr-number> 30 300 --trigger=label \
     && grep -Fx -f <(printf '%s\n' "$files") <<< "$pr_files"
   ```
 
-  - **An error or a warning prints** (on stderr) — the script or `gh api`
-    failed, or the caller file is missing. The `&&` chain stops at the failed
-    step. Stop and show the message. End with plain text: fix the cause, then type
+  - **An error prints** (on stderr) — the script or `gh api` failed. The
+    `&&` chain stops at the failed step. Stop and show the message. End with
+    plain text: fix the cause, then type `/flow:review-milestone $ARGUMENTS`.
+  - **Only a warning prints** (on stderr, and no file path on stdout) — the
+    caller file is missing from the work tree. The script exits 0, so the
+    chain continues, but the list has the caller path only. Stop and show
+    the warning. End with plain text: fix the cause, then type
     `/flow:review-milestone $ARGUMENTS`.
-  - **A file path prints** — the action's workflow-file guard skips the review
+  - **A file path prints** (with or without a warning) — the action's
+    workflow-file guard skips the review
     until this change is on `main`. No new run can post one. Ask with
     AskUserQuestion: `Proceed without the CI review` or `Stop`. On
     `Proceed without the CI review`, go to Step 5. Its CI review line

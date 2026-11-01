@@ -13,8 +13,9 @@
 # real jq filter of the script on fixture JSON, so a wrong filter fails here.
 # The fixtures are issue comments in the real GitHub shape (id, created_at,
 # user.login, body). Part B runs a copy of flow-verify-ci-review beside stub
-# sibling scripts, which the copy finds through its own SCRIPT_DIR. No network
-# and no real gh.
+# sibling scripts, which the copy finds through its own SCRIPT_DIR. flow-repo
+# and flow-review-workflow-files are the real scripts. The copy runs in a
+# fixture git repo with a caller file. No network and no real gh.
 #
 # Environment (optional): CHECK_BLOCKING_SCRIPT and VERIFY_SCRIPT point the
 # test at other copies of the scripts. The proof that a case can fail uses it
@@ -663,6 +664,19 @@ if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' "$STUB_LOG" \
     pass "B7c2: an @main caller and the same PR -> the recovery runs the caller"
 else
     fail "B7c2: an @main caller and the same PR -> the recovery runs the caller" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# A uses: ./ caller gives a 2-line list. The recovery must run line 1 (the
+# caller), not the last line: the reusable workflow has no workflow_dispatch.
+printf '%s\n' "$CALLER_LOCAL" > "$CALLER_FILE"
+OUT="$(STUB_POLL_EXIT=1 run_verify 2>&1)"; S=$?
+printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
+if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' "$STUB_LOG" \
+    && ! grep -q 'workflow run claude-review.yml' "$STUB_LOG"; then
+    pass "B7c3: a uses: ./ caller and a PR with no review workflow file -> the recovery runs the caller"
+else
+    fail "B7c3: a uses: ./ caller and a PR with no review workflow file -> the recovery runs the caller" \
         "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
 fi
 

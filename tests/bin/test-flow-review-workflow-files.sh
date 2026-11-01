@@ -46,6 +46,19 @@ expect() {
     fi
 }
 
+# expect_stderr <label> <dir> <want-text>
+# Runs the script in <dir>. stderr must contain <want-text>. Step 4 of
+# /flow:review-milestone picks its branch from this text.
+expect_stderr() {
+    local label="$1" dir="$2" want="$3" err
+    err="$(cd "$dir" && "$SCRIPT" 2>&1 >/dev/null)"
+    if grep -qF "$want" <<< "$err"; then
+        pass "$label"
+    else
+        fail "$label" "stderr: [$err] (want text [$want])"
+    fi
+}
+
 # devkit form: the caller calls the reusable workflow from its own repo.
 d="$(new_repo devkit)" || exit 1
 cat > "$d/$CALLER" <<'EOF'
@@ -73,6 +86,7 @@ expect "uses: @main in another repo gives the caller only" "$d" 0 "$CALLER"
 
 d="$(new_repo none)" || exit 1
 expect "no caller file gives the caller only" "$d" 0 "$CALLER"
+expect_stderr "no caller file gives a warning on stderr" "$d" "does not exist"
 
 d="$(new_repo quoted)" || exit 1
 cat > "$d/$CALLER" <<'EOF'
@@ -123,6 +137,7 @@ expect "an argument is a usage error" "$TMPROOT" 1 "" extra
 
 mkdir -p "$TMPROOT/not-a-repo"
 expect "a folder outside a git work tree gives exit 1 and no list" "$TMPROOT/not-a-repo" 1 ""
+expect_stderr "a folder outside a git work tree names the cause on stderr" "$TMPROOT/not-a-repo" "is not in a git work tree"
 
 # Root can read a file with mode 000, so this case needs a normal user.
 if [ "$(id -u)" -ne 0 ]; then
