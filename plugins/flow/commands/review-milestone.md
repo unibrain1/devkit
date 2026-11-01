@@ -341,7 +341,8 @@ flow-verify-ci-review <pr-number> 30 300 --trigger=label \
     `Proceed without the CI review`, go to Step 5. Its CI review line
     records this choice. On `Stop`, end with plain text: when ready, type
     `/flow:review-milestone $ARGUMENTS`.
-  - **Nothing prints** (no output on stdout or stderr) — stop. Show the latest `milestone-review` run:
+  - **Nothing prints** (no output on stdout or stderr) — stop. Show the
+    latest `milestone-review` run:
     `gh run list --workflow "$(basename "$(flow-review-workflow-files | head -n 1)")" --branch milestone/$ARGUMENTS --limit 3`.
     End with plain text: wait until that run finishes, or fix the cause
     that its log shows. Then type `/flow:review-milestone $ARGUMENTS`. Step
