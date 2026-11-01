@@ -246,7 +246,7 @@ Fill in actual data from Step 2.
 
 ### Step 4: Verify CI milestone review posted, with zero unresolved findings
 
-`claude-code-review.yml` is *expected* to run the same milestone-level
+The CI review workflow is *expected* to run the same milestone-level
 analysis `/flow:finish-milestone` Step 9.8 already ran locally, against
 `main`, and post it as a PR comment — but a job `conclusion: success` is
 never proof that happened (webhook throttle, the action's own
@@ -315,21 +315,29 @@ flow-verify-ci-review <pr-number> 30 300 --trigger=label \
   and proceed to Step 5.
 - **Exit 4** — no review comment for the head commit, even after the
   script's one recovery attempt. Show the script's stderr. Then check
-  whether the PR changes the review workflow itself:
+  whether the PR changes a review workflow file itself.
+  `flow-review-workflow-files` prints these files (see
+  `docs/ci-workflows.md` in devkit). Run this on the milestone branch,
+  because the script reads the caller from the work tree:
 
   ```bash
-  gh api "repos/$REPO/pulls/<pr-number>/files" --paginate \
-    --jq '.[].filename' | grep -Fx .github/workflows/claude-code-review.yml
+  files=$(flow-review-workflow-files) \
+    && pr_files=$(gh api "repos/$REPO/pulls/<pr-number>/files" --paginate --jq '.[].filename') \
+    && grep -Fx -f <(printf '%s\n' "$files") <<< "$pr_files"
   ```
 
-  - **A line prints** — the action's workflow-file guard skips the review
+  - **An error or a warning prints** (on stderr) — the script or `gh api`
+    failed, or the caller file is missing. The `&&` chain stops at the failed
+    step. Stop and show the message. End with plain text: fix the cause, then type
+    `/flow:review-milestone $ARGUMENTS`.
+  - **A file path prints** — the action's workflow-file guard skips the review
     until this change is on `main`. No new run can post one. Ask with
     AskUserQuestion: `Proceed without the CI review` or `Stop`. On
     `Proceed without the CI review`, go to Step 5. Its CI review line
     records this choice. On `Stop`, end with plain text: when ready, type
     `/flow:review-milestone $ARGUMENTS`.
-  - **Nothing prints** — stop. Show the latest `milestone-review` run:
-    `gh run list --workflow claude-code-review.yml --branch milestone/$ARGUMENTS --limit 3`.
+  - **Nothing prints** (no output on stdout or stderr) — stop. Show the latest `milestone-review` run:
+    `gh run list --workflow "$(basename "$(flow-review-workflow-files | head -n 1)")" --branch milestone/$ARGUMENTS --limit 3`.
     End with plain text: wait until that run finishes, or fix the cause
     that its log shows. Then type `/flow:review-milestone $ARGUMENTS`. Step
     3 reuses the open PR, and Step 4 tries the recovery again.

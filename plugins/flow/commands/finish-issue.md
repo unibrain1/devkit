@@ -165,9 +165,10 @@ flow-verify-ci-review <pr-number> 30 300 --trigger=workflow
   `/flow:address-pr-comments`, then type `/flow:finish-issue <issue-number>`
   again.
 - **Exit 4, and stderr contains `requires a merge to main first`** — the
-  PR changes `.github/workflows/claude-code-review.yml`. The review action
-  runs only when that file matches `main`, so no review can post before the
-  merge. Report it. Ask with AskUserQuestion:
+  PR changes a review workflow file (a path that
+  `flow-review-workflow-files` prints). The review action skips a PR that
+  changes any of these files, so no review can post before the merge.
+  Report it. Ask with AskUserQuestion:
   `Proceed without the CI review` or `Stop`.
   - `Proceed without the CI review` → mark the PR ready:
     `gh pr ready <pr-number> --repo <repo>`. Record the

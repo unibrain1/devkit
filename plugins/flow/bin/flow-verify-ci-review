@@ -8,10 +8,11 @@
 # no review:
 #   1. GitHub's abuse or rate throttle can drop the webhook event, so no run
 #      starts (PR Registry #1718, Registry #1724).
-#   2. The action skips a PR that changes claude-code-review.yml itself,
-#      because the workflow file must match the default branch. This is
-#      intended security behavior. It does not clear until the PR merges to
-#      main.
+#   2. The action skips a PR that changes a review workflow file. These
+#      files are the caller and each reusable workflow that the caller calls
+#      with `uses: ./`. flow-review-workflow-files lists them. Each such
+#      file must match the default branch. This is intended security
+#      behavior. It does not clear until the PR merges to main.
 #   3. The model can stop before it returns a review.
 # The only proof is the review comment itself, never the job conclusion. This
 # script is the single place that checks the comment and runs the one
@@ -39,7 +40,8 @@
 #   flow-verify-ci-review <pr-number> <interval-s> <timeout-s> \
 #       --trigger=<workflow|label|none> [--include-important] [--check-skip-tag]
 #
-#   --trigger=workflow   recovery re-runs: gh workflow run claude-code-review.yml
+#   --trigger=workflow   recovery re-runs the caller workflow (line 1 of
+#                        flow-review-workflow-files): gh workflow run <caller>
 #   --trigger=label      recovery re-applies the `deep-review` label (it
 #                        removes the label first when the PR has it)
 #   --trigger=none       no recovery trigger. A missing review after the poll
@@ -56,7 +58,8 @@
 #       important=0 with --include-important)
 #   1 = could not verify — a `gh` call failed (auth, network, rate limit),
 #       the head commit could not be read, flow-repo could not resolve the
-#       repo, or the arguments are not valid.
+#       repo, flow-review-workflow-files or the guard's grep failed, or the
+#       arguments are not valid.
 #       This is NOT the same as "no review posted".
 #   2 = a verdict for the head commit exists, but blocking > 0 (or, with
 #       --include-important, important > 0). See stdout for the counts.
@@ -68,7 +71,7 @@
 #       every unresolved finding gives the same code)
 #
 # Recovery runs at most once. Sometimes recovery cannot help. For example,
-# with --trigger=workflow, a PR that changes claude-code-review.yml cannot get
+# with --trigger=workflow, a PR that changes a review workflow file cannot get
 # a review before the merge. The script then prints why and exits 4. It does
 # not loop.
 #
@@ -250,16 +253,35 @@ else
       echo "flow-verify-ci-review: could not verify: the PR's file list could not be read, so the workflow-file guard cannot be checked." >&2
       exit 1
     fi
+    # The caller and each local reusable workflow it calls (#76). Fail
+    # closed: with no list, the guard cannot be checked.
+    if ! REVIEW_FILES=$("$SCRIPT_DIR/flow-review-workflow-files"); then
+      echo "flow-verify-ci-review: could not verify: flow-review-workflow-files failed, so the workflow-file guard cannot be checked." >&2
+      exit 1
+    fi
     # A here-string, not a piped `grep -q`: grep -q can exit at its first
     # match while gh still has output queued, SIGPIPEing gh, and pipefail
     # then turns that early exit into rc 141 — read as "no match" (Registry #2225).
-    if grep -Fxq '.github/workflows/claude-code-review.yml' <<< "$PR_FILES"; then
-      echo "PR diff touches claude-code-review.yml itself — the action's own workflow-file-must-match-main guard blocks a pre-merge re-run from clearing this. Recovery skipped; this requires a merge to main first." >&2
-      exit 4
-    fi
-    if ! RECOVERY_ERR=$(gh workflow run claude-code-review.yml --ref main --field "pr_number=${PR_NUM}" --repo "$REPO" 2>&1); then
+    # grep exit 1 is "no match". Exit 2 is a grep error, so fail closed.
+    grep_rc=0
+    MATCHED=$(grep -Fx -f <(printf '%s\n' "$REVIEW_FILES") <<< "$PR_FILES") || grep_rc=$?
+    case "$grep_rc" in
+      0)
+        echo "PR diff touches the review workflow itself (${MATCHED%%$'\n'*}) — the action's own workflow-file-must-match-main guard blocks a pre-merge re-run from clearing this. Recovery skipped; this requires a merge to main first." >&2
+        exit 4
+        ;;
+      1) ;;
+      *)
+        echo "flow-verify-ci-review: could not verify: grep failed (rc ${grep_rc}), so the workflow-file guard cannot be checked." >&2
+        exit 1
+        ;;
+    esac
+    # Line 1 is the caller, the workflow that a recovery run starts.
+    CALLER_WF=${REVIEW_FILES%%$'\n'*}
+    CALLER_WF=${CALLER_WF##*/}
+    if ! RECOVERY_ERR=$(gh workflow run "$CALLER_WF" --ref main --field "pr_number=${PR_NUM}" --repo "$REPO" 2>&1); then
       echo "flow-verify-ci-review: could not verify: recovery trigger failed:" >&2
-      echo "  gh workflow run claude-code-review.yml --ref main --field pr_number=${PR_NUM} --repo ${REPO}" >&2
+      echo "  gh workflow run ${CALLER_WF} --ref main --field pr_number=${PR_NUM} --repo ${REPO}" >&2
       echo "  $RECOVERY_ERR" >&2
       exit 1
     fi
