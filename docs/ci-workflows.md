@@ -75,6 +75,14 @@ project. The `flow` plugin scripts expect this name, and the self-
 referential guard in `claude-review.yml` reads it from
 `github.workflow_ref`.
 
+`flow-review-workflow-files` prints the review workflow files of a project:
+the caller on line 1, then each reusable workflow that the caller calls
+from its own repo (`uses: ./`). claude-code-action compares each of these
+files with the default branch. `flow-verify-ci-review` and
+`/flow:review-milestone` use this list to find a PR that cannot get a
+review before it merges. `flow-verify-ci-review` also takes the recovery
+workflow name from line 1.
+
 ### Fork PRs
 
 The jobs that resolve a PR number (`pr-to-milestone-review` and
@@ -341,7 +349,8 @@ devkit has its own `.github/workflows/claude-code-review.yml`. It calls
   (devkit #27). So devkit cannot review a change to its own review. Test
   such a change in `unibrain1/devkit-sandbox`, and a person reviews it.
   In the sandbox run, the `Gate` must show no `Refused:` warning (see
-  "Tools in the review prompts").
+  "Tools in the review prompts"). `flow-review-workflow-files` lists this
+  file (devkit #76).
 
 In both cases, the Gate passes with the self-referential guard warning
 when the branch or its base branch changed the file. So later PRs into a

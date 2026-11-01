@@ -13,8 +13,9 @@
 # real jq filter of the script on fixture JSON, so a wrong filter fails here.
 # The fixtures are issue comments in the real GitHub shape (id, created_at,
 # user.login, body). Part B runs a copy of flow-verify-ci-review beside stub
-# sibling scripts, which the copy finds through its own SCRIPT_DIR. No network
-# and no real gh.
+# sibling scripts, which the copy finds through its own SCRIPT_DIR. flow-repo
+# and flow-review-workflow-files are the real scripts. The copy runs in a
+# fixture git repo with a caller file. No network and no real gh.
 #
 # Environment (optional): CHECK_BLOCKING_SCRIPT and VERIFY_SCRIPT point the
 # test at other copies of the scripts. The proof that a case can fail uses it
@@ -361,8 +362,25 @@ VSCRIPTS="$TMPROOT/vscripts"
 mkdir -p "$VSCRIPTS"
 cp "$VERIFY_SCRIPT" "$VSCRIPTS/flow-verify-ci-review"
 chmod +x "$VSCRIPTS/flow-verify-ci-review"
-# The copy finds flow-repo beside itself, so it needs the real one.
+# The copy finds flow-repo and flow-review-workflow-files beside itself, so
+# it needs the real ones.
 cp "$REAL_REPO/plugins/flow/bin/flow-repo" "$VSCRIPTS/flow-repo"
+cp "$REAL_REPO/plugins/flow/bin/flow-review-workflow-files" "$VSCRIPTS/flow-review-workflow-files"
+
+# flow-review-workflow-files reads the caller from the work tree. Each run
+# goes in a fixture repo, not in the repo that runs the tests. The default
+# caller calls the reusable review @main, as a caller repo does (#76).
+VERIFY_WORKDIR="$TMPROOT/caller-repo"
+mkdir -p "$VERIFY_WORKDIR/.github/workflows"
+git -C "$VERIFY_WORKDIR" init -q
+CALLER_FILE="$VERIFY_WORKDIR/.github/workflows/claude-code-review.yml"
+CALLER_REMOTE='jobs:
+  claude-review:
+    uses: unibrain1/devkit/.github/workflows/claude-review.yml@main'
+CALLER_LOCAL='jobs:
+  claude-review:
+    uses: ./.github/workflows/claude-review.yml'
+printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
 
 POLL_COUNT_FILE="$TMPROOT/poll-count"
 CHECK_ARGS_LOG="$TMPROOT/check-args.log"
@@ -436,6 +454,10 @@ case "$args" in
                 printf '%s\n' 'app/index.php' '.github/workflows/claude-code-review.yml'
                 exit 0
                 ;;
+            reusable-match)
+                printf '%s\n' 'app/index.php' '.github/workflows/claude-review.yml'
+                exit 0
+                ;;
             fail)
                 echo "gh: simulated PR file list failure (stub)" >&2
                 exit 1
@@ -473,25 +495,23 @@ reset_verify_state() {
     : > "$CHECK_ARGS_LOG"
 }
 
-run_verify() {
+# verify_with <trigger> [flags...]
+# Runs the script copy in the fixture repo with the given --trigger.
+verify_with() {
+    local trigger="$1"
+    shift
     reset_verify_state
-    STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" PATH="$STUBDIR:$PATH" \
-        bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger=workflow "$@"
+    (cd "$VERIFY_WORKDIR" && STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" \
+        PATH="$STUBDIR:$PATH" bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger="$trigger" "$@")
 }
 
-# shellcheck disable=SC2119,SC2120 # "$@" stays for cases that need extra flags
-run_verify_label() {
-    reset_verify_state
-    STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" PATH="$STUBDIR:$PATH" \
-        bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger=label "$@"
-}
+run_verify() { verify_with workflow "$@"; }
 
 # shellcheck disable=SC2119,SC2120 # "$@" stays for cases that need extra flags
-run_verify_none() {
-    reset_verify_state
-    STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" PATH="$STUBDIR:$PATH" \
-        bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger=none "$@"
-}
+run_verify_label() { verify_with label "$@"; }
+
+# shellcheck disable=SC2119,SC2120 # "$@" stays for cases that need extra flags
+run_verify_none() { verify_with none "$@"; }
 
 # --- B1: a verdict for the head -> reads the findings, no recovery ----------
 OUT="$(STUB_POLL_EXIT=0 STUB_CHECK_EXIT=0 run_verify 2>&1)"; S=$?
@@ -606,7 +626,8 @@ fi
 OUT="$(STUB_POLL_EXIT=1 STUB_CHECK_EXIT=0 STUB_DIFF_MODE=large-match run_verify 2>&1)"; S=$?
 POLLS="$(cat "$POLL_COUNT_FILE" 2>/dev/null || echo '?')"
 if [ "$S" -eq 4 ] && [ "$POLLS" = "1" ] && ! grep -q 'workflow run' "$STUB_LOG" \
-    && grep -q 'claude-code-review.yml itself' <<< "$OUT"; then
+    && grep -q 'review workflow itself (.github/workflows/claude-code-review.yml)' <<< "$OUT" \
+    && grep -q 'requires a merge to main first' <<< "$OUT"; then
     pass "B7: PR changes the review workflow (large file list) -> exit 4 with the explanation, no recovery run, one poll"
 else
     fail "B7: PR changes the review workflow (large file list) -> exit 4 with the explanation, no recovery run, one poll" \
@@ -619,6 +640,82 @@ if [ "$S" -eq 4 ] && ! grep -q 'workflow run' "$STUB_LOG"; then
 else
     fail "B7b: PR changes the review workflow (short file list) -> exit 4, no recovery run" \
         "exit: $S (want 4)" "output: [$OUT]"
+fi
+
+# --- B7c: the PR changes only the reusable workflow (#76) ------------------
+# A caller that calls the reusable review with uses: ./ makes the action
+# compare that file too. The guard must see it. A caller that calls it @main
+# does not, so the recovery runs.
+printf '%s\n' "$CALLER_LOCAL" > "$CALLER_FILE"
+OUT="$(STUB_POLL_EXIT=1 STUB_DIFF_MODE=reusable-match run_verify 2>&1)"; S=$?
+printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
+if [ "$S" -eq 4 ] && ! grep -q 'workflow run' "$STUB_LOG" \
+    && grep -q 'review workflow itself (.github/workflows/claude-review.yml)' <<< "$OUT" \
+    && grep -q 'requires a merge to main first' <<< "$OUT"; then
+    pass "B7c: a uses: ./ caller and a PR that changes only the reusable workflow -> exit 4, no recovery run"
+else
+    fail "B7c: a uses: ./ caller and a PR that changes only the reusable workflow -> exit 4, no recovery run" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+OUT="$(STUB_POLL_EXIT=1 STUB_DIFF_MODE=reusable-match run_verify 2>&1)"; S=$?
+if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' "$STUB_LOG" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT"; then
+    pass "B7c2: an @main caller and the same PR -> the recovery runs the caller"
+else
+    fail "B7c2: an @main caller and the same PR -> the recovery runs the caller" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# A uses: ./ caller gives a 2-line list. The recovery must run line 1 (the
+# caller), not the last line: the reusable workflow has no workflow_dispatch.
+printf '%s\n' "$CALLER_LOCAL" > "$CALLER_FILE"
+OUT="$(STUB_POLL_EXIT=1 run_verify 2>&1)"; S=$?
+printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
+if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' "$STUB_LOG" \
+    && ! grep -q 'workflow run claude-review.yml' "$STUB_LOG"; then
+    pass "B7c3: a uses: ./ caller and a PR with no review workflow file -> the recovery runs the caller"
+else
+    fail "B7c3: a uses: ./ caller and a PR with no review workflow file -> the recovery runs the caller" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7d: flow-review-workflow-files fails -> 1, no recovery ---------------
+printf '#!/bin/bash\nexit 1\n' > "$VSCRIPTS/flow-review-workflow-files"
+chmod +x "$VSCRIPTS/flow-review-workflow-files"
+OUT="$(STUB_POLL_EXIT=1 run_verify 2>&1)"; S=$?
+cp "$REAL_REPO/plugins/flow/bin/flow-review-workflow-files" "$VSCRIPTS/flow-review-workflow-files"
+if [ "$S" -eq 1 ] && grep -q 'flow-review-workflow-files failed' <<< "$OUT" \
+    && ! grep -q 'workflow run' "$STUB_LOG"; then
+    pass "B7d: flow-review-workflow-files fails -> exit 1 (fail closed), no recovery run"
+else
+    fail "B7d: flow-review-workflow-files fails -> exit 1 (fail closed), no recovery run" \
+        "exit: $S (want 1)" "output: [$OUT]"
+fi
+
+# --- B7e: grep fails in the guard (rc 2) -> 1, no recovery ---------------
+# rc 2 is a grep error, not "no match". The guard must fail closed. The grep
+# stub fails only for the guard's pattern-file call.
+GREPFAIL="$TMPROOT/grepfail"
+mkdir -p "$GREPFAIL"
+REAL_GREP="$(command -v grep)"
+cat > "$GREPFAIL/grep" <<STUB
+#!/bin/bash
+case " \$* " in
+    *" -f "*) exit 2 ;;
+esac
+exec "$REAL_GREP" "\$@"
+STUB
+chmod +x "$GREPFAIL/grep"
+reset_verify_state
+OUT="$(cd "$VERIFY_WORKDIR" && STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" STUB_POLL_EXIT=1 \
+    PATH="$GREPFAIL:$STUBDIR:$PATH" bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger=workflow 2>&1)"; S=$?
+if [ "$S" -eq 1 ] && grep -q 'grep failed (rc 2)' <<< "$OUT" \
+    && ! grep -q 'workflow run' "$STUB_LOG"; then
+    pass "B7e: grep fails in the guard -> exit 1 (fail closed), no recovery run"
+else
+    fail "B7e: grep fails in the guard -> exit 1 (fail closed), no recovery run" \
+        "exit: $S (want 1)" "output: [$OUT]"
 fi
 
 # --- B8: the PR file list call fails -> 1 -----------------------------------

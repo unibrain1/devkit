@@ -1,0 +1,73 @@
+#!/bin/bash
+#
+# Prints the workflow files that claude-code-action compares with the default
+# branch before it reviews a PR. When a PR changes one of them, the action
+# skips the review until the change is on the default branch. No re-run can
+# post a review before the merge (the self-review case).
+#
+# WHY THIS SCRIPT EXISTS: the action compares the caller workflow, and also
+# each reusable workflow that the caller calls from its own repo
+# (uses: ./...). Most repos call the reusable review @main, so only the
+# caller counts. devkit's caller calls ./.github/workflows/claude-review.yml,
+# so that file counts too (devkit #27, #76). The rule comes from the caller
+# file, so no project needs a .claude/project.md key for it.
+#
+# Line 1 is always the caller path. Each project must name its caller
+# .github/workflows/claude-code-review.yml (docs/ci-workflows.md). Then one
+# line for each local `uses: ./.github/workflows/<file>.yml` (or .yaml) in
+# the caller, without the "./". A path that two uses: lines name prints
+# once. The script reads only a block-style `uses:` line, not a flow-style
+# `{ uses: ... }` map. It also skips a path with a `#` right after it and
+# no space between (`x.yml#c`): YAML reads `#c` as part of that value, not
+# as a comment. A missing caller file gives line 1 only, with a
+# warning on stderr. The script reads the caller from the work tree, so run
+# it on the PR head branch.
+#
+# Usage: flow-review-workflow-files
+#
+# Exit codes:
+#   0  The file list is on stdout.
+#   1  Usage error (an argument was given), the current folder is not in a
+#      git work tree, or the caller file cannot be read.
+
+set -euo pipefail
+
+CALLER=".github/workflows/claude-code-review.yml"
+
+if [ "$#" -ne 0 ]; then
+    echo "Usage: $(basename "$0")" >&2
+    exit 1
+fi
+
+# No fallback to the current folder: from a subfolder, that would miss the
+# caller and give a short list with exit 0.
+if ! ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || [ -z "$ROOT" ]; then
+    echo "$(basename "$0"): $(pwd) is not in a git work tree, so the caller file cannot be read." >&2
+    exit 1
+fi
+
+if [ ! -f "$ROOT/$CALLER" ]; then
+    echo "$(basename "$0"): warning: $CALLER does not exist in $ROOT. The list has the caller path only." >&2
+    printf '%s\n' "$CALLER"
+    exit 0
+fi
+
+# Read the caller before the first output line, so a read error gives no
+# partial list.
+# Only a job-level `uses:` calls a reusable workflow. A step-level one
+# (`- uses:`) names an action. Skip full-line comments. Quotes around the
+# value are YAML syntax, not part of the path. The path characters are
+# limited to letters, digits, ".", "_", "-", "/" and "\", so no control
+# byte reaches a caller's stderr.
+if ! LOCAL="$(sed -n -E \
+    -e '/^[[:space:]]*#/d' \
+    -e "s/^[[:space:]]*uses:[[:space:]]*[\"']?\\.\\/(\\.github\\/workflows\\/[A-Za-z0-9._\\/-]+\\.ya?ml)[\"']?([[:space:]].*)?\$/\\1/p" \
+    "$ROOT/$CALLER" | awk '!seen[$0]++')"; then
+    echo "$(basename "$0"): could not read $ROOT/$CALLER." >&2
+    exit 1
+fi
+
+printf '%s\n' "$CALLER"
+if [ -n "$LOCAL" ]; then
+    printf '%s\n' "$LOCAL"
+fi
