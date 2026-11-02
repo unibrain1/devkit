@@ -1,7 +1,8 @@
 #!/bin/bash
 #
-# Tests for flow-release-milestone: the full release run, and the
-# resume path after the script stops part way.
+# Tests for flow-release-milestone: the full release run, the resume path
+# after the script stops part way, the merge method, the wait for required
+# checks, and the copy of the script from the work tree.
 #
 # HERMETIC: each case builds a bare "origin" repo and a working clone under
 # a temp dir. Real git runs against them, so every push goes to the temp
@@ -76,11 +77,10 @@ cat > "$STUB_EXTRA" <<'STUB'
 # one on each line, for classic protection and for a ruleset. checks.<n>
 # is the answer to the n-th `pr checks` call, as name<TAB>bucket lines. A
 # call after the last file gets the last file. The text NONE gives the
-# "no checks reported" error. checks_n counts the calls. In the gh
-# versions that we tried, gh with --json exits 0 for a pending check.
-# pending_exit_8 makes the stub exit 8, as other versions can. stale_head_n holds a count: that many
-# headRefOid reads give the parent of the branch head, as GitHub does for a
-# short time after a push.
+# "no checks reported" error. checks_n counts the calls. The stub exits 0
+# for a pending check. pending_exit_8 makes it exit 8, as gh can.
+# stale_head_n holds a count: that many headRefOid reads give the parent of
+# the branch head, as GitHub does for a short time after a push.
 S="$STUB_STATE"
 echo "$*" >> "$S/calls"
 want_pr="${STUB_PR:-42}"
@@ -1183,18 +1183,23 @@ if [ "$STATUSW2A" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
 else
     fail "Case W2a: failed check -> exit 2" "exit: $STATUSW2A (want 2)" "output: [$OUTW2A]"
 fi
-# The rerun after the check passes pushes no second notes-removal commit.
+# The rerun pushes no second notes-removal commit, and it waits again: the
+# first poll is pending, so a rerun that skips the wait merges too early.
 rm -f "$STATE"/checks.* "$STATE/checks_n"
-printf 'lint\tpass\ntest (macos-15)\tpass\n' > "$STATE/checks.1"
+printf 'lint\tpending\ntest (macos-15)\tpass\n' > "$STATE/checks.1"
+printf 'lint\tpass\ntest (macos-15)\tpass\n' > "$STATE/checks.2"
 OUTW2B="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
 STATUSW2B=$?
 WHYW2="$(check_released)"
 REMOVALSW2="$(git -C "$ORIGIN" log --full-history --oneline main -- "$NOTES_REL" | grep -c 'remove v9.9.9 release notes')"
-if [ "$STATUSW2B" -eq 0 ] && [ -z "$WHYW2" ] && [ "$REMOVALSW2" -eq 1 ]; then
-    pass "Case W2b: rerun after the check passes -> exit 0, one notes-removal commit"
+if [ "$STATUSW2B" -eq 0 ] && [ -z "$WHYW2" ] && [ "$REMOVALSW2" -eq 1 ] \
+    && [ "$(cat "$STATE/checks_n")" -eq 2 ] && pr_merge_after_checks \
+    && printf '%s' "$OUTW2B" | grep -q 'Waiting for: lint'; then
+    pass "Case W2b: rerun -> waits again, exit 0, one notes-removal commit"
 else
     fail "Case W2b: rerun -> exit 0" "exit: $STATUSW2B (want 0)" "check: $WHYW2" \
-        "removal commits: $REMOVALSW2 (want 1)" "output: [$OUTW2B]"
+        "removal commits: $REMOVALSW2 (want 1)" \
+        "polls: $(cat "$STATE/checks_n" 2>/dev/null) (want 2)" "output: [$OUTW2B]"
 fi
 
 # --- Case W3: checks stay pending -> time-out, exit 2, no merge ---------
@@ -1538,6 +1543,64 @@ if [ "$STATUST6" -eq 0 ] && [ "$BEFORET6" = "$(git -C "$WORK" for-each-ref; ls "
     pass "Case T6: script in the work tree with --dry-run -> exit 0, no copy, no temp folder, repo unchanged"
 else
     fail "Case T6: in-tree --dry-run" "exit: $STATUST6 (want 0)" "output: [$OUTT6]"
+fi
+
+# --- Case T7: resume after the merge, script in the work tree -> exit 0 -
+# The first run stops after the merge, which deletes the milestone branch.
+# The resume gives the PR head after the merge (the notes-removal commit)
+# as --reviewed-sha, as the command's "Resume after the merge" says.
+setup_in_tree_case caseT7
+touch "$STATE/fail_release"
+OUTT7A="$(run_in_tree --reviewed-sha "$(git -C "$WORK" rev-parse HEAD)" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST7A=$?
+rm -f "$STATE/fail_release" "$STATE/ran_from" "$WORK/$KEEP_REL"
+HEADT7="$(cat "$STATE/pr_head")"
+OUTT7B="$(run_in_tree --reviewed-sha "$HEADT7" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST7B=$?
+WHYT7="$(check_released)"
+COPYT7="$(check_copy_ran)"
+if [ "$STATUST7A" -eq 2 ] && [ "$STATUST7B" -eq 0 ] && [ -z "$WHYT7" ] && [ -z "$COPYT7" ] \
+    && printf '%s' "$OUTT7B" | grep -q 'already merged — skipping' \
+    && printf '%s' "$OUTT7B" | grep -q "Running the release script from ${HEADT7}"; then
+    pass "Case T7: resume after the merge from the work tree with the PR head -> reviewed copy runs, exit 0"
+else
+    fail "Case T7: resume after the merge" "first exit: $STATUST7A (want 2)" "first output: [$OUTT7A]" \
+        "resume exit: $STATUST7B (want 0)" "check: $WHYT7" "copy: $COPYT7" "output: [$OUTT7B]"
+fi
+
+# --- Case T8: copy values left in the environment -> no folder removed ---
+# The script is in a decoy folder that FLOW_RELEASE_COPY_ROOT names, but the
+# folder does not have the mktemp name. The exit trap must not remove it.
+setup_case caseT8
+DECOYT8="$TMPROOT/caseT8/decoy"
+mkdir -p "$DECOYT8"
+cp -R "$REAL_REPO/plugins/flow/bin" "$DECOYT8/bin"
+OUTT8="$(cd "$WORK" && PATH="$STUBDIR:$PATH" STUB_STATE="$STATE" STUB_ORIGIN="$ORIGIN" \
+    FLOW_RELEASE_REEXEC=1 FLOW_RELEASE_COPY_ROOT="$DECOYT8" \
+    "$DECOYT8/bin/flow-release-milestone" --dry-run "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST8=$?
+if [ "$STATUST8" -eq 0 ] && [ -f "$DECOYT8/bin/flow-release-milestone" ]; then
+    pass "Case T8: FLOW_RELEASE_COPY_ROOT names a folder without the mktemp name -> folder kept"
+else
+    fail "Case T8: copy values in the environment" "exit: $STATUST8 (want 0)" \
+        "decoy kept: $([ -d "$DECOYT8" ] && echo yes || echo no)" "output: [$OUTT8]"
+fi
+
+# --- Case T9: the copy gets every argument -> --checks-timeout applies --
+# With the default limit of 30 minutes, the stub sleep would run 60 times.
+setup_in_tree_case caseT9
+HEADT9="$(git -C "$WORK" rev-parse HEAD)"
+echo lint > "$STATE/required_classic"
+printf 'lint\tpending\n' > "$STATE/checks.1"
+OUTT9="$(run_in_tree --checks-timeout 1 --reviewed-sha "$HEADT9" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST9=$?
+if [ "$STATUST9" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && [ "$(wc -l < "$STATE/sleeps" | tr -d ' ')" -eq 2 ] \
+    && printf '%s' "$OUTT9" | grep -q "Running the release script from ${HEADT9}"; then
+    pass "Case T9: copy with --checks-timeout 1 -> time-out after 2 sleeps, exit 2, no merge"
+else
+    fail "Case T9: copy gets --checks-timeout" "exit: $STATUST9 (want 2)" \
+        "sleeps: $(wc -l < "$STATE/sleeps" 2>/dev/null) (want 2)" "output: [$OUTT9]"
 fi
 
 harness_report

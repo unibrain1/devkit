@@ -31,15 +31,15 @@
 # the file while bash reads it, and a session that starts on main runs the
 # last release's script. So the script first extracts its own bin folder at
 # the --reviewed-sha commit with git archive to a temp folder, and execs that
-# copy. The helper scripts in that folder come from the same commit. A run
+# copy. The helper scripts in that folder come from the same commit. When
+# the commit is not local, the script first fetches refs/pull/<pr>/head. A run
 # from the work tree needs --reviewed-sha: without it, the script stops with
 # exit 1. It does not run code that nobody reviewed. FLOW_RELEASE_REEXEC
 # marks the copy, so it does not do this again. The temp folder is removed
 # when the copy exits, or when the copy step stops with exit 1. With
 # --dry-run there is no copy: a dry run checks out nothing, so the file
 # cannot change while bash reads it. A script in the plugin cache does not
-# change on a checkout, so it runs as it is. A copy of main from v1.2.0 or
-# earlier has no copy step. Start that release on the milestone branch.
+# change on a checkout, so it runs as it is.
 #
 # Merge method: before Step 6, the script reads the classic branch
 # protection and the rulesets of main. When either requires linear history,
@@ -60,8 +60,9 @@
 # 30). The time limit counts the sleeps, not the time of the gh calls. A
 # failed check, or no pass in --checks-timeout minutes, stops the run with
 # exit 2 and nothing merges. With no required checks, there is no wait. The
-# required check names come from main, not from `gh pr checks --required`:
-# right after a push, that list can be empty.
+# required check names come from main, not from `gh pr checks --required`.
+# Right after a push, GitHub may report no checks yet, so that list can be
+# empty.
 #
 # Resume: run the script again with the same arguments after it stops. Each
 # step checks whether an earlier run already did its work, and skips it:
@@ -196,7 +197,8 @@ if [ -z "${FLOW_RELEASE_REEXEC:-}" ]; then
         if ! git cat-file -e "${SOURCE}^{commit}" 2>/dev/null; then
           git fetch -q origin "refs/pull/${PR_NUMBER}/head" || true
         fi
-        # A template, so macOS mktemp uses TMPDIR as Linux mktemp does. cd
+        # The template holds TMPDIR, so macOS and Linux use the same folder,
+        # and the trap guard below can match the name flow-release.XXXXXX. cd
         # and pwd give the same form of the path that SCRIPT_DIR gets in the
         # copy (TMPDIR can end in a slash), so the trap guard below matches.
         COPY_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/flow-release.XXXXXX")"
@@ -217,11 +219,16 @@ fi
 # The copy removes its own temp folder at exit. exec replaced the first
 # process, so no trap there can do it. The folder holds the helper scripts
 # that SCRIPT_DIR names, so it must stay until the exit. The trap is set
-# only when this script is in that folder, so a value left in the
-# environment cannot remove another folder.
+# only when the folder has the name that mktemp gives it and this script is
+# in it. A value left in the environment, such as / or a parent folder, then
+# sets no trap.
 if [ -n "${FLOW_RELEASE_REEXEC:-}" ] && [ -n "${FLOW_RELEASE_COPY_ROOT:-}" ]; then
-  case "$SCRIPT_DIR" in
-    "${FLOW_RELEASE_COPY_ROOT%/}"/*) trap 'rm -rf "$FLOW_RELEASE_COPY_ROOT"' EXIT ;;
+  case "${FLOW_RELEASE_COPY_ROOT%/}" in
+    */flow-release.??????)
+      case "$SCRIPT_DIR" in
+        "${FLOW_RELEASE_COPY_ROOT%/}"/*) trap 'rm -rf "$FLOW_RELEASE_COPY_ROOT"' EXIT ;;
+      esac
+      ;;
   esac
 fi
 
@@ -363,9 +370,10 @@ fi
 # gh_capture <gh args...>
 # Runs gh and sets GH_STATUS, GH_OUT (stdout) and GH_ERR (stderr). A gh
 # warning on stderr then cannot change the value that the caller matches.
-# The `|| exit $?` inside the substitution keeps the ERR trap quiet: bash
-# 3.2 runs the inherited trap in the subshell even when `||` follows the
-# substitution.
+# The `|| exit $?` inside the substitution keeps the ERR trap quiet. On
+# bash 3.2.57, when a command in the substitution has its stderr sent to a
+# file and exits non-zero, the inherited trap runs in the subshell, also
+# when `||` follows the substitution. Bash 5 does not do this.
 gh_capture() {
   local err
   err="$(mktemp)"
@@ -516,12 +524,11 @@ gh_poll_fail() {
 
 # GitHub shows the pushed commit as the PR head some time after the push.
 # Until then, `gh pr checks` shows the checks of the old head, so the head
-# is read first. In the gh versions that we tried, `gh pr checks --json`
-# exits 0 for each check state. Other versions can exit 8 while a check is
-# pending. The script accepts 0 and 8, and reads the state of each check
-# from its bucket. Before
-# the first run starts, it answers "no checks reported" with exit 1: each
-# required check is then pending. This text match depends on the gh wording.
+# is read first. `gh pr checks` can exit 8 while a check is pending (the
+# help text of gh 2.103.3 says so). The script accepts exit 0 and exit 8,
+# and reads the state of each check from its bucket. Before the first CI
+# run starts, gh can fail with "no checks reported". The script then counts
+# each required check as pending. This text match depends on the gh wording.
 step "Wait for required checks"
 if [ "$PR_STATE" = "MERGED" ]; then
   echo "PR #${PR_NUMBER} is already merged — skipping."

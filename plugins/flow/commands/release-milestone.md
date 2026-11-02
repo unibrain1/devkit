@@ -119,11 +119,15 @@ checks in Steps 2–4 cannot run. The script checked them before the merge.
 
 1. The working tree must be clean (`git status --porcelain` prints
    nothing). If it is not, stop and ask the user to commit or stash.
-2. Skip Steps 2, 3 and 4.
-3. In Step 5, show the PR, the version, and the steps that remain: tag the
+2. Run `gh pr view <number> --json headRefOid --jq .headRefOid`. Record
+   the result as `<reviewed-sha>`. Step 6 needs it. The PR is merged, so
+   the script does not compare it with the PR head. A script in the work
+   tree uses it only to copy itself.
+3. Skip Steps 2, 3 and 4.
+4. In Step 5, show the PR, the version, and the steps that remain: tag the
    merge commit, push the tag, create the release, close the
    milestone. Ask the user to confirm.
-4. Go to Step 6. The script skips the steps that are already done.
+5. Go to Step 6. The script skips the steps that are already done.
 
 ### Step 2: Verify preconditions
 
@@ -326,10 +330,10 @@ runs the script from the work tree, and the script checks out other
 branches. So the script first extracts its own `bin` folder at
 `<reviewed-sha>` to a temp folder and runs that copy. The output starts
 with `Running the release script from <sha>`. A run from the work tree
-with no `--reviewed-sha` stops with exit 1. If the script on the current
-branch has this step, the session can start on any branch. Copies from
-v1.2.0 and earlier do not have it. Start the v1.3.0 release on the
-milestone branch. A script from the plugin cache runs as it is.
+with no `--reviewed-sha` stops with exit 1. A script from the plugin cache
+runs as it is. The session reads this command text when it starts. If the
+release changes this command, start the session on the milestone branch,
+so that the session uses the new text.
 
 If the script exits 1 with "not the reviewed commit", a commit landed on the
 milestone branch after the review. Stop. Nothing changed. End with plain
