@@ -56,7 +56,14 @@ Record each declined finding under `## Review decisions` in the plan. Use one of
 
 ## Decision rounds
 
-A command that has a list of decisions for the user asks all of them in one round. Examples are the Blocking false positives and the Recommendation items of `/flow:review-pr`, the Blocking false positives and the Advisory items of `/flow:address-pr-comments`, the new cleanup-ledger items of `/flow:execute-plan`, and the retrospective questions of `/flow:finish-milestone`. A command with two lists asks the false-positive round first, because a `Fix it` answer adds a Blocking fix.
+These steps ask all the decisions of a list in one round:
+
+- `/flow:review-pr` Step 6: the Blocking false positives and the Recommendation items.
+- `/flow:address-pr-comments` Steps 5 and 7: the Blocking false positives and the Advisory items.
+- `/flow:execute-plan` Step 3 (contradicted items), Step 6.6 (new cleanup-ledger items) and Step 8 (unchecked items).
+- `/flow:finish-milestone` Step 6.5: the retrospective questions.
+
+Each of these steps cites this section. Some other steps still ask about each item by itself. A step that you change to this rule cites this section and goes in this list. A step with two lists asks the false-positive round first, because a `Fix it` answer adds a Blocking fix.
 
 1. Collect every decision of the list before you ask.
 2. Ask with AskUserQuestion. Put one decision in each question, and at most 4 questions in one call (the tool limit).

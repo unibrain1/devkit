@@ -465,12 +465,15 @@ each with the quoted issue/plan line — or "Spec: no issue found">
 
 **If there are Blocking items:**
 
-- Fix each one that is not a false positive (see "Blocking false positives"
-  below). Launch a `flow:software-developer` agent per file for non-trivial
-  fixes, or edit directly for simple ones.
-- After fixing, re-run the `flow:code-reviewer` agent on the full
-  branch diff + changed files to confirm clean
-- Do NOT proceed until blocking items are resolved
+1. Find each Blocking item that looks like a false positive. Do not fix it.
+   Ask about all of them in the false-positive round (see "Blocking false
+   positives" below).
+2. Fix each other Blocking item, and each item with the answer `Fix it`.
+   Launch a `flow:software-developer` agent per file for non-trivial fixes,
+   or edit directly for simple ones.
+3. After fixing, re-run the `flow:code-reviewer` agent on the full branch
+   diff + changed files to confirm clean.
+4. Do NOT proceed until blocking items are resolved.
 
 **Decision rounds.** This step asks two lists of decisions: the Blocking
 false positives, then the Recommendation items. Ask each list in one round,
@@ -489,8 +492,8 @@ says:
 positive, do not fix it. Put it in the false-positive round. Ask this round
 before the Recommendation round, because a `Fix it` answer adds a Blocking
 fix. Each question states the claim and the code, query or test result that
-contradicts it. The options are `False positive` and `Fix it`. Then act on
-each answer:
+contradicts it. The options are `False positive` and `Fix it`.
+After the last call of the round, act on each answer:
 
 - **False positive** — no code change. Record the decision (see "Record each
   decision" below) with `False positive: <reason>`. The item is resolved.
@@ -505,8 +508,9 @@ Ask all Recommendation items in one round. Each question has these parts:
    options. Write enough for the user to disagree with a reason, not a
    full essay. The con of `Skip entirely` is the skip reason, unless the
    user adds a note to the answer.
-3. The options for the item, from this table. The recommended option is
-   first. Do not show an option that the table leaves out:
+3. The options for the item, from this table. Reorder the options so that
+   the recommended option is first. Do not show an option that the table
+   leaves out:
 
    | Item | Options |
    | --- | --- |

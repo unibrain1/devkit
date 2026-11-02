@@ -12,8 +12,10 @@
 # Each step must cite the skill's "Decision rounds" section, state the
 # limit of at most 4 questions in one call, put the "(Recommended)" option
 # first, and act only after the last call. A step that can need more than
-# one call must also forbid other work between the calls. No command in
-# the folder may tell the model to ask one item at a time. The test also
+# one call must also forbid other work between the calls. No step may ask
+# a follow-up question or offer a `Defer` option. In review-pr Step 6, the
+# "Blocking false positives" paragraph must state its own round. No command
+# in the folder may tell the model to ask one item at a time. The test also
 # checks the "## Decision rounds" section of the workflow skill's review.md.
 #
 # The checks are phrase checks on the command text. They cannot check what
@@ -67,7 +69,13 @@ bad_step() {
     fi
     printf '%s\n' "$text" | grep -q 'at most 4' || echo "$2: no 'at most 4' limit"
     printf '%s\n' "$text" | grep -qF '(Recommended)' || echo "$2: no '(Recommended)' option"
-    printf '%s\n' "$text" | grep -qE 'after the (last )?call' || echo "$2: does not act after the last call"
+    printf '%s\n' "$text" | grep -qiE 'after the (last )?call' || echo "$2: does not act after the last call"
+    if printf '%s\n' "$text" | grep -qiE 'follow-up (question|`?AskUserQuestion)'; then
+        echo "$2: asks a follow-up question"
+    fi
+    if printf '%s\n' "$text" | grep -qF '`Defer`'; then
+        echo "$2: offers a \`Defer\` option"
+    fi
     if [ "$3" = many ]; then
         printf '%s\n' "$text" | grep -qE '([Dd]o|with) no other work between the calls' ||
             echo "$2: does not forbid other work between the calls"
@@ -75,6 +83,27 @@ bad_step() {
         printf '%s\n' "$text" | grep -q 'one AskUserQuestion call' ||
             echo "$2: does not ask in one AskUserQuestion call"
     fi
+}
+
+# bad_false_positives <file>
+# Prints one line for each round rule that the "Blocking false positives"
+# paragraph of review-pr Step 6 breaks. The paragraph ends at a blank line.
+# The rest of Step 6 states the rules for both lists, so a check of the
+# whole step cannot see a paragraph that lost its own round.
+bad_false_positives() {
+    local text
+    text=$(section "$1" '## Step 6: Handle findings' |
+        awk '/^\*\*Blocking false positives\.\*\*/ { on = 1 } on && /^$/ { exit } on { print }')
+    if [ -z "$text" ]; then
+        echo "Step 6: no 'Blocking false positives' paragraph"
+        return
+    fi
+    printf '%s\n' "$text" | grep -qE 'false-positive round' ||
+        echo "Blocking false positives: does not ask in a round"
+    printf '%s\n' "$text" | grep -qF 'before the Recommendation round' ||
+        echo "Blocking false positives: does not come before the Recommendation round"
+    printf '%s\n' "$text" | grep -qiE 'after the last call' ||
+        echo "Blocking false positives: does not act after the last call"
 }
 
 # bad_sequential <file>
@@ -93,6 +122,7 @@ bad_commands() {
     bad_step "$1/execute-plan.md" '### Step 3: Re-Verify Checklist Against Repo State' many
     bad_step "$1/execute-plan.md" '### Step 6.6: Cleanup Ledger Check' many
     bad_step "$1/execute-plan.md" '### Step 8: Confirm Plan Completeness' many
+    bad_false_positives "$1/review-pr.md"
     for file in "$1"/*.md; do
         bad_sequential "$file"
     done
@@ -151,7 +181,10 @@ mutate() {
 # expect_fail <label> <pattern> <dir>
 # Passes when bad_commands on <dir> prints a line that matches <pattern>.
 expect_fail() {
-    if bad_commands "$3" | grep -qE "$2"; then
+    # Capture first: grep -q exits at the first match and breaks the pipe.
+    local out
+    out=$(bad_commands "$3")
+    if printf '%s\n' "$out" | grep -qE "$2"; then
         pass "$1"
     else
         fail "$1"
@@ -178,8 +211,25 @@ expect_fail "address-pr-comments.md Step 7 with no 'at most 4' fails" 'Step 7.*a
 dir=$(mutate work review-pr.md 's/Do no other work between the calls\.//')
 expect_fail "review-pr.md that allows work between the calls fails" 'other work between the calls' "$dir"
 
-dir=$(mutate act review-pr.md 's/after the last call/after each answer/g')
+dir=$(mutate act review-pr.md 's/[Aa]fter the last call/after each answer/g')
 expect_fail "review-pr.md that acts before the last call fails" 'act after the last call' "$dir"
+
+dir=$(mutate followup address-pr-comments.md '/^After the last call, act on each answer in item order:$/i\
+Then ask a follow-up AskUserQuestion to pick the destination.
+')
+expect_fail "address-pr-comments.md with a follow-up question fails" 'Step 7.*follow-up question' "$dir"
+
+dir=$(mutate defer review-pr.md 's/^   | Any other item | `Fix now`, `Cleanup ledger`, `Skip entirely` |$/   | Any other item | `Fix now`, `Defer`, `Skip entirely` |/')
+expect_fail "review-pr.md with a Defer option fails" 'Defer. option' "$dir"
+
+# The base text of the paragraph, before the round rule.
+dir=$(mutate fp review-pr.md '/^\*\*Blocking false positives\.\*\*/,/^$/c\
+**Blocking false positives.** If a Blocking item looks like a false\
+positive, do not fix it. Present it to the user. Ask via `AskUserQuestion`,\
+options `False positive` and `Fix it`. The user decides:\
+
+')
+expect_fail "review-pr.md with no false-positive round fails" 'Blocking false positives: does not ask in a round' "$dir"
 
 dir=$(mutate calls finish-milestone.md 's/in one AskUserQuestion call/in three AskUserQuestion calls/')
 expect_fail "finish-milestone.md that asks in three calls fails" 'one AskUserQuestion call' "$dir"
