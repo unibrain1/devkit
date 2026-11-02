@@ -119,11 +119,15 @@ checks in Steps 2–4 cannot run. The script checked them before the merge.
 
 1. The working tree must be clean (`git status --porcelain` prints
    nothing). If it is not, stop and ask the user to commit or stash.
-2. Skip Steps 2, 3 and 4.
-3. In Step 5, show the PR, the version, and the steps that remain: tag the
+2. Run `gh pr view <number> --json headRefOid --jq .headRefOid`. Record
+   the result as `<reviewed-sha>`. Step 6 needs it. The PR is merged, so
+   the script does not compare it with the PR head. A script in the work
+   tree uses it only to copy itself.
+3. Skip Steps 2, 3 and 4.
+4. In Step 5, show the PR, the version, and the steps that remain: tag the
    merge commit, push the tag, create the release, close the
    milestone. Ask the user to confirm.
-4. Go to Step 6. The script skips the steps that are already done.
+5. Go to Step 6. The script skips the steps that are already done.
 
 ### Step 2: Verify preconditions
 
@@ -309,11 +313,27 @@ the merge, which cannot be undone by re-running the command.
 
 ### Step 6: Run the release script
 
-Run it with the Bash tool `timeout: 600000`:
+Run it with the Bash tool `run_in_background: true`. The wait for the
+required checks (item 4 below) can take longer than the 10-minute limit of
+a foreground Bash call. Wait for the notice that the script exited. Then
+read its output:
 
 ```bash
 flow-release-milestone --reviewed-sha <reviewed-sha> <version> <pr-number> <milestone-number>
 ```
+
+`--checks-timeout <minutes>` sets the time limit of the wait. The default
+is 30.
+
+**A `--plugin-dir` session.** In devkit, `claude --plugin-dir plugins/flow`
+runs the script from the work tree, and the script checks out other
+branches. So the script first extracts its own `bin` folder at
+`<reviewed-sha>` to a temp folder and runs that copy. The output starts
+with `Running the release script from <sha>`. A run from the work tree
+with no `--reviewed-sha` stops with exit 1. A script from the plugin cache
+runs as it is. The session reads this command text when it starts. If the
+release changes this command, start the session on the milestone branch,
+so that the session uses the new text.
 
 If the script exits 1 with "not the reviewed commit", a commit landed on the
 milestone branch after the review. Stop. Nothing changed. End with plain
@@ -322,13 +342,22 @@ text: run `/clear`, then type `/flow:review-milestone <version>`.
 The script does these steps in this order:
 
 1. It stops if local `main` has commits that `origin/main` does not have.
-2. It chooses the merge method (below).
+2. It chooses the merge method (below), and reads the names of the
+   required status checks of `main` from the same two sources.
 3. It saves the release notes to
    `<plans>/releases/<version>-release-notes.md`. It removes the
    release-notes file in a commit on the milestone branch and pushes it.
    The removal is then in the PR, never a bare push to `main` after the
    merge.
-4. It syncs local `main` to `origin/main`.
+4. It syncs local `main` to `origin/main`. Then it waits until each
+   required check passes on the PR head, because the push in item 3 made a
+   new head. Until GitHub shows that head on the PR, each check is
+   pending. A required check with no run yet is pending. A skipped check
+   counts as passed, and a cancelled check counts as failed. With no
+   required checks, there is no wait. A failed check, or no pass in
+   `--checks-timeout` minutes, stops the run with exit 2 and names the
+   check. Nothing merges. Run the script again when the checks pass. The
+   rerun does not push a second notes removal.
 5. It merges the PR with `--delete-branch`, and pulls the merge commit.
 6. It deletes the local milestone branch, if `gh` did not.
 7. It tags the PR's merge commit (from `gh pr view --json mergeCommit`, not
@@ -383,10 +412,13 @@ The last message of the script says which case applied.
 
 Exit 0 means every step above completed. Exit 1 means a check stopped the
 run before it changed anything (bad args, closed PR, missing release notes,
-stray local commits on `main`, unreadable branch protection or rulesets —
-the script's own output says which). The script checks local `main` before
-it pushes the notes removal. Every pull is `--ff-only`. Exit 2 means a step
-failed (merge conflict, push rejected, tag on the wrong commit), the
+stray local commits on `main`, unreadable branch protection or rulesets,
+a run from the work tree with no `--reviewed-sha`, no script at the
+reviewed commit — the script's own output says which). The script checks
+local `main` before it pushes the notes removal. Every pull is
+`--ff-only`. Exit 2 means a step failed (merge conflict, push rejected, a
+required check failed or timed out, the PR head or its checks cannot be
+read, tag on the wrong commit), the
 `release_notes` or `plans` key is absent, or the `release` value is not
 allowed.
 

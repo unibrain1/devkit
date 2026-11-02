@@ -523,6 +523,18 @@ jobs:
       pages_functions: true
 ```
 
+## Required check names
+
+Before the merge, `flow-release-milestone` waits until each required
+check of `main` passes. It reads the required names from the branch
+protection and the rulesets (the `context` of each check). It finds each
+name in the `name` field of `gh pr checks`. A job in a reusable workflow
+gets a name of the form `<caller job> / <called job>`, for example
+`claude-review / pr-to-milestone-review`. Each required name must be
+equal to the name that `gh pr checks <pr>` shows. If a required name does
+not match, the script counts that check as pending. At the time limit, it
+stops with exit 2 and gives the name, and nothing merges.
+
 ## `upstream-sync.yml` (devkit only)
 
 Each Monday, compares each upstream plugin pin in
