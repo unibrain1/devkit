@@ -111,13 +111,13 @@ pass "milestone-review: the first step is '$STOP_NAME'"
 
 # A job-level continue-on-error makes a failed job pass. A fork condition
 # in the job if: skips the job, and a skipped job passes a required check.
-head="$(job_head milestone-review)"
-if printf '%s\n' "$head" | grep -q '^    continue-on-error:'; then
+job_keys="$(job_head milestone-review)"
+if printf '%s\n' "$job_keys" | grep -q '^    continue-on-error:'; then
     fail "milestone-review: the job has no continue-on-error"
 else
     pass "milestone-review: the job has no continue-on-error"
 fi
-if printf '%s\n' "$head" | grep -qE 'head\.repo|\.fork|isCrossRepository'; then
+if printf '%s\n' "$job_keys" | grep -qE 'head\.repo|\.fork|isCrossRepository'; then
     fail "milestone-review: the job if: has no fork condition"
 else
     pass "milestone-review: the job if: has no fork condition"
