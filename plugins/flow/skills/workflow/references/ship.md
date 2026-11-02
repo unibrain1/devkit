@@ -55,7 +55,7 @@ It checks that the CI review posted and CI is green. `flow-verify-ci-review` acc
 - The version is newer than the last tag. Run `flow-check-version-newer <version>`. The version must start with `v`. The last tag may lack it.
 - The deploy sheet is fresh.
 
-After the user approves, `flow-release-milestone` merges the PR, tags the merge commit, creates a GitHub release, and closes the milestone. It removes the `milestone/*` branch.
+After the user approves, `flow-release-milestone` merges the PR, tags the merge commit, creates a GitHub release, and closes the milestone. It removes the `milestone/*` branch. Before the merge, it waits until the required checks of `main` pass on the PR head that it pushed.
 
 The script reads the branch protection and the rulesets of `main` to choose the merge method:
 

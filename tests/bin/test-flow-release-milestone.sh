@@ -72,6 +72,15 @@ cat > "$STUB_EXTRA" <<'STUB'
 # succeed with a valid answer and also print a warning line on stderr).
 # With none of these, classic protection exists with linear
 # history off, and no ruleset applies.
+# Required checks: required_classic and required_ruleset hold check names,
+# one on each line, for classic protection and for a ruleset. checks.<n>
+# is the answer to the n-th `pr checks` call, as name<TAB>bucket lines. A
+# call after the last file gets the last file. The text NONE gives the
+# "no checks reported" error. checks_n counts the calls. In the gh
+# versions that we tried, gh with --json exits 0 for a pending check.
+# pending_exit_8 makes the stub exit 8, as other versions can. stale_head_n holds a count: that many
+# headRefOid reads give the parent of the branch head, as GitHub does for a
+# short time after a push.
 S="$STUB_STATE"
 echo "$*" >> "$S/calls"
 want_pr="${STUB_PR:-42}"
@@ -88,6 +97,11 @@ case "$*" in
         # GitHub keeps headRefOid after the merge deletes the branch.
         if [ -f "$S/pr_head" ]; then
             cat "$S/pr_head"
+            exit 0
+        fi
+        if [ -s "$S/stale_head_n" ] && [ "$(cat "$S/stale_head_n")" -gt 0 ]; then
+            echo $(( $(cat "$S/stale_head_n") - 1 )) > "$S/stale_head_n"
+            git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9^"
             exit 0
         fi
         git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9"
@@ -126,7 +140,10 @@ case "$*" in
         [ -f "$S/linear_classic" ] && enabled=true
         [ -f "$S/gh_warning" ] && echo "A new release of gh is available" >&2
         # The real jq runs the script's filter, as real gh does.
-        printf '{"required_linear_history":{"enabled":%s}}' "$enabled" | jq -r "$4" ;;
+        names='[]'
+        [ -f "$S/required_classic" ] && names="$(jq -R . < "$S/required_classic" | jq -sc .)"
+        printf '{"required_linear_history":{"enabled":%s},"required_status_checks":{"contexts":%s,"checks":%s}}' \
+            "$enabled" "$names" "$(printf '%s' "$names" | jq -c 'map({context: .})')" | jq -r "$4" ;;
     "api repos/example-org/example-repo/rules/branches/main --jq "*)
         if [ -f "$S/protection_upgrade" ]; then
             printf '{"message":"Upgrade to GitHub Pro or make this repository public to enable this feature.","documentation_url":"https://docs.github.com/rest","status":"403"}'
@@ -153,7 +170,28 @@ case "$*" in
             rules="$rules]"
         fi
         [ -f "$S/linear_ruleset" ] && rules='[{"type":"deletion","ruleset_id":1},{"type":"required_linear_history","ruleset_id":2}]'
+        if [ -f "$S/required_ruleset" ]; then
+            names="$(jq -R . < "$S/required_ruleset" | jq -sc 'map({context: .})')"
+            rules="$(printf '%s' "$rules" | jq -c --argjson n "$names" '. + [{"type":"required_status_checks","ruleset_id":3,"parameters":{"required_status_checks":$n}}]')"
+        fi
         printf '%s' "$rules" | jq -r "$4" ;;
+    "pr checks $want_pr --json name,bucket --jq "*)
+        n=$(( $(cat "$S/checks_n" 2>/dev/null || echo 0) + 1 ))
+        echo "$n" > "$S/checks_n"
+        answer=""
+        i=1
+        while [ "$i" -le "$n" ]; do
+            [ -f "$S/checks.$i" ] && answer="$S/checks.$i"
+            i=$((i + 1))
+        done
+        [ -n "$answer" ] || { echo "stub gh: no checks.<n> file" >&2; exit 1; }
+        if [ "$(cat "$answer")" = NONE ]; then
+            echo "no checks reported on the 'milestone/v9.9.9' branch" >&2
+            exit 1
+        fi
+        jq -R 'split("\t") | {name: .[0], bucket: .[1]}' < "$answer" | jq -s . | jq -r "$7"
+        [ -f "$S/pending_exit_8" ] && grep -q "	pending$" "$answer" && exit 8
+        exit 0 ;;
     "pr merge $want_pr --"*" --delete-branch --match-head-commit "*)
         method="$4"
         case "$method" in
@@ -231,6 +269,14 @@ case "$*" in
 esac
 STUB
 chmod +x "$STUB_EXTRA"
+
+# The wait for required checks sleeps between polls. This stub only counts
+# the sleeps, so a case runs at once.
+cat > "$STUBDIR/sleep" <<'STUB'
+#!/bin/bash
+echo "$1" >> "$STUB_STATE/sleeps"
+STUB
+chmod +x "$STUBDIR/sleep"
 
 # A git wrapper that fails `git show` when FAIL_GIT_SHOW is set, fails
 # `git branch -D` when FAIL_GIT_BRANCH_D is set, and runs the real git for
@@ -1094,6 +1140,404 @@ if [ "$STATUSK4" -eq 2 ] && [ "$BEFOREK4" = "$AFTERK4" ] \
     pass "Case K4: release: later -> exit 2 with the allowed values, no push, no merge, no tag"
 else
     fail "Case K4: release: later -> exit 2" "exit: $STATUSK4 (want 2)" "stderr: [$OUTK4]"
+fi
+
+# --- Required checks ----------------------------------------------------
+
+# pr_merge_after_checks
+# Returns 0 when the pr merge call comes after the last pr checks call.
+pr_merge_after_checks() {
+    local last_checks merge
+    last_checks="$(grep -n '^pr checks' "$STATE/calls" | tail -n 1 | cut -d: -f1)"
+    merge="$(grep -n '^pr merge' "$STATE/calls" | head -n 1 | cut -d: -f1)"
+    [ -n "$last_checks" ] && [ -n "$merge" ] && [ "$merge" -gt "$last_checks" ]
+}
+
+# --- Case W1: checks pending, then pass -> merge after the wait ---------
+setup_case caseW1
+echo lint > "$STATE/required_classic"
+touch "$STATE/pending_exit_8"
+printf 'lint\tpending\n' > "$STATE/checks.1"
+printf 'lint\tpass\n' > "$STATE/checks.3"
+OUTW1="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW1=$?
+WHYW1="$(check_released)"
+if [ "$STATUSW1" -eq 0 ] && [ -z "$WHYW1" ] && [ "$(cat "$STATE/checks_n")" -eq 3 ] \
+    && pr_merge_after_checks && printf '%s' "$OUTW1" | grep -q 'Waiting for: lint'; then
+    pass "Case W1: required check pending two polls, then pass -> exit 0, merge after the third poll"
+else
+    fail "Case W1: pending then pass -> exit 0" "exit: $STATUSW1 (want 0)" "check: $WHYW1" \
+        "polls: $(cat "$STATE/checks_n" 2>/dev/null) (want 3)" "output: [$OUTW1]"
+fi
+
+# --- Case W2: a failed check -> exit 2, no merge, then a rerun ----------
+setup_case caseW2
+printf 'lint\ntest (macos-15)\n' > "$STATE/required_classic"
+printf 'lint\tpass\ntest (macos-15)\tfail\n' > "$STATE/checks.1"
+OUTW2A="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW2A=$?
+if [ "$STATUSW2A" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && printf '%s' "$OUTW2A" | grep -q "Required check 'test (macos-15)' is fail" \
+    && printf '%s' "$OUTW2A" | grep -q 'run the script again'; then
+    pass "Case W2a: failed required check -> exit 2, names the check, no merge"
+else
+    fail "Case W2a: failed check -> exit 2" "exit: $STATUSW2A (want 2)" "output: [$OUTW2A]"
+fi
+# The rerun after the check passes pushes no second notes-removal commit.
+rm -f "$STATE"/checks.* "$STATE/checks_n"
+printf 'lint\tpass\ntest (macos-15)\tpass\n' > "$STATE/checks.1"
+OUTW2B="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW2B=$?
+WHYW2="$(check_released)"
+REMOVALSW2="$(git -C "$ORIGIN" log --full-history --oneline main -- "$NOTES_REL" | grep -c 'remove v9.9.9 release notes')"
+if [ "$STATUSW2B" -eq 0 ] && [ -z "$WHYW2" ] && [ "$REMOVALSW2" -eq 1 ]; then
+    pass "Case W2b: rerun after the check passes -> exit 0, one notes-removal commit"
+else
+    fail "Case W2b: rerun -> exit 0" "exit: $STATUSW2B (want 0)" "check: $WHYW2" \
+        "removal commits: $REMOVALSW2 (want 1)" "output: [$OUTW2B]"
+fi
+
+# --- Case W3: checks stay pending -> time-out, exit 2, no merge ---------
+setup_case caseW3
+echo lint > "$STATE/required_classic"
+printf 'lint\tpending\n' > "$STATE/checks.1"
+OUTW3="$(run_release --checks-timeout 1 "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW3=$?
+if [ "$STATUSW3" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && printf '%s' "$OUTW3" | grep -q 'Required checks not done after 1 min: lint' \
+    && [ "$(wc -l < "$STATE/sleeps" | tr -d ' ')" -eq 2 ]; then
+    pass "Case W3: checks pending past --checks-timeout 1 -> exit 2, names the check, no merge"
+else
+    fail "Case W3: time-out -> exit 2" "exit: $STATUSW3 (want 2)" \
+        "sleeps: $(wc -l < "$STATE/sleeps" 2>/dev/null) (want 2)" "output: [$OUTW3]"
+fi
+
+# --- Case W4: no run yet for the required check counts as pending -------
+# First no checks at all, then only a check that is not required.
+setup_case caseW4
+echo lint > "$STATE/required_classic"
+echo NONE > "$STATE/checks.1"
+printf 'CodeQL\tpass\n' > "$STATE/checks.2"
+printf 'CodeQL\tpass\nlint\tskipping\n' > "$STATE/checks.3"
+OUTW4="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW4=$?
+WHYW4="$(check_released)"
+if [ "$STATUSW4" -eq 0 ] && [ -z "$WHYW4" ] && [ "$(cat "$STATE/checks_n")" -eq 3 ] && pr_merge_after_checks; then
+    pass "Case W4: no checks, then no run of the required check -> pending, merge after it is skipped"
+else
+    fail "Case W4: missing required check is pending" "exit: $STATUSW4 (want 0)" "check: $WHYW4" \
+        "polls: $(cat "$STATE/checks_n" 2>/dev/null) (want 3)" "output: [$OUTW4]"
+fi
+
+# --- Case W5: no required checks -> no wait ------------------------------
+setup_case caseW5
+OUTW5="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW5=$?
+WHYW5="$(check_released)"
+if [ "$STATUSW5" -eq 0 ] && [ -z "$WHYW5" ] && ! grep -q '^pr checks' "$STATE/calls" \
+    && printf '%s' "$OUTW5" | grep -q 'No required checks on main — no wait.' \
+    && ! printf '%s' "$OUTW5" | grep -q 'Running the release script from'; then
+    pass "Case W5: no required checks -> exit 0, no pr checks call, no copy of the script"
+else
+    fail "Case W5: no required checks -> no wait" "exit: $STATUSW5 (want 0)" "check: $WHYW5" "output: [$OUTW5]"
+fi
+
+# --- Case W6: the required check comes from a ruleset -------------------
+setup_case caseW6
+echo lint > "$STATE/required_ruleset"
+printf 'lint\tpass\n' > "$STATE/checks.1"
+OUTW6="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW6=$?
+WHYW6="$(check_released)"
+if [ "$STATUSW6" -eq 0 ] && [ -z "$WHYW6" ] && pr_merge_after_checks \
+    && printf '%s' "$OUTW6" | grep -q 'Required checks: lint'; then
+    pass "Case W6: required check from a ruleset -> wait runs, exit 0"
+else
+    fail "Case W6: ruleset required check" "exit: $STATUSW6 (want 0)" "check: $WHYW6" "output: [$OUTW6]"
+fi
+
+# --- Case W7: dry run with required checks -> prints the wait -----------
+setup_case caseW7
+echo lint > "$STATE/required_classic"
+OUTW7="$(run_release --dry-run "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW7=$?
+if [ "$STATUSW7" -eq 0 ] && ! grep -qE '^pr (merge|checks)' "$STATE/calls" \
+    && printf '%s' "$OUTW7" | grep -q '\[dry-run\] gh pr checks 42 --json name,bucket'; then
+    pass "Case W7: dry run -> prints the wait, no pr checks or merge call"
+else
+    fail "Case W7: dry run prints the wait" "exit: $STATUSW7 (want 0)" "output: [$OUTW7]"
+fi
+
+# --- Case W8: bad --checks-timeout -> exit 1, nothing changes -----------
+setup_case caseW8
+BEFOREW8="$(git -C "$ORIGIN" for-each-ref)"
+run_release --checks-timeout 0 "$VERSION" "$PR" "$MS" >/dev/null 2>&1
+STATUSW8A=$?
+OUTW8B="$(run_release --checks-timeout abc "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW8B=$?
+OUTW8C="$(run_release --reviewed-sha milestone/v9.9.9 "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW8C=$?
+OUTW8D="$(run_release "$VERSION" 4x "$MS" 2>&1)"
+STATUSW8D=$?
+OUTW8E="$(cd "$WORK" && PATH="$STUBDIR:$PATH" STUB_STATE="$STATE" STUB_ORIGIN="$ORIGIN" FLOW_RELEASE_CHECK_INTERVAL=00 "$SCRIPT" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW8E=$?
+if [ "$STATUSW8A" -eq 1 ] && [ "$STATUSW8B" -eq 1 ] && [ "$STATUSW8C" -eq 1 ] \
+    && [ "$STATUSW8D" -eq 1 ] && [ "$STATUSW8E" -eq 1 ] \
+    && [ "$BEFOREW8" = "$(git -C "$ORIGIN" for-each-ref)" ] && [ ! -s "$STATE/calls" ] \
+    && printf '%s' "$OUTW8B" | grep -q -- "--checks-timeout (minutes) must be a positive whole number (got 'abc')" \
+    && printf '%s' "$OUTW8C" | grep -q -- "--reviewed-sha must be a full 40-character commit SHA" \
+    && printf '%s' "$OUTW8D" | grep -q "<pr-number> must be digits only (got '4x')" \
+    && printf '%s' "$OUTW8E" | grep -q "FLOW_RELEASE_CHECK_INTERVAL (seconds) must be a positive whole number (got '00')"; then
+    pass "Case W8: bad --checks-timeout, --reviewed-sha, pr number, interval -> exit 1, no gh call, origin unchanged"
+else
+    fail "Case W8: bad arguments -> exit 1" \
+        "exit: $STATUSW8A, $STATUSW8B, $STATUSW8C, $STATUSW8D, $STATUSW8E (want 1 each)" \
+        "output: [$OUTW8B] [$OUTW8C] [$OUTW8D] [$OUTW8E]"
+fi
+
+# --- Case W9: GitHub still shows the old head -> pending, then the wait ---
+# The checks of the old head all pass. The wait must not take them.
+setup_case caseW9
+echo lint > "$STATE/required_classic"
+echo 1 > "$STATE/stale_head_n"
+printf 'lint\tpass\n' > "$STATE/checks.1"
+OUTW9="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW9=$?
+WHYW9="$(check_released)"
+if [ "$STATUSW9" -eq 0 ] && [ -z "$WHYW9" ] && [ "$(cat "$STATE/checks_n")" -eq 1 ] \
+    && [ "$(wc -l < "$STATE/sleeps" | tr -d ' ')" -eq 1 ] \
+    && printf '%s' "$OUTW9" | grep -q 'Waiting for: the PR head'; then
+    pass "Case W9: old PR head first -> no checks read for it, one sleep, then merge"
+else
+    fail "Case W9: old PR head is pending" "exit: $STATUSW9 (want 0)" "check: $WHYW9" "output: [$OUTW9]"
+fi
+
+# --- Case W10: gh pr checks fails for another cause -> exit 2 -----------
+# With no checks.<n> file, the stub fails with its own message.
+setup_case caseW10
+echo lint > "$STATE/required_classic"
+OUTW10="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW10=$?
+if [ "$STATUSW10" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && printf '%s' "$OUTW10" | grep -q 'cannot read the checks of PR #42' \
+    && [ ! -s "$STATE/sleeps" ]; then
+    pass "Case W10: gh pr checks fails -> exit 2 at once, no merge"
+else
+    fail "Case W10: checks read fails -> exit 2" "exit: $STATUSW10 (want 2)" "output: [$OUTW10]"
+fi
+
+# --- Case W11: a cancelled required check -> exit 2 ----------------------
+setup_case caseW11
+echo lint > "$STATE/required_classic"
+printf 'lint\tcancel\n' > "$STATE/checks.1"
+OUTW11="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW11=$?
+if [ "$STATUSW11" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && printf '%s' "$OUTW11" | grep -q "Required check 'lint' is cancel"; then
+    pass "Case W11: cancelled required check -> exit 2, no merge"
+else
+    fail "Case W11: cancel -> exit 2" "exit: $STATUSW11 (want 2)" "output: [$OUTW11]"
+fi
+
+# --- Case W12: names from both sources, one list ------------------------
+setup_case caseW12
+echo lint > "$STATE/required_classic"
+printf 'lint\ntest\n' > "$STATE/required_ruleset"
+printf 'lint\tpass\ntest\tfail\n' > "$STATE/checks.1"
+OUTW12="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW12=$?
+if [ "$STATUSW12" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && printf '%s\n' "$OUTW12" | grep -qx 'Required checks: lint, test' \
+    && printf '%s' "$OUTW12" | grep -q "Required check 'test' is fail"; then
+    pass "Case W12: classic and ruleset names -> one list with no repeat, the ruleset check stops the run"
+else
+    fail "Case W12: both sources" "exit: $STATUSW12 (want 2)" "output: [$OUTW12]"
+fi
+
+# --- Case W13: two runs with one name, one failed -> exit 2 --------------
+setup_case caseW13
+echo lint > "$STATE/required_classic"
+printf 'lint\tpass\nlint\tfail\n' > "$STATE/checks.1"
+OUTW13="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW13=$?
+if [ "$STATUSW13" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && printf '%s' "$OUTW13" | grep -q "Required check 'lint' is fail"; then
+    pass "Case W13: a passed and a failed run with one name -> exit 2, no merge"
+else
+    fail "Case W13: same-name runs" "exit: $STATUSW13 (want 2)" "output: [$OUTW13]"
+fi
+
+# --- Case M16: classic linear history, rules read fails -> exit 1 --------
+# The script needs the ruleset for the required checks, so it stops.
+setup_case caseM16
+touch "$STATE/linear_classic" "$STATE/rules_fail"
+BEFOREM16="$(git -C "$ORIGIN" for-each-ref)"
+OUTM16="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSM16=$?
+if [ "$STATUSM16" -eq 1 ] && [ "$BEFOREM16" = "$(git -C "$ORIGIN" for-each-ref)" ] \
+    && ! grep -q '^pr merge' "$STATE/calls" \
+    && printf '%s' "$OUTM16" | grep -q 'cannot read the branch protection or rules of main'; then
+    pass "Case M16: classic linear history and a failed rules read -> exit 1, origin unchanged"
+else
+    fail "Case M16: linear classic, rules fail -> exit 1" "exit: $STATUSM16 (want 1)" "output: [$OUTM16]"
+fi
+
+# --- The script in the work tree ---------------------------------------
+
+# setup_in_tree_case <name>
+# Builds a case where plugins/flow/bin is in the repo, as in a
+# `claude --plugin-dir plugins/flow` session. main has an older copy of
+# the script: it is this script with one more line that writes
+# $STUB_STATE/old_script_ran after the copy step, and a flow-repo that
+# writes $STUB_STATE/old_helper_ran. The milestone branch has this script
+# with one more line before the last message: it writes the path that bash
+# runs to $STUB_STATE/ran_from. A run that reads the work-tree file after
+# Step 7 checks out main writes no path there, or a path in the work tree.
+# Sets INTREE_SCRIPT to the script path in the work tree.
+setup_in_tree_case() {
+    setup_case "$1"
+    (
+        cd "$WORK" || exit 1
+        git checkout -q main
+        mkdir -p plugins/flow
+        cp -R "$REAL_REPO/plugins/flow/bin" plugins/flow/bin
+        awk '/^# The repo is read one time/ { print "touch \"$STUB_STATE/old_script_ran\"" } { print }' \
+            "$SCRIPT" > plugins/flow/bin/flow-release-milestone
+        awk 'NR == 2 { print "touch \"$STUB_STATE/old_helper_ran\"" } { print }' \
+            "$REAL_REPO/plugins/flow/bin/flow-repo" > plugins/flow/bin/flow-repo
+        git add plugins
+        git commit -q -m "older flow scripts"
+        git push -q origin main
+        git checkout -q "milestone/${VERSION}"
+        git merge -q --no-edit main
+        cp "$REAL_REPO/plugins/flow/bin/flow-repo" plugins/flow/bin/flow-repo
+        awk '/^echo "Done\./ { print "echo \"${BASH_SOURCE[0]}\" > \"$STUB_STATE/ran_from\"" } { print }' \
+            "$SCRIPT" > plugins/flow/bin/flow-release-milestone
+        git add plugins
+        git commit -q -m "milestone flow scripts"
+        git push -q origin "milestone/${VERSION}"
+    ) || exit 1
+    INTREE_SCRIPT="$WORK/plugins/flow/bin/flow-release-milestone"
+}
+
+# check_copy_ran
+# Returns 0 when the milestone copy ran to the end from outside the work
+# tree, no older script or helper ran, and the copy removed its temp folder.
+check_copy_ran() {
+    local from
+    from="$(cat "$STATE/ran_from" 2>/dev/null)"
+    [ -n "$from" ] || { echo "the milestone copy did not reach its last step"; return 1; }
+    case "$from" in "$WORK"/*) echo "ran from the work tree: $from"; return 1 ;; esac
+    [ ! -e "$from" ] || { echo "temp copy not removed: $from"; return 1; }
+    [ ! -e "$STATE/old_script_ran" ] || { echo "the older script ran"; return 1; }
+    [ ! -e "$STATE/old_helper_ran" ] || { echo "the older flow-repo ran"; return 1; }
+    return 0
+}
+
+run_in_tree() {
+    (cd "$WORK" && PATH="$STUBDIR:$PATH" STUB_STATE="$STATE" STUB_ORIGIN="$ORIGIN" "$INTREE_SCRIPT" "$@")
+}
+
+# --- Case T1: start on the milestone branch -> the milestone copy runs --
+setup_in_tree_case caseT1
+HEADT1="$(git -C "$WORK" rev-parse HEAD)"
+OUTT1="$(run_in_tree --reviewed-sha "$HEADT1" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST1=$?
+WHYT1="$(check_released)"
+COPYT1="$(check_copy_ran)"
+if [ "$STATUST1" -eq 0 ] && [ -z "$WHYT1" ] && [ -z "$COPYT1" ] \
+    && printf '%s' "$OUTT1" | grep -q "Running the release script from ${HEADT1}"; then
+    pass "Case T1: script in the work tree, start on the milestone branch -> reviewed copy runs to the end, exit 0"
+else
+    fail "Case T1: start on the milestone branch" "exit: $STATUST1 (want 0)" "check: $WHYT1" \
+        "copy: $COPYT1" "output: [$OUTT1]"
+fi
+
+# --- Case T2: start on main with the older copy -> the milestone copy runs
+setup_in_tree_case caseT2
+HEADT2="$(git -C "$WORK" rev-parse HEAD)"
+git -C "$WORK" checkout -q main
+OUTT2="$(run_in_tree --reviewed-sha "$HEADT2" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST2=$?
+WHYT2="$(check_released)"
+COPYT2="$(check_copy_ran)"
+if [ "$STATUST2" -eq 0 ] && [ -z "$WHYT2" ] && [ -z "$COPYT2" ] \
+    && printf '%s' "$OUTT2" | grep -q "Running the release script from ${HEADT2}"; then
+    pass "Case T2: start on main with an older copy -> the milestone copy and helpers run, exit 0"
+else
+    fail "Case T2: start on main" "exit: $STATUST2 (want 0)" "check: $WHYT2" \
+        "copy: $COPYT2" "output: [$OUTT2]"
+fi
+
+# --- Case T3: a push after the review changes the script -> reviewed copy
+# The copy comes from --reviewed-sha, so the changed script never runs. The
+# reviewed-commit check in the copy then stops the run.
+setup_in_tree_case caseT3
+REVIEWEDT3="$(git -C "$WORK" rev-parse HEAD)"
+(
+    cd "$WORK" || exit 1
+    awk '/^# The repo is read one time/ { print "touch \"$STUB_STATE/unreviewed_script_ran\"" } { print }' \
+        "$SCRIPT" > plugins/flow/bin/flow-release-milestone
+    git commit -q -am "change after the review"
+    git push -q origin "milestone/${VERSION}"
+) || exit 1
+BEFORET3="$(git -C "$ORIGIN" for-each-ref)"
+OUTT3="$(run_in_tree --reviewed-sha "$REVIEWEDT3" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST3=$?
+if [ "$STATUST3" -eq 1 ] && [ ! -e "$STATE/unreviewed_script_ran" ] \
+    && [ "$BEFORET3" = "$(git -C "$ORIGIN" for-each-ref)" ] \
+    && printf '%s' "$OUTT3" | grep -q "Running the release script from ${REVIEWEDT3}" \
+    && printf '%s' "$OUTT3" | grep -q 'is not the reviewed commit'; then
+    pass "Case T3: script changed after the review -> reviewed copy runs, exit 1, origin unchanged"
+else
+    fail "Case T3: --reviewed-sha copy" "exit: $STATUST3 (want 1)" \
+        "unreviewed script ran: $([ -e "$STATE/unreviewed_script_ran" ] && echo yes || echo no)" "output: [$OUTT3]"
+fi
+
+# --- Case T4: the release commit has no copy of the script -> exit 1 ----
+setup_case caseT4
+mkdir -p "$WORK/plugins/flow"
+cp -R "$REAL_REPO/plugins/flow/bin" "$WORK/plugins/flow/bin"
+INTREE_SCRIPT="$WORK/plugins/flow/bin/flow-release-milestone"
+BEFORET4="$(git -C "$ORIGIN" for-each-ref)"
+# A TMPDIR for this run only: the failed copy step must leave it empty.
+mkdir -p "$TMPROOT/caseT4/tmp"
+OUTT4="$(TMPDIR="$TMPROOT/caseT4/tmp" run_in_tree --reviewed-sha "$(git -C "$WORK" rev-parse HEAD)" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST4=$?
+if [ "$STATUST4" -eq 1 ] && [ "$BEFORET4" = "$(git -C "$ORIGIN" for-each-ref)" ] \
+    && [ -z "$(ls -A "$TMPROOT/caseT4/tmp")" ] \
+    && printf '%s' "$OUTT4" | grep -q 'has no plugins/flow/bin/flow-release-milestone'; then
+    pass "Case T4: script in the work tree but not at the reviewed commit -> exit 1, origin unchanged, no temp folder left"
+else
+    fail "Case T4: no copy at the release commit" "exit: $STATUST4 (want 1)" "output: [$OUTT4]"
+fi
+
+# --- Case T5: script in the work tree, no --reviewed-sha -> exit 1 -------
+setup_in_tree_case caseT5
+BEFORET5="$(git -C "$ORIGIN" for-each-ref)"
+OUTT5="$(run_in_tree "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST5=$?
+if [ "$STATUST5" -eq 1 ] && [ "$BEFORET5" = "$(git -C "$ORIGIN" for-each-ref)" ] && [ ! -s "$STATE/calls" ] \
+    && printf '%s' "$OUTT5" | grep -q 'Give --reviewed-sha <sha>'; then
+    pass "Case T5: script in the work tree with no --reviewed-sha -> exit 1, no gh call, origin unchanged"
+else
+    fail "Case T5: no --reviewed-sha" "exit: $STATUST5 (want 1)" "output: [$OUTT5]"
+fi
+
+# --- Case T6: script in the work tree, --dry-run -> no copy -------------
+setup_in_tree_case caseT6
+HEADT6="$(git -C "$WORK" rev-parse HEAD)"
+BEFORET6="$(git -C "$WORK" for-each-ref; ls "$WORK/.git")"
+mkdir -p "$TMPROOT/caseT6/tmp"
+OUTT6="$(TMPDIR="$TMPROOT/caseT6/tmp" run_in_tree --dry-run --reviewed-sha "$HEADT6" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUST6=$?
+if [ "$STATUST6" -eq 0 ] && [ "$BEFORET6" = "$(git -C "$WORK" for-each-ref; ls "$WORK/.git")" ] \
+    && [ -z "$(ls -A "$TMPROOT/caseT6/tmp")" ] \
+    && printf '%s' "$OUTT6" | grep -q "\[dry-run\] a real run copies plugins/flow/bin from ${HEADT6}" \
+    && ! printf '%s' "$OUTT6" | grep -q 'Running the release script from'; then
+    pass "Case T6: script in the work tree with --dry-run -> exit 0, no copy, no temp folder, repo unchanged"
+else
+    fail "Case T6: in-tree --dry-run" "exit: $STATUST6 (want 0)" "output: [$OUTT6]"
 fi
 
 harness_report
