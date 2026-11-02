@@ -85,15 +85,26 @@ workflow name from line 1.
 
 ### Fork PRs
 
-The jobs that resolve a PR number (`pr-to-milestone-review` and
-`comment-deep-review`) stop on a fork PR. A `workflow_dispatch` or
-`issue_comment` run has the secrets, also for a fork PR. The fork could
-then run its own code with them, for example a hook in its
-`.claude/settings.json`. A `pull_request` run from a fork gets no secrets,
-so the review cannot run there either. A person reviews a fork PR.
+When a review job runs on a fork PR, it stops, and the job fails. A
+person reviews a fork PR.
 
-These jobs check out the head SHA that they resolve at the start, not the
-moving PR ref.
+The jobs that resolve a PR number (`pr-to-milestone-review` and
+`comment-deep-review`) stop in their `Resolve PR context` step. A
+`workflow_dispatch` or `issue_comment` run has the secrets, also for a fork
+PR. The fork could then run its own code with them, for example a hook in
+its `.claude/settings.json`.
+
+`milestone-review` stops in its first step, `Stop a fork PR` (issue #42). A
+`pull_request` run from a fork gets no secrets, so the review cannot run.
+Without the step, a fork PR with a `milestone/*` branch that edits the
+caller file can get a green Gate. The self-referential guard can report
+`edited`, and the Gate then passes with a warning. A check in the job `if:`
+does not stop this, because GitHub counts a skipped job as a pass for a
+required check. The step also stops when `gh` fails or gives a value that
+is not `true` or `false`.
+
+`pr-to-milestone-review` and `comment-deep-review` check out the head SHA
+that they resolve at the start, not the moving PR ref.
 
 ### Comment trust
 
@@ -239,10 +250,8 @@ The probe did not test a `.claude/settings.json` in the checkout. The
 checkout holds the files of the PR, so the PR author controls that file. If
 the action loads it, a PR can add allow rules to `--allowedTools`. Then the
 path limit does not hold for that PR. Nothing stops this for a PR from the
-same repo. For a fork PR, `pr-to-milestone-review` and `comment-deep-review`
-stop with a fork check. `milestone-review` has no fork check. It runs only on
-`pull_request`, and GitHub gives a fork `pull_request` run no secrets.
-Issue #66 tracks this.
+same repo. For a fork PR, each review job that runs stops with a fork
+check (see "Fork PRs"). Issue #66 tracks this.
 
 The path limit is the main control. The second layer is the render filter
 (`RENDER_FILTER`, function `redact`). Before the Post review step posts the
