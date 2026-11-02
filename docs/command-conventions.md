@@ -76,6 +76,9 @@ Step 0b comes before each write command.
   `.claude/rules/`. Do not cite `CODING_STANDARDS.md`.
 - The hotfix procedure is the `flow:hotfix` skill.
 - Other commands: write `/flow:<name>`. `/commit` stays `/commit`.
+- A list of decisions for the user: follow the `flow:workflow` skill,
+  `references/review.md`, "Decision rounds". Ask all decisions in one
+  round, never one at a time.
 
 ## Last step: report
 

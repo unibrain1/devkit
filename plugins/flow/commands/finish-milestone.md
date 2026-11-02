@@ -397,7 +397,9 @@ Five minutes. One line each is enough. The answers go to the git-ignored
 `RELEASES/$ARGUMENTS-retro.md`, not to the release notes (the `flow:workflow`
 skill, `references/ship.md`, "Retrospective").
 
-Ask the user, one at a time:
+Ask the three questions in one AskUserQuestion call (at most 4 questions
+in one call), as the `flow:workflow` skill, `references/review.md`,
+"Decision rounds", says. Act on the answers only after the call.
 
 1. > "What did we ship in this release that nobody needed?"
 
@@ -408,7 +410,15 @@ Ask the user, one at a time:
 3. > "What signal arrived during this milestone that we ignored — and was that
    > right?"
 
-Write the answers to `RELEASES/$ARGUMENTS-retro.md`. The next
+For each question, draft 2 or 3 candidate answers from the milestone's
+issues, their signal labels, and the release notes. Put the recommended
+candidate first, with `(Recommended)` in its label. Its description gives
+the reason, with the issue numbers that support it. The user picks a
+candidate or types an answer with `Other`. A note on an answer is part of
+the answer.
+
+Write the answers to `RELEASES/$ARGUMENTS-retro.md`. Write the chosen
+candidate, or the `Other` text, for each question. The next
 `/flow:plan-milestone` Step 1 reads that file before it chooses the theme,
 so the theme is chosen knowing what the last one over-built.
 `/flow:start-milestone` Step 4.4 reads it too, but only for a milestone that

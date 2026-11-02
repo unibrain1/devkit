@@ -49,10 +49,22 @@ Record each declined finding under `## Review decisions` in the plan. Use one of
 - `<file:line>` — <suggestion> — Deferred: ledger | issue #<n>
 ```
 
-- `/flow:review-pr` asks about one Recommendation at a time. It writes a line for each deferred or skipped item. It also writes a line for each Blocking item the user rules a false positive.
+- `/flow:review-pr` asks all Recommendation decisions in one round (see "Decision rounds"). It writes a line for each deferred or skipped item. It also writes a line for each Blocking item the user rules a false positive.
 - When a PR exists, `/flow:review-pr` also writes the line to the PR body.
 - `/flow:commit-push-pr` copies the plan section into a new PR body.
 - `/flow:address-pr-comments` writes the same lines to the PR body for each Blocking false positive, and for each Advisory item the user defers or skips.
+
+## Decision rounds
+
+A command that has a list of decisions for the user asks all of them in one round. Examples are the Blocking false positives and the Recommendation items of `/flow:review-pr`, the Blocking false positives and the Advisory items of `/flow:address-pr-comments`, the new cleanup-ledger items of `/flow:execute-plan`, and the retrospective questions of `/flow:finish-milestone`. A command with two lists asks the false-positive round first, because a `Fix it` answer adds a Blocking fix.
+
+1. Collect every decision of the list before you ask.
+2. Ask with AskUserQuestion. Put one decision in each question, and at most 4 questions in one call (the tool limit).
+3. If the list has more than 4 decisions, send the next call directly after the answers come back. Do no other work between the calls.
+4. Put the recommended option first, with `(Recommended)` in its label. Its description gives the reason.
+5. Act on the answers only after the last call. Act in item order.
+
+Do not ask a follow-up question for a decision. Give each question all the options it needs. Do not show an option that does not apply to the item. A note that the user adds to an answer is part of the answer.
 
 ## The local gate is the CI gate
 

@@ -413,8 +413,8 @@ the exit code:
   plan marks N/A (`- [ ] <item> — N/A: <reason>`). Do not add a row for an
   item whose text the
   plan's `## Review decisions` section already records as `Deferred:` or
-  `Skipped:`. An earlier run of Step 6 decided it. A `Defer → Cleanup
-  ledger` edit stays uncommitted, and this check reads the working-tree
+  `Skipped:`. An earlier run of Step 6 decided it. A `Cleanup ledger`
+  edit stays uncommitted, and this check reads the working-tree
   ledger, so that item shows here again.
 - **Exit 10** — the `ledger` key is absent. Write "Ledger: skipped (no key)".
 - **Any other exit code** — write "Ledger: could not query" in the report.
@@ -465,16 +465,32 @@ each with the quoted issue/plan line — or "Spec: no issue found">
 
 **If there are Blocking items:**
 
-- Fix each one (launch a `flow:software-developer` agent per file for non-trivial fixes,
-  or edit directly for simple ones)
+- Fix each one that is not a false positive (see "Blocking false positives"
+  below). Launch a `flow:software-developer` agent per file for non-trivial
+  fixes, or edit directly for simple ones.
 - After fixing, re-run the `flow:code-reviewer` agent on the full
   branch diff + changed files to confirm clean
 - Do NOT proceed until blocking items are resolved
 
-If a Blocking item looks like a false positive, do not fix it. Present it to
-the user with the rationale: the claim, and the code, query or test result
-that contradicts it. Ask via `AskUserQuestion`, options `False positive` and
-`Fix it`. The user decides:
+**Decision rounds.** This step asks two lists of decisions: the Blocking
+false positives, then the Recommendation items. Ask each list in one round,
+as the `flow:workflow` skill, `references/review.md`, "Decision rounds",
+says:
+
+- Collect every item of the list before you ask.
+- Ask with AskUserQuestion. Put one item in each question, and at most 4
+  questions in one call. For more than 4 items, send the next call directly
+  after the answers come back. Do no other work between the calls.
+- Put the recommended option first, with `(Recommended)` in its label. Its
+  description gives the reason.
+- Act on the answers only after the last call of the round, in item order.
+
+**Blocking false positives.** If a Blocking item looks like a false
+positive, do not fix it. Put it in the false-positive round. Ask this round
+before the Recommendation round, because a `Fix it` answer adds a Blocking
+fix. Each question states the claim and the code, query or test result that
+contradicts it. The options are `False positive` and `Fix it`. Then act on
+each answer:
 
 - **False positive** — no code change. Record the decision (see "Record each
   decision" below) with `False positive: <reason>`. The item is resolved.
@@ -482,66 +498,64 @@ that contradicts it. Ask via `AskUserQuestion`, options `False positive` and
 
 **If there are Recommendation items:**
 
-Walk them one at a time, not as a single batch ask. For each item, in order:
+Ask all Recommendation items in one round. Each question has these parts:
 
-1. State the item (agent, file:line, suggestion).
-2. Give a one-line recommendation (fix now / defer / skip) with a short
-   pro/con for the other options — enough for the user to disagree with a
-   reason, not a full essay.
-3. Ask via `AskUserQuestion`, options `Fix now`, `Defer`, `Skip entirely`,
-   with the recommended option first and marked `(Recommended)`.
-4. Act on the answer before moving to the next item:
-   - **Fix now** — fix it. If the item is a `ledger` row, also delete its
-     `- [ ]` line from the ledger file with the Edit tool. If that leaves its
-     `###` heading with no items, delete the
-     heading too. Then re-run the `flow:code-reviewer` agent on the full branch
-     diff + changed files to confirm clean before continuing to the next
-     item.
-   - **Defer** on a hotfix branch (Step 5, "Ledger check", says how to
-     tell) — a hotfix takes no ledger edits. Ask a follow-up
-     `AskUserQuestion` with options `New GitHub issue` and `Skip entirely`.
-     Offer `New GitHub issue` only for a defect. For `New GitHub issue`, do
-     the *New GitHub issue* item below. For `Skip entirely`, do the
-     **Skip entirely** item below.
-   - **Defer** on any other branch — a `ledger` row is already in the
-     ledger. Do not ask a follow-up question for it. Record the decision as
-     `Deferred: ledger`.
-     For every other row, ask a follow-up `AskUserQuestion` (options
-     `Cleanup ledger`, `New GitHub issue`) to pick the destination, same
-     distinction `/flow:found` uses between cleanup and defect. If the
-     `ledger` key is absent, offer only `New GitHub issue` and
-     `Skip entirely`:
-     - *Cleanup ledger* — edit the ledger file with the Edit tool. The path
-       is the `File:Line` column without the `:line`
-       part. The ledger format and the heading match rule are in the
-       `flow:workflow` skill, `references/plans-and-ledger.md`,
-       `Cleanup ledger`. `flow-ledger-items-for-files` uses the same rule.
-       Add this line under the matching heading:
+1. The item (agent, file:line, suggestion).
+2. A one-line recommendation with a short pro and con for the other
+   options. Write enough for the user to disagree with a reason, not a
+   full essay. The con of `Skip entirely` is the skip reason, unless the
+   user adds a note to the answer.
+3. The options for the item, from this table. The recommended option is
+   first. Do not show an option that the table leaves out:
 
-       ```text
-       - [ ] <one-line item> (found in #<N>)
-       ```
+   | Item | Options |
+   | --- | --- |
+   | A `ledger` row | `Fix now`, `Keep in ledger`, `Skip entirely` |
+   | A defect (a user or an operator can see a wrong result) | `Fix now`, `Cleanup ledger`, `New GitHub issue`, `Skip entirely` |
+   | Any other item | `Fix now`, `Cleanup ledger`, `Skip entirely` |
 
-       `<N>` is the issue number that `flow-check-plan-state` found,
-       or the PR number if it found none. If neither exists, omit
-       `(found in #<N>)`. If no heading matches, add
-       ``### `<path>` `` in path order. If the matching heading already has
-       a line with the same item text, do not add the line. The edit stays
-       uncommitted. `/flow:commit-push-pr` commits it.
-     - *New GitHub issue* — only for a defect (a user or an operator can
-       see a wrong result). Follow `/flow:found`'s "Defer" steps: a `bug:` title
-       and the labels `bug,triage,signal:discovered`. A finding that is not
-       a defect is cleanup: it goes to the ledger, not to a new issue.
-       `/flow:found`'s body template references "#CURRENT_ISSUE" — this command
-       also runs on ad-hoc/hotfix branches with no milestone issue in
-       flight. If `flow-check-plan-state` found no issue for this
-       branch, reference the PR instead: "Pre-existing issue found while
-       reviewing PR #`<pr-number>`."
-   - **Skip entirely** — no code change. Ask for a one-line reason, or use
-     the con from item 2.
-   - After a **Defer** or **Skip entirely**, record the decision (see
-     "Record each decision" below).
-5. Continue to the next Recommendation item.
+   A hotfix branch (Step 5, "Ledger check", says how to tell) takes no
+   ledger edits. On a hotfix branch, and when the `ledger` key is absent,
+   leave out `Cleanup ledger`. A finding that is not a defect is cleanup.
+   It goes to the ledger, not to a new issue.
+
+After the last call, act on each answer in item order:
+
+- **Fix now** — fix it. If the item is a `ledger` row, also delete its
+  `- [ ]` line from the ledger file with the Edit tool. If that leaves its
+  `###` heading with no items, delete the heading too.
+- **Keep in ledger** — a `ledger` row is already in the ledger. Record the
+  decision as `Deferred: ledger`.
+- **Cleanup ledger** — edit the ledger file with the Edit tool. The path is
+  the `File:Line` column without the `:line` part. The ledger format and the
+  heading match rule are in the `flow:workflow` skill,
+  `references/plans-and-ledger.md`, `Cleanup ledger`.
+  `flow-ledger-items-for-files` uses the same rule. Add this line under the
+  matching heading:
+
+  ```text
+  - [ ] <one-line item> (found in #<N>)
+  ```
+
+  `<N>` is the issue number that `flow-check-plan-state` found, or the PR
+  number if it found none. If neither exists, omit `(found in #<N>)`. If no
+  heading matches, add ``### `<path>` `` in path order. If the matching
+  heading already has a line with the same item text, do not add the line.
+  The edit stays uncommitted. `/flow:commit-push-pr` commits it. Record the
+  decision as `Deferred: ledger`.
+- **New GitHub issue** — follow `/flow:found`'s "Defer" steps: a `bug:`
+  title and the labels `bug,triage,signal:discovered`. `/flow:found`'s body
+  template refers to "#CURRENT_ISSUE". This command also runs on hotfix
+  branches and on other branches that have no milestone issue. If
+  `flow-check-plan-state` found no issue for this branch, reference the PR
+  instead: "Pre-existing issue found while reviewing PR #`<pr-number>`."
+  Record the decision as `Deferred: issue #<n>`.
+- **Skip entirely** — no code change. Record the decision with
+  `Skipped: <reason>`. The reason is the user's note, or the con from the
+  question.
+
+After the last fix, re-run the `flow:code-reviewer` agent one time on the
+full branch diff + changed files to confirm clean.
 
 **Record each decision.** A Blocking item declined as a false positive, and
 a Deferred or Skipped Recommendation, each need a record that outlives this
@@ -603,7 +617,7 @@ run just confirmed them clean. Re-stamp only when all of these are true:
 - No file changed after the review lanes ran in this run. A `Fix now` or a
   Blocking fix re-runs only `flow:code-reviewer`, so the other lanes did not see
   the final diff. If any fix was made, do not re-stamp. A `Cleanup ledger`
-  edit from a Defer changes only the ledger file. It
+  edit changes only the ledger file. It
   does not block the re-stamp. Compute the fingerprint after the last such
   edit.
 

@@ -50,8 +50,8 @@ Each command uses the ledger at one step:
 | --- | --- |
 | `/flow:found` | Adds a cleanup find with an edit. |
 | `/flow:start-issue` | Copies the items for each file the plan edits into `## Ledger items`. The plan gate approves them. Skipped for a hotfix. |
-| `/flow:execute-plan` | Removes the line of each item it fixes, and ticks it in the plan. Checks the edited files for items the plan does not list. For each one, offers: fix now, add to the plan and fix, or leave. Checks that no ticked item remains in the file. Skipped for a hotfix. |
-| `/flow:review-pr` | Reports each open item for a changed file as a Recommendation. Fix now removes the line. Defer on a ledger item records `Deferred: ledger` and changes nothing. Other deferred findings go to a new issue (defect) or to the ledger (cleanup). |
+| `/flow:execute-plan` | Removes the line of each item it fixes, and ticks it in the plan. Checks the edited files for items the plan does not list. It asks about all of them in one round (`review.md`, "Decision rounds"), with the options fix now, add to the plan and fix, or leave. Checks that no ticked item remains in the file. Skipped for a hotfix. |
+| `/flow:review-pr` | Reports each open item for a changed file as a Recommendation. It asks about all items in one round (`review.md`, "Decision rounds"). Fix now removes the line. Keep in ledger records `Deferred: ledger` and changes nothing. Other findings go to a new issue (defect) or to the ledger (cleanup). |
 | `/flow:commit-push-pr` | Information only. Lists the open items for the touched files in its final summary. |
 | `/flow:address-pr-comments` | Removes the line of an item that one of its fixes completes. Commits the ledger edit with the fixes. A deferred Advisory item goes to a new issue (defect) or the ledger (cleanup). |
 | `/flow:finish-issue` | Information only. Reports the open items that remain in the files the PR edited. |
