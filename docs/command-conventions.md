@@ -76,6 +76,13 @@ Step 0b comes before each write command.
   `.claude/rules/`. Do not cite `CODING_STANDARDS.md`.
 - The hotfix procedure is the `flow:hotfix` skill.
 - Other commands: write `/flow:<name>`. `/commit` stays `/commit`.
+- A list of decisions for the user: the `flow:workflow` skill,
+  `references/review.md`, "Decision rounds", lists the steps that ask all
+  decisions in one round. Each of these steps cites that section. Some
+  older steps still ask about each item by itself. A new step with a list
+  of decisions uses the round rule. A step that you add or change to the
+  round rule cites the section, goes in its list, and gets a `bad_step`
+  line in `tests/commands/test-decision-rounds.sh`.
 
 ## Last step: report
 
