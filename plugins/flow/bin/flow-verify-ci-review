@@ -133,6 +133,8 @@ fi
 # The same rule is in flow-check-review-posted, flow-check-blocking-findings
 # and flow-verify-ci-review. The "Post review" step of the review workflow
 # writes the verdict line. When one copy changes, change all of them.
+# The jq filter TRUSTED_COMMENTS_JQ in .github/workflows/claude-review.yml
+# has a copy of this rule, so a change here must change it too.
 #
 # Explicit characters, not ranges: a range such as a-f can follow the locale.
 VERDICT_RE='^<!-- claude-review-verdict sha=([0123456789abcdef]{40}) blocking=([0123456789]+) important=([0123456789]+) -->$'
