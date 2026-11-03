@@ -30,6 +30,8 @@
 #   STUB_VISIBILITY     The visibility that `gh repo view` reports. Default
 #                       PRIVATE.
 #   STUB_GH_FAIL_REPO_VIEW=1  Only `gh repo view` exits 1.
+#   STUB_GH_FAIL_PR_COMMENT=1  Only `gh pr comment` exits 1. It saves no
+#                       body.
 #   STUB_LOG            File. Each call appends one line of arguments.
 #   STUB_POSTED_DIR     Directory. `gh pr comment` saves each body here as
 #                       1.md, 2.md, and so on.
@@ -195,6 +197,10 @@ case "${positional[0]:-}" in
                 exit $?
                 ;;
             comment)
+                if [ "${STUB_GH_FAIL_PR_COMMENT:-0}" = "1" ]; then
+                    echo "gh: simulated pr comment failure (stub)" >&2
+                    exit 1
+                fi
                 if [ -n "${STUB_POSTED_DIR:-}" ]; then
                     mkdir -p "$STUB_POSTED_DIR" || exit 1
                     n=1
