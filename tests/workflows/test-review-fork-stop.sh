@@ -88,6 +88,8 @@ step_run() {
 }
 
 # ------------------------------------------- the two jobs with a PR number
+# The message of the fork stop in these two jobs, for PR number 7.
+FORK_MSG='::error::PR #7 comes from a fork. This job has secrets, so it does not review a fork PR. A person must review it.'
 for job in pr-to-milestone-review comment-deep-review; do
     label="$job: Resolve PR context stops a PR that is not isCrossRepository false"
     line="$(job_steps "$job" | grep -F ' Resolve PR context' | cut -d' ' -f1)"
@@ -115,10 +117,11 @@ for job in pr-to-milestone-review comment-deep-review; do
             STUB_PR_JSON="$TMPROOT/ctx.json" bash "$ctx_script" 2>&1)"
         rc=$?
         if [ "$want" = stop ]; then
-            if [ "$rc" -ne 0 ] && ! grep -q '^pr_number=' "$gho"; then
-                pass "$label: the step stops with no pr_number"
+            if [ "$rc" -ne 0 ] && ! grep -q '^pr_number=' "$gho" \
+                && printf '%s\n' "$out" | grep -qF -- "$FORK_MSG"; then
+                pass "$label: the step stops with no pr_number and the fork message"
             else
-                fail "$label: the step stops with no pr_number" "exit $rc, output: $out"
+                fail "$label: the step stops with no pr_number and the fork message" "exit $rc, output: $out"
             fi
         elif [ "$rc" -eq 0 ] && grep -qx 'pr_number=7' "$gho"; then
             pass "$label: the step goes on"

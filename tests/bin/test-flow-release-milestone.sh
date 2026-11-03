@@ -83,6 +83,7 @@ cat > "$STUB_EXTRA" <<'STUB'
 # the branch head, as GitHub does for a short time after a push.
 # The wait reads the head and the state in one call. poll_head and
 # poll_state replace the head and the state (default OPEN) of that call.
+# poll_fail makes that call fail with exit 1.
 S="$STUB_STATE"
 echo "$*" >> "$S/calls"
 want_pr="${STUB_PR:-42}"
@@ -129,6 +130,10 @@ case "$*" in
     "pr view $want_pr --json headRefOid --jq .headRefOid")
         pr_head_answer || exit 1 ;;
     "pr view $want_pr --json headRefOid,state --jq "*)
+        if [ -f "$S/poll_fail" ]; then
+            echo "stub gh: simulated poll failure" >&2
+            exit 1
+        fi
         if [ -f "$S/poll_head" ]; then
             head="$(cat "$S/poll_head")"
         else
@@ -1426,6 +1431,98 @@ if [ "$STATUSW15" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
 else
     fail "Case W15: closed PR -> exit 2" "exit: $STATUSW15 (want 2)" "output: [$OUTW15]"
 fi
+
+# --- Case W15b: the PR is merged during the wait -> exit 2 ---------------
+setup_case caseW15b
+echo lint > "$STATE/required_classic"
+printf 'lint\tpass\n' > "$STATE/checks.1"
+echo MERGED > "$STATE/poll_state"
+OUTW15B="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW15B=$?
+if [ "$STATUSW15B" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && [ ! -s "$STATE/sleeps" ] \
+    && printf '%s' "$OUTW15B" | grep -q 'PR #42 is MERGED\. Nothing merged\.'; then
+    pass "Case W15b: PR merged by someone else during the wait -> exit 2, no merge call"
+else
+    fail "Case W15b: merged PR -> exit 2" "exit: $STATUSW15B (want 2)" "output: [$OUTW15B]"
+fi
+
+# --- Case W16: rerun after a failed Step 6 push -> old head is pending ---
+# Run 1 commits the notes removal, but origin rejects the push. Run 2
+# pushes the local commit. FETCH_HEAD is then the old head, not the local
+# HEAD, so the old head that GitHub shows first counts as pending.
+setup_case caseW16
+echo lint > "$STATE/required_classic"
+printf 'lint\tpass\n' > "$STATE/checks.1"
+HOOKW16="$ORIGIN/hooks/pre-receive"
+printf '#!/bin/sh\necho "push rejected (test hook)" >&2\nexit 1\n' > "$HOOKW16"
+chmod +x "$HOOKW16"
+OUTW16A="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW16A=$?
+cp "$STATE/calls" "$STATE/calls.w16a"
+rm -f "$HOOKW16"
+echo 1 > "$STATE/stale_head_n"
+OUTW16B="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW16B=$?
+WHYW16="$(check_released)"
+REMOVALSW16="$(git -C "$ORIGIN" log --full-history --oneline main -- "$NOTES_REL" | grep -c 'remove v9.9.9 release notes')"
+if [ "$STATUSW16A" -ne 0 ] && ! grep -q '^pr merge' "$STATE/calls.w16a" \
+    && printf '%s' "$OUTW16A" | grep -q 'push rejected (test hook)' \
+    && [ "$STATUSW16B" -eq 0 ] && [ -z "$WHYW16" ] && [ "$REMOVALSW16" -eq 1 ] \
+    && [ "$(wc -l < "$STATE/sleeps" | tr -d ' ')" -eq 1 ] \
+    && printf '%s' "$OUTW16B" | grep -q 'Waiting for: the PR head'; then
+    pass "Case W16: rerun after a failed push -> old head pending, one sleep, one notes-removal commit"
+else
+    fail "Case W16: rerun after a failed push" "exits: $STATUSW16A $STATUSW16B (want non-zero 0)" \
+        "check: $WHYW16" "removal commits: $REMOVALSW16 (want 1)" \
+        "sleeps: $(wc -l < "$STATE/sleeps" 2>/dev/null) (want 1)" \
+        "output 1: [$OUTW16A]" "output 2: [$OUTW16B]"
+fi
+
+# --- Case W17: rerun after the push, GitHub shows the reviewed SHA -------
+# Run 1 pushes the notes removal, then the first poll fails. On run 2,
+# FETCH_HEAD is the pushed head. GitHub still shows the reviewed commit:
+# the Step 5 check reads it, and so does the first poll. It is pending.
+setup_case caseW17
+echo lint > "$STATE/required_classic"
+printf 'lint\tpass\n' > "$STATE/checks.1"
+REVIEWEDW17="$(git -C "$ORIGIN" rev-parse "refs/heads/milestone/${VERSION}")"
+touch "$STATE/poll_fail"
+OUTW17A="$(run_release --reviewed-sha "$REVIEWEDW17" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW17A=$?
+rm -f "$STATE/poll_fail"
+echo 2 > "$STATE/stale_head_n"
+OUTW17B="$(run_release --reviewed-sha "$REVIEWEDW17" "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW17B=$?
+WHYW17="$(check_released)"
+if [ "$STATUSW17A" -eq 2 ] && printf '%s' "$OUTW17A" | grep -q 'cannot read the head commit of PR #42' \
+    && [ "$STATUSW17B" -eq 0 ] && [ -z "$WHYW17" ] \
+    && [ "$(wc -l < "$STATE/sleeps" | tr -d ' ')" -eq 1 ] \
+    && printf '%s' "$OUTW17B" | grep -q "Waiting for: the PR head [0-9a-f]\{40\} (GitHub shows ${REVIEWEDW17})"; then
+    pass "Case W17: rerun after the push, reviewed SHA shown -> pending, one sleep, then merge"
+else
+    fail "Case W17: reviewed SHA is pending on a rerun" "exits: $STATUSW17A $STATUSW17B (want 2 0)" \
+        "check: $WHYW17" "output 1: [$OUTW17A]" "output 2: [$OUTW17B]"
+fi
+
+# --- Case W18: a null or empty head in the poll answer -> exit 2 ---------
+# The message names a bad gh answer, not a new head.
+for HEADW18 in null ''; do
+    setup_case "caseW18${HEADW18:-empty}"
+    echo lint > "$STATE/required_classic"
+    printf 'lint\tpass\n' > "$STATE/checks.1"
+    printf '%s\n' "$HEADW18" > "$STATE/poll_head"
+    OUTW18="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+    STATUSW18=$?
+    if [ "$STATUSW18" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+        && [ ! -s "$STATE/sleeps" ] \
+        && printf '%s' "$OUTW18" | grep -q 'cannot read the head commit of PR #42' \
+        && ! printf '%s' "$OUTW18" | grep -q 'A commit landed'; then
+        pass "Case W18: poll head '${HEADW18}' -> exit 2, bad gh answer message"
+    else
+        fail "Case W18: poll head '${HEADW18}' -> exit 2" "exit: $STATUSW18 (want 2)" "output: [$OUTW18]"
+    fi
+done
 
 # --- Case M16: classic linear history, rules read fails -> exit 1 --------
 # The script needs the ruleset for the required checks, so it stops.

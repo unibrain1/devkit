@@ -470,7 +470,8 @@ else
   run git pull --ff-only origin "$BRANCH"
   # OLD_HEAD is the tip of the remote branch before this script pushes.
   # GitHub can show it as the PR head for a short time after the push. On a
-  # rerun after the push, it is the pushed head.
+  # rerun after the push, it is the pushed head, so the wait also counts
+  # the --reviewed-sha commit as the head from before the push.
   if [ "$DRY_RUN" -eq 0 ]; then
     OLD_HEAD="$(git rev-parse FETCH_HEAD)"
   fi
@@ -556,12 +557,24 @@ else
     gh_capture pr view "$PR_NUMBER" --json headRefOid,state --jq '"\(.headRefOid) \(.state)"'
     [ "$GH_STATUS" -eq 0 ] || gh_poll_fail "head commit"
     HEAD_NOW="${GH_OUT%% *}"
-    STATE_NOW="${GH_OUT#* }"
+    STATE_NOW=""
+    case "$GH_OUT" in *" "*) STATE_NOW="${GH_OUT#* }" ;; esac
+    # A null or empty field is a bad gh answer, not a new head or a state.
+    if ! printf '%s' "$HEAD_NOW" | grep -qE '^[0123456789abcdef]{40}$' \
+      || [ -z "$STATE_NOW" ]; then
+      GH_ERR="a bad answer '${GH_OUT}'"
+      gh_poll_fail "head commit"
+    fi
     if [ "$STATE_NOW" != "OPEN" ]; then
       echo "PR #${PR_NUMBER} is ${STATE_NOW}. Nothing merged." >&2
       exit 2
     fi
-    if [ "$HEAD_NOW" != "$EXPECTED_HEAD" ] && [ "$HEAD_NOW" = "$OLD_HEAD" ]; then
+    # GitHub can show the head from before the push for a short time. That
+    # is OLD_HEAD, or the reviewed commit on a rerun after the push, when
+    # OLD_HEAD is already the pushed head.
+    if [ "$HEAD_NOW" != "$EXPECTED_HEAD" ] \
+      && { [ "$HEAD_NOW" = "$OLD_HEAD" ] \
+        || { [ -n "$REVIEWED_SHA" ] && [ "$HEAD_NOW" = "$REVIEWED_SHA" ]; }; }; then
       PENDING="the PR head ${EXPECTED_HEAD} (GitHub shows ${HEAD_NOW})"
     elif [ "$HEAD_NOW" != "$EXPECTED_HEAD" ]; then
       echo "PR #${PR_NUMBER} has head ${HEAD_NOW}, not ${EXPECTED_HEAD}. A commit landed after the review. Nothing merged. Review the new commit, then run the release again." >&2

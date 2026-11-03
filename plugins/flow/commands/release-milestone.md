@@ -352,9 +352,11 @@ The script does these steps in this order:
 4. It syncs local `main` to `origin/main`. Then it waits until each
    required check passes on the PR head, because the push in item 3 made a
    new head. While GitHub shows the head from before the push, each check
-   is pending. A required check with no run yet is pending. A skipped check
-   counts as passed, and a cancelled check counts as failed. With no
-   required checks, there is no wait. A failed check, or no pass in
+   is pending. On a rerun with `--reviewed-sha`, the reviewed commit is
+   also a head from before the push. A required check with no run yet is
+   pending. A skipped check counts as passed, and a cancelled check counts
+   as failed. With no required checks, there is no wait. A failed check,
+   or no pass in
    `--checks-timeout` minutes, stops the run with exit 2 and names the
    check. Nothing merges. Run the script again when the checks pass. The
    rerun does not push a second notes removal.
