@@ -16,9 +16,10 @@
 # The verdict rule exists in the jq and in VERDICT_RE of three flow scripts.
 # The drift check runs the same one-line cases through the jq and each regex.
 # A regex or jq match that changes alone then fails the test. The check does
-# not run the last-line steps of the scripts (CR and newline removal). The
-# tests in tests/bin give a CRLF body to flow-check-review-posted and
-# flow-check-blocking-findings. No test gives one to flow-verify-ci-review.
+# not run the last-line steps of the scripts (CR and newline removal).
+# tests/bin/test-flow-check-blocking-findings.sh gives a CRLF body to
+# flow-check-blocking-findings (A13). Its A15 check keeps the verdict-rule
+# block, with the last-line filter, byte-identical in the three scripts.
 #
 # The test checks the workflow text. It runs the jq of the workflow on
 # fixture JSON, and it runs each fetch step with a fake gh. It cannot check
