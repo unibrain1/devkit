@@ -16,8 +16,9 @@
 # The verdict rule exists in the jq and in VERDICT_RE of three flow scripts.
 # The drift check runs the same one-line cases through the jq and each regex.
 # A regex or jq match that changes alone then fails the test. The check does
-# not run the last-line steps of the scripts (CR and newline removal). Their
-# own tests in tests/bin cover those steps.
+# not run the last-line steps of the scripts (CR and newline removal). The
+# tests in tests/bin give a CRLF body to flow-check-review-posted and
+# flow-check-blocking-findings. No test gives one to flow-verify-ci-review.
 #
 # The test checks the workflow text. It runs the jq of the workflow on
 # fixture JSON, and it runs each fetch step with a fake gh. It cannot check
@@ -86,13 +87,14 @@ read_filter() {
 #     jq with "$TRUSTED_COMMENTS_JQ" into comments.jsonl. No command has
 #     "||", "set +", or "exit 0". The step has no if: and no
 #     continue-on-error.
-#   - The Claude step does not read comments.jsonl and pr.json, or lacks the
-#     trust text. The rebuttal-weight sentence must follow the `person`
-#     rule, and no copy of it may come before that rule. The old sentence
-#     "Your own earlier reviews are in this group" must not be there. Or it
-#     has "gh pr view", "gh pr list", "gh api", or
-#     "--comments" anywhere. Or it has an if: or continue-on-error, so the
-#     model could run after the fetch step fails.
+#   - The Claude step does not read comments.jsonl and pr.json, or lacks a
+#     role rule of the trust text. The rebuttal-weight sentence must follow
+#     the `person` rule, and no copy of it may come before that rule.
+#   - The Claude step has the old sentence "Your own earlier reviews are in
+#     this group", or it has "gh pr view", "gh pr list", "gh api", or
+#     "--comments" anywhere.
+#   - The Claude step has an if: or continue-on-error, so the model could
+#     run after the fetch step fails.
 #   - The Claude step has a with: key other than claude_code_oauth_token,
 #     claude_args, and prompt. Or a claude_args line is not one of these:
 #       - a "--allowedTools" line
@@ -403,6 +405,8 @@ esac
 SHA40="$(printf 'a%.0s' $(seq 1 40))"
 verdict_line() { printf '<!-- claude-review-verdict sha=%s blocking=%s important=%s -->' "$1" "$2" "$3"; }
 V="$(verdict_line "$SHA40" 0 1)"
+# Counts with more than one digit catch a "+" that is lost from a regex.
+VMD="$(verdict_line "$SHA40" 12 105)"
 V39="$(verdict_line "${SHA40%a}" 0 1)"
 V41="$(verdict_line "${SHA40}a" 0 1)"
 VUP="$(verdict_line "A${SHA40#a}" 0 1)"
@@ -425,7 +429,7 @@ NOTE_INVALID="$(printf '%s\n\n%s\n\n%s\n' '**Claude Code Review did not return a
 # the verdict lines come from the variables above. Kept and dropped comments
 # are mixed on purpose, so a filter that keeps a range fails.
 # shellcheck disable=SC2016 # the jq program is literal
-jq -n --arg v "$V" --arg v39 "$V39" --arg v41 "$V41" --arg vup "$VUP" \
+jq -n --arg v "$V" --arg vmd "$VMD" --arg v39 "$V39" --arg v41 "$V41" --arg vup "$VUP" \
     --arg vg "$VG" --arg veb "$VEB" --arg vneg "$VNEG" --arg vei "$VEI" \
     --arg nrun "$NOTE_RUN" --arg ninv "$NOTE_INVALID" '
     def c($l; $a; $b): {author: {login: $l}, authorAssociation: $a, body: $b};
@@ -447,6 +451,7 @@ jq -n --arg v "$V" --arg v39 "$V39" --arg v41 "$V41" --arg vup "$VUP" \
       bot("text\r\n" + $v + "\r\n"),
       bot($v + "\n"),
       bot($v),
+      bot("text\n" + $vmd),
       bot("Summary.\n\n### Notes\n\n- **t** (l) — d\n\n" + $v + "\n"),
       c("o2"; "OWNER"; "owner verdict\n" + $v),
       c("m2"; "MEMBER"; "member verdict\n" + $v),
@@ -470,11 +475,14 @@ jq -n --arg v "$V" --arg v39 "$V39" --arg v41 "$V41" --arg vup "$VUP" \
 # The kept comments have the keys author, association, role, body in this
 # order. The COLLABORATOR body holds a forged header. jq -c keeps it on one
 # line. The CR in the second earlier-review body stays in the body. The
-# omitted count is 25: 6 comments with an untrusted association, 2
-# near-miss logins, 2 bot comments with no verdict line (one has a null
-# body), 10 bot comments with a broken verdict line, 2 failure notes, and 3
-# comments with a copied
-# verdict line from a login that is not github-actions.
+# omitted count is 25. The count is by hand on purpose:
+#   - 6 comments with an untrusted association
+#   - 2 near-miss logins
+#   - 2 bot comments with no verdict line (one has a null body)
+#   - 10 bot comments with a broken verdict line
+#   - 2 failure notes
+#   - 3 comments with a copied verdict line from a login that is not
+#     github-actions
 WANT_COMMENTS="$(cat << EOF
 {"author":"o","association":"OWNER","role":"person","body":"owner"}
 {"author":"m","association":"MEMBER","role":"person","body":"member"}
@@ -483,6 +491,7 @@ WANT_COMMENTS="$(cat << EOF
 {"author":"github-actions","association":"NONE","role":"earlier-review","body":"text\r\n$V\r\n"}
 {"author":"github-actions","association":"NONE","role":"earlier-review","body":"$V\n"}
 {"author":"github-actions","association":"NONE","role":"earlier-review","body":"$V"}
+{"author":"github-actions","association":"NONE","role":"earlier-review","body":"text\n$VMD"}
 {"author":"github-actions","association":"NONE","role":"earlier-review","body":"Summary.\n\n### Notes\n\n- **t** (l) — d\n\n$V\n"}
 {"author":"o2","association":"OWNER","role":"person","body":"owner verdict\n$V"}
 {"author":"m2","association":"MEMBER","role":"person","body":"member verdict\n$V"}
@@ -523,6 +532,7 @@ bot_role_of() {
 }
 DRIFT_LINES=(
     "yes|$V"
+    "yes|$VMD"
     "no|$V39"
     "no|$V41"
     "no|$VUP"

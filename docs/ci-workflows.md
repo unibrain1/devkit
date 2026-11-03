@@ -162,16 +162,19 @@ the other comments. A kept comment has one of these roles:
   <!-- claude-review-verdict sha=<head SHA> blocking=<n> important=<n> -->
   ```
 
-  In this workflow, only the Post review step writes this line. The render
-  removes the marker text from model output, so the model cannot write a
-  verdict line. But another workflow that posts with `GITHUB_TOKEN` can end
-  a comment with a verdict line, for example when it quotes PR text. So
-  the role does not prove that the comment is a real review. The
-  `earlier-review` role gives no rebuttal weight, so such a comment cannot
-  lower a finding.
   The match removes each CR and one trailing newline, then reads the last
   line. It is the same rule as `VERDICT_RE` in `flow-check-review-posted`,
   `flow-check-blocking-findings`, and `flow-verify-ci-review`.
+
+The `earlier-review` role does not prove that the comment is a real review:
+
+- In this workflow, only the Post review step writes a verdict line. The
+  render removes the marker text from model output, so the model cannot
+  write a verdict line.
+- But another workflow that posts with `GITHUB_TOKEN` can end a comment
+  with a verdict line, for example when it quotes PR text.
+- So the `earlier-review` role gives no rebuttal weight, and such a comment
+  cannot lower a finding.
 
 Other comments are not kept. They count in `omitted`:
 
@@ -179,9 +182,7 @@ Other comments are not kept. They count in `omitted`:
   end with a verdict line. These comments also have the login
   `github-actions` (issue #39).
 - The Post review failure note.
-- Comments from a user with another association. Such a user cannot get
-  `earlier-review` with a copied verdict line, because the login must be
-  `github-actions`.
+- Comments from a user with another association.
 
 The login is `github-actions` in GraphQL, the API that `gh pr view` uses.
 The flow scripts use REST, which gives `github-actions[bot]`. Each name is
