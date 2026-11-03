@@ -211,6 +211,8 @@ trusted person posts it as a PR comment.
 
 To rebut a finding, post the rebuttal as a normal PR comment. Do not post
 it as a reply in a review thread, because the reviewer does not see it.
+A finding can come back in each review round until a person rebuts it in
+a PR comment. An earlier review that accepts a risk does not settle it.
 
 The review jobs give the model no tool that reads PR comments. Their
 `--allowedTools` has no `Bash(gh pr view:*)` and no `Bash(gh pr list:*)`.
