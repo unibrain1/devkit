@@ -46,7 +46,7 @@ When Jim says "wrap", "wrap up", or "end the session", do these steps. Claude Co
 2. Use today's real date. If `Daily/YYYY-MM-DD` does not exist, create it and add a row to the `Daily/AGENTS.md` table.
 3. Append one section for each project to the daily note: `## [[<Project hub>]] (session end)`. Write what was done, the decisions, and the next step.
 4. Update the status and the log of each project hub that the chat changed.
-5. If the work continues in a later session, write or update its resume prompt in the project folder. Then update its row in `Projects/In progress.md`, and copy the rows to `DATA.inProgress` in `Dashboards/Home.html`.
+5. If the work continues in a later session, write or update its resume prompt in the project folder. Then update its row in `Projects/In progress.md`. The dashboard reads that table live. Do not copy rows into `Dashboards/Home.html`.
 6. For each fact that you wrote as `unknown` and that only Jim knows, append a line to `Inbox/Open questions.md`.
 7. If the chat did no work worth a record, tell Jim. Write nothing.
 
