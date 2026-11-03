@@ -32,7 +32,7 @@ A Claude Code review on a pull request, and on demand from a comment.
 | `review_model` | string | `claude-sonnet-5-5` | Model for `pr-to-milestone-review`. |
 | `review_effort` | string | `medium` | Effort for `pr-to-milestone-review`. |
 | `milestone_model` | string | `claude-fable-5-1` | Model for `milestone-review` and `comment-deep-review`. |
-| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. Do not add a git rule (see "No git read commands for Claude"). Do not add a tool that reads PR comments, for example `Bash(gh pr view:*)` or `Bash(gh api:*)` (see "Comment trust"). Do not add a bare `Read`, `Grep`, or `Glob`. It removes the path limit (see "File reach of the review"). |
+| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. Each job fails at its "Check extra_allowed_tools" step when the list has a rule that reads PR comments, a git rule, or a bare `Read`, `Grep`, or `Glob`. The rejected forms are in "Comment trust". |
 | `extra_instructions` | string | `""` | Text added to each prompt, under the heading "Project instructions". |
 
 ### Secret
@@ -227,7 +227,29 @@ comments:
 - `Bash(gh api:*)` and `Bash(gh:*)`
 - `WebFetch`, and a GitHub MCP tool that reads issues or PRs
 
-The workflow does not check `extra_allowed_tools` yet (issue #40).
+Each review job has a "Check extra_allowed_tools" step before the Claude
+step (issue #40). It reads the input through `env`. It splits the list at
+each comma and line break, and removes the spaces around each rule. It
+fails the job, and prints one `::error::` line for each rule, when the list
+has one of these forms:
+
+| Form | Examples | Reason |
+| --- | --- | --- |
+| A part that is not one `Name` or `Name(...)` rule, or that has a quote, a backquote, a `$`, or a backslash | `Read(./src/**) WebFetch`, `Bash(npm (x))`, `x" --flag "` | Claude Code also splits `--allowedTools` at spaces outside parentheses, so the step cannot check the part. A quote can end the `--allowedTools` value. Put a comma between rules |
+| A Bash rule whose first word is `gh` or ends in `/gh`. The step skips `NAME=value` words before the command | `Bash(gh api:*)`, `Bash(/usr/bin/gh issue view:*)`, `Bash(GH_TOKEN=x gh api:*)` | Reads PR comments |
+| A Bash rule that allows each command: no command, or a `*` in the first word | `Bash`, `Bash()`, `Bash(*)`, `Bash(g*:*)` | Allows `gh` too |
+| A Bash rule whose first word is `git` or ends in `/git` | `Bash(git log:*)` | Writes files (see "No git read commands for Claude") |
+| `WebFetch` | `WebFetch`, `WebFetch(domain:github.com)` | Reads PR pages |
+| A GitHub MCP rule | `mcp__github`, `mcp__github__get_issue` | Reads issues and PRs |
+| A bare `Read`, `Grep`, or `Glob`. Claude Code applies `Name()`, `Name(*)`, and `Name(**)` as the bare `Name`, so the step checks them as the bare `Name` for each row | `Read`, `Read(*)`, `Grep()` | Reaches each path on the runner (see "File reach of the review") |
+
+The check is a deny-list. It does not stop a rule for a command that runs
+other commands, for example `Bash(env:*)`, `Bash(bash:*)`, `Bash(xargs:*)`,
+`Bash(npx:*)`, `Bash(command:*)`, `Bash(exec:*)`, `Bash(timeout:*)`, or
+`Bash(sudo:*)`. Such a rule can run `gh`. It also does not stop a rule for
+a command that calls the GitHub API, for example `Bash(curl:*)`, or a
+GitHub MCP server with a different name. Do not add these rules. `tests/workflows/test-review-extra-tools.sh` runs the step
+on each form.
 
 `tests/workflows/test-review-comment-trust.sh` checks the env key, the
 fetch step before each Claude step, the file reads and trust text in each
@@ -324,7 +346,9 @@ The filter has these limits:
 `claude.yml` has the same exposure. It is not changed here (issue #65).
 
 Do not add a bare `Read`, `Grep`, or `Glob` with `extra_allowed_tools`. It
-removes the path limit.
+removes the path limit. The "Check extra_allowed_tools" step fails the job
+on a bare rule (see "Comment trust"). It does not check the path of a
+path-scoped rule.
 
 ### Tools in the review prompts
 
@@ -515,7 +539,8 @@ these commands has an `--output` flag. The three review jobs run in agent
 mode, and the action adds no rule there.
 
 Do not add a git rule in `extra_allowed_tools`. It brings the write path
-back. The workflow does not check this input.
+back. The review jobs of `claude-review.yml` fail on a git rule (see
+"Comment trust"). `claude.yml` does not check this input.
 `tests/workflows/test-claude-no-git-prefixes.sh` checks only the
 `claude_args` text in the workflow files. It fails on a rule that starts
 with `Bash(git` and then has a space, `-`, `:`, `*`, or `)`. It also fails

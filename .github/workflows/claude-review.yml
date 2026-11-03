@@ -139,8 +139,9 @@ name: Claude Code Review
 # `gh pr list` (issue #30). Each one can print every PR comment, also the
 # comments that TRUSTED_COMMENTS_JQ leaves out. A caller must not add them,
 # or another tool that reads PR comments, with extra_allowed_tools. The list
-# of such tools is in docs/ci-workflows.md, "Comment trust". Nothing checks
-# that input yet (issue #40).
+# of such tools is in docs/ci-workflows.md, "Comment trust". The "Check
+# extra_allowed_tools" step of each review job fails the job on such a rule,
+# on a git rule, and on a bare Read, Grep or Glob (issue #40).
 # The Read, Grep and Glob rules in allowedTools are path-scoped to the
 # checkout and $RUNNER_TEMP/pr-context, which --add-dir adds (issue #47). A
 # bare rule reaches each path on the runner, /proc/self/environ included. A
@@ -175,7 +176,7 @@ on:
         type: string
         default: claude-fable-5-1
       extra_allowed_tools:
-        description: "Comma-separated tools to add to --allowedTools. Do not add a tool that reads PR comments, for example Bash(gh pr view:*) or Bash(gh api:*). The full list is in docs/ci-workflows.md, Comment trust"
+        description: "Comma-separated tools to add to --allowedTools. Each review job fails when the list has a gh or git Bash rule, a Bash rule that allows each command (Bash, Bash(*)), WebFetch, an mcp__github rule, or a bare Read, Grep or Glob. Put a comma, not a space, between rules. See docs/ci-workflows.md, Comment trust"
         required: false
         type: string
         default: ""
@@ -235,6 +236,100 @@ jobs:
       id-token: write
 
     steps:
+      - name: Check extra_allowed_tools
+        env:
+          EXTRA_TOOLS: ${{ inputs.extra_allowed_tools }}
+        run: |
+          set -euo pipefail
+
+          # A caller must not add a tool that reads PR comments, a git rule,
+          # or a bare Read, Grep or Glob (issues #40, #29, #47). The reasons
+          # are in docs/ci-workflows.md. This step fails the job before the
+          # review runs. The three review jobs have the same copy of it.
+          # Claude Code splits --allowedTools at commas and at spaces outside
+          # parentheses. This step splits at commas and line breaks only, so
+          # it rejects each part that is not one Name or Name(...) rule. A
+          # space-separated list then fails too.
+          ALL="It allows each command, gh too. See docs/ci-workflows.md, Comment trust."
+          SHAPE="It is not one Name or Name(...) rule, or it has a quote, a \$, or a backslash. Use commas between rules."
+          bad=0
+          nl=$'\n'
+          list="${EXTRA_TOOLS//,/$nl}"
+          while IFS= read -r rule; do
+            rule="${rule#"${rule%%[![:space:]]*}"}"
+            rule="${rule%"${rule##*[![:space:]]}"}"
+            [ -n "$rule" ] || continue
+            reason=""
+            name="${rule%%(*}"
+            inner=""
+            if [ "$name" != "$rule" ]; then
+              inner="${rule#*(}"
+              case "$inner" in
+                *")") inner="${inner%)}" ;;
+                *) reason="$SHAPE" ;;
+              esac
+              case "$inner" in
+                *"("* | *")"*) reason="$SHAPE" ;;
+              esac
+            fi
+            case "$name" in
+              "" | *[!A-Za-z0-9_-]*) reason="$SHAPE" ;;
+            esac
+            case "$rule" in
+              *[\"\'\`\$\\]*) reason="$SHAPE" ;;
+            esac
+            if [ -z "$reason" ]; then
+              # Claude Code applies Name(), Name(*) and Name(**) as the bare
+              # Name, so this step checks them as the bare Name.
+              form="$rule"
+              t="${inner#"${inner%%[![:space:]]*}"}"
+              t="${t%"${t##*[![:space:]]}"}"
+              case "$t" in
+                "" | "*" | "**") form="$name" ;;
+              esac
+              case "$form" in
+                Bash | "Bash("*)
+                  inner="${inner#"${inner%%[![:space:]]*}"}"
+                  # Skip each NAME=value word before the command.
+                  while :; do
+                    first="${inner%%[[:space:]]*}"
+                    [ "$first" != "$inner" ] || break
+                    case "$first" in
+                      [A-Za-z_]*=*) ;;
+                      *) break ;;
+                    esac
+                    case "${first%%=*}" in
+                      *[!A-Za-z0-9_]*) break ;;
+                    esac
+                    inner="${inner#"$first"}"
+                    inner="${inner#"${inner%%[![:space:]]*}"}"
+                  done
+                  word="${inner%%[[:space:]:]*}"
+                  case "$word" in
+                    "" | *"*"*)
+                      reason="$ALL" ;;
+                    gh | */gh)
+                      reason="gh can read each PR comment. See docs/ci-workflows.md, Comment trust." ;;
+                    git | */git)
+                      reason="git can write files with --output. See docs/ci-workflows.md, No git read commands for Claude." ;;
+                  esac ;;
+                WebFetch | "WebFetch("*)
+                  reason="WebFetch can read PR pages. See docs/ci-workflows.md, Comment trust." ;;
+                mcp__github | "mcp__github("* | mcp__github__*)
+                  reason="A GitHub MCP tool can read issues and PRs. See docs/ci-workflows.md, Comment trust." ;;
+                Read | Grep | Glob)
+                  reason="A bare rule reaches each path on the runner. See docs/ci-workflows.md, File reach of the review." ;;
+              esac
+            fi
+            if [ -n "$reason" ]; then
+              echo "::error::extra_allowed_tools has a rule that this review does not allow: ${rule}. ${reason}"
+              bad=1
+            fi
+          done <<< "$list"
+          if [ "$bad" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Resolve PR context
         id: ctx
         env:
@@ -935,6 +1030,100 @@ jobs:
             exit 1
           fi
 
+      - name: Check extra_allowed_tools
+        env:
+          EXTRA_TOOLS: ${{ inputs.extra_allowed_tools }}
+        run: |
+          set -euo pipefail
+
+          # A caller must not add a tool that reads PR comments, a git rule,
+          # or a bare Read, Grep or Glob (issues #40, #29, #47). The reasons
+          # are in docs/ci-workflows.md. This step fails the job before the
+          # review runs. The three review jobs have the same copy of it.
+          # Claude Code splits --allowedTools at commas and at spaces outside
+          # parentheses. This step splits at commas and line breaks only, so
+          # it rejects each part that is not one Name or Name(...) rule. A
+          # space-separated list then fails too.
+          ALL="It allows each command, gh too. See docs/ci-workflows.md, Comment trust."
+          SHAPE="It is not one Name or Name(...) rule, or it has a quote, a \$, or a backslash. Use commas between rules."
+          bad=0
+          nl=$'\n'
+          list="${EXTRA_TOOLS//,/$nl}"
+          while IFS= read -r rule; do
+            rule="${rule#"${rule%%[![:space:]]*}"}"
+            rule="${rule%"${rule##*[![:space:]]}"}"
+            [ -n "$rule" ] || continue
+            reason=""
+            name="${rule%%(*}"
+            inner=""
+            if [ "$name" != "$rule" ]; then
+              inner="${rule#*(}"
+              case "$inner" in
+                *")") inner="${inner%)}" ;;
+                *) reason="$SHAPE" ;;
+              esac
+              case "$inner" in
+                *"("* | *")"*) reason="$SHAPE" ;;
+              esac
+            fi
+            case "$name" in
+              "" | *[!A-Za-z0-9_-]*) reason="$SHAPE" ;;
+            esac
+            case "$rule" in
+              *[\"\'\`\$\\]*) reason="$SHAPE" ;;
+            esac
+            if [ -z "$reason" ]; then
+              # Claude Code applies Name(), Name(*) and Name(**) as the bare
+              # Name, so this step checks them as the bare Name.
+              form="$rule"
+              t="${inner#"${inner%%[![:space:]]*}"}"
+              t="${t%"${t##*[![:space:]]}"}"
+              case "$t" in
+                "" | "*" | "**") form="$name" ;;
+              esac
+              case "$form" in
+                Bash | "Bash("*)
+                  inner="${inner#"${inner%%[![:space:]]*}"}"
+                  # Skip each NAME=value word before the command.
+                  while :; do
+                    first="${inner%%[[:space:]]*}"
+                    [ "$first" != "$inner" ] || break
+                    case "$first" in
+                      [A-Za-z_]*=*) ;;
+                      *) break ;;
+                    esac
+                    case "${first%%=*}" in
+                      *[!A-Za-z0-9_]*) break ;;
+                    esac
+                    inner="${inner#"$first"}"
+                    inner="${inner#"${inner%%[![:space:]]*}"}"
+                  done
+                  word="${inner%%[[:space:]:]*}"
+                  case "$word" in
+                    "" | *"*"*)
+                      reason="$ALL" ;;
+                    gh | */gh)
+                      reason="gh can read each PR comment. See docs/ci-workflows.md, Comment trust." ;;
+                    git | */git)
+                      reason="git can write files with --output. See docs/ci-workflows.md, No git read commands for Claude." ;;
+                  esac ;;
+                WebFetch | "WebFetch("*)
+                  reason="WebFetch can read PR pages. See docs/ci-workflows.md, Comment trust." ;;
+                mcp__github | "mcp__github("* | mcp__github__*)
+                  reason="A GitHub MCP tool can read issues and PRs. See docs/ci-workflows.md, Comment trust." ;;
+                Read | Grep | Glob)
+                  reason="A bare rule reaches each path on the runner. See docs/ci-workflows.md, File reach of the review." ;;
+              esac
+            fi
+            if [ -n "$reason" ]; then
+              echo "::error::extra_allowed_tools has a rule that this review does not allow: ${rule}. ${reason}"
+              bad=1
+            fi
+          done <<< "$list"
+          if [ "$bad" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1557,6 +1746,100 @@ jobs:
       id-token: write
 
     steps:
+      - name: Check extra_allowed_tools
+        env:
+          EXTRA_TOOLS: ${{ inputs.extra_allowed_tools }}
+        run: |
+          set -euo pipefail
+
+          # A caller must not add a tool that reads PR comments, a git rule,
+          # or a bare Read, Grep or Glob (issues #40, #29, #47). The reasons
+          # are in docs/ci-workflows.md. This step fails the job before the
+          # review runs. The three review jobs have the same copy of it.
+          # Claude Code splits --allowedTools at commas and at spaces outside
+          # parentheses. This step splits at commas and line breaks only, so
+          # it rejects each part that is not one Name or Name(...) rule. A
+          # space-separated list then fails too.
+          ALL="It allows each command, gh too. See docs/ci-workflows.md, Comment trust."
+          SHAPE="It is not one Name or Name(...) rule, or it has a quote, a \$, or a backslash. Use commas between rules."
+          bad=0
+          nl=$'\n'
+          list="${EXTRA_TOOLS//,/$nl}"
+          while IFS= read -r rule; do
+            rule="${rule#"${rule%%[![:space:]]*}"}"
+            rule="${rule%"${rule##*[![:space:]]}"}"
+            [ -n "$rule" ] || continue
+            reason=""
+            name="${rule%%(*}"
+            inner=""
+            if [ "$name" != "$rule" ]; then
+              inner="${rule#*(}"
+              case "$inner" in
+                *")") inner="${inner%)}" ;;
+                *) reason="$SHAPE" ;;
+              esac
+              case "$inner" in
+                *"("* | *")"*) reason="$SHAPE" ;;
+              esac
+            fi
+            case "$name" in
+              "" | *[!A-Za-z0-9_-]*) reason="$SHAPE" ;;
+            esac
+            case "$rule" in
+              *[\"\'\`\$\\]*) reason="$SHAPE" ;;
+            esac
+            if [ -z "$reason" ]; then
+              # Claude Code applies Name(), Name(*) and Name(**) as the bare
+              # Name, so this step checks them as the bare Name.
+              form="$rule"
+              t="${inner#"${inner%%[![:space:]]*}"}"
+              t="${t%"${t##*[![:space:]]}"}"
+              case "$t" in
+                "" | "*" | "**") form="$name" ;;
+              esac
+              case "$form" in
+                Bash | "Bash("*)
+                  inner="${inner#"${inner%%[![:space:]]*}"}"
+                  # Skip each NAME=value word before the command.
+                  while :; do
+                    first="${inner%%[[:space:]]*}"
+                    [ "$first" != "$inner" ] || break
+                    case "$first" in
+                      [A-Za-z_]*=*) ;;
+                      *) break ;;
+                    esac
+                    case "${first%%=*}" in
+                      *[!A-Za-z0-9_]*) break ;;
+                    esac
+                    inner="${inner#"$first"}"
+                    inner="${inner#"${inner%%[![:space:]]*}"}"
+                  done
+                  word="${inner%%[[:space:]:]*}"
+                  case "$word" in
+                    "" | *"*"*)
+                      reason="$ALL" ;;
+                    gh | */gh)
+                      reason="gh can read each PR comment. See docs/ci-workflows.md, Comment trust." ;;
+                    git | */git)
+                      reason="git can write files with --output. See docs/ci-workflows.md, No git read commands for Claude." ;;
+                  esac ;;
+                WebFetch | "WebFetch("*)
+                  reason="WebFetch can read PR pages. See docs/ci-workflows.md, Comment trust." ;;
+                mcp__github | "mcp__github("* | mcp__github__*)
+                  reason="A GitHub MCP tool can read issues and PRs. See docs/ci-workflows.md, Comment trust." ;;
+                Read | Grep | Glob)
+                  reason="A bare rule reaches each path on the runner. See docs/ci-workflows.md, File reach of the review." ;;
+              esac
+            fi
+            if [ -n "$reason" ]; then
+              echo "::error::extra_allowed_tools has a rule that this review does not allow: ${rule}. ${reason}"
+              bad=1
+            fi
+          done <<< "$list"
+          if [ "$bad" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Resolve PR context
         id: ctx
         env:
