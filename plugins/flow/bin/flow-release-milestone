@@ -53,14 +53,17 @@
 # names of main from the classic branch protection and the rulesets. Step 6
 # pushes a new PR head, so before Step 8 the script waits until each of those
 # checks passes on that head. Until GitHub shows the pushed commit as the PR
-# head, every check counts as pending. A required check with no run yet
-# counts as pending. A skipped check counts as passed. A cancelled check
-# counts as failed. When two runs have the same name, each must pass. It
-# polls `gh pr checks` every FLOW_RELEASE_CHECK_INTERVAL seconds (default
-# 30). The time limit counts the sleeps, not the time of the gh calls. A
-# failed check, or no pass in --checks-timeout minutes, stops the run with
-# exit 2 and nothing merges. With no required checks, there is no wait. The
-# required check names come from main, not from `gh pr checks --required`.
+# head, every check counts as pending. This applies only while GitHub shows
+# the head from before the push. Any other head stops the run at once with
+# exit 2: a commit landed after the review. A PR that is not open also stops
+# the run with exit 2. A required check with no run yet counts as pending.
+# A skipped check counts as passed. A cancelled check counts as failed. When
+# two runs have the same name, each must pass. It polls `gh pr checks` every
+# FLOW_RELEASE_CHECK_INTERVAL seconds (default 30). The time limit counts
+# the sleeps, not the time of the gh calls. A failed check, or no pass in
+# --checks-timeout minutes, stops the run with exit 2 and nothing merges.
+# With no required checks, there is no wait. The required check names come
+# from main, not from `gh pr checks --required`.
 # Right after a push, GitHub may report no checks yet, so that list can be
 # empty.
 #
@@ -114,7 +117,9 @@
 #       stops before it changes anything. Also: a `release` value other than
 #       publish or draft. The script stops before it changes anything.
 #       Also: a required check failed, did not pass in --checks-timeout
-#       minutes, or the PR head or its checks cannot be read.
+#       minutes, or the PR head or its checks cannot be read. Also: during
+#       the wait, the PR head is a commit that this script did not push, or
+#       the PR is not open.
 #       Also: Step 13 finds no saved release notes and no removal commit.
 #       Before Step 6 the same condition gives exit 1. In Step 13 the PR is
 #       already merged, so exit 1 ("nothing changed") does not apply.
@@ -456,12 +461,19 @@ if [ "$PR_STATE" = "OPEN" ]; then
 fi
 
 # --- Step 6: save release notes, delete the file, push to the milestone branch ---
+OLD_HEAD=""
 step "Step 6: remove release notes from milestone branch"
 if [ "$PR_STATE" = "MERGED" ]; then
   echo "PR #${PR_NUMBER} is already merged — skipping."
 else
   run git checkout "$BRANCH"
   run git pull --ff-only origin "$BRANCH"
+  # OLD_HEAD is the tip of the remote branch before this script pushes.
+  # GitHub can show it as the PR head for a short time after the push. On a
+  # rerun after the push, it is the pushed head.
+  if [ "$DRY_RUN" -eq 0 ]; then
+    OLD_HEAD="$(git rev-parse FETCH_HEAD)"
+  fi
   # The pull can bring a commit that landed after the check above. Check
   # again on the local branch, before this script commits or pushes.
   if [ "$DRY_RUN" -eq 0 ]; then
@@ -541,10 +553,19 @@ else
   ELAPSED=0
   while :; do
     PENDING=""
-    gh_capture pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid
+    gh_capture pr view "$PR_NUMBER" --json headRefOid,state --jq '"\(.headRefOid) \(.state)"'
     [ "$GH_STATUS" -eq 0 ] || gh_poll_fail "head commit"
-    if [ "$GH_OUT" != "$EXPECTED_HEAD" ]; then
-      PENDING="the PR head ${EXPECTED_HEAD} (GitHub shows ${GH_OUT})"
+    HEAD_NOW="${GH_OUT%% *}"
+    STATE_NOW="${GH_OUT#* }"
+    if [ "$STATE_NOW" != "OPEN" ]; then
+      echo "PR #${PR_NUMBER} is ${STATE_NOW}. Nothing merged." >&2
+      exit 2
+    fi
+    if [ "$HEAD_NOW" != "$EXPECTED_HEAD" ] && [ "$HEAD_NOW" = "$OLD_HEAD" ]; then
+      PENDING="the PR head ${EXPECTED_HEAD} (GitHub shows ${HEAD_NOW})"
+    elif [ "$HEAD_NOW" != "$EXPECTED_HEAD" ]; then
+      echo "PR #${PR_NUMBER} has head ${HEAD_NOW}, not ${EXPECTED_HEAD}. A commit landed after the review. Nothing merged. Review the new commit, then run the release again." >&2
+      exit 2
     else
       gh_capture pr checks "$PR_NUMBER" --json name,bucket --jq '.[] | "\(.name)\t\(.bucket)"'
       CHECKS="$GH_OUT"

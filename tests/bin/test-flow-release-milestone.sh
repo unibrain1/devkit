@@ -81,11 +81,44 @@ cat > "$STUB_EXTRA" <<'STUB'
 # for a pending check. pending_exit_8 makes it exit 8, as gh can.
 # stale_head_n holds a count: that many headRefOid reads give the parent of
 # the branch head, as GitHub does for a short time after a push.
+# The wait reads the head and the state in one call. poll_head and
+# poll_state replace the head and the state (default OPEN) of that call.
 S="$STUB_STATE"
 echo "$*" >> "$S/calls"
 want_pr="${STUB_PR:-42}"
 linear=0
 { [ -f "$S/linear_classic" ] || [ -f "$S/linear_ruleset" ]; } && linear=1
+
+# pr_head_answer
+# Prints the headRefOid answer.
+pr_head_answer() {
+    # GitHub keeps headRefOid after the merge deletes the branch.
+    if [ -f "$S/pr_head" ]; then
+        cat "$S/pr_head"
+        return 0
+    fi
+    if [ -s "$S/stale_head_n" ] && [ "$(cat "$S/stale_head_n")" -gt 0 ]; then
+        echo $(( $(cat "$S/stale_head_n") - 1 )) > "$S/stale_head_n"
+        git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9^"
+        return 0
+    fi
+    git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9"
+    # push_after_head_check: a commit lands right after this answer,
+    # before the script pulls (the race that the second check closes).
+    if [ -f "$S/push_after_head_check" ]; then
+        rm -rf "$S/racer"
+        git clone -q "$STUB_ORIGIN" "$S/racer" || return 1
+        (
+            cd "$S/racer" || exit 1
+            git checkout -q milestone/v9.9.9
+            echo race > race.txt
+            git add race.txt
+            git commit -q -m "commit during the release"
+            git push -q origin milestone/v9.9.9
+        ) || return 1
+    fi
+}
+
 case "$*" in
     "pr view $want_pr --json state --jq .state")
         cat "$S/pr_state" ;;
@@ -94,31 +127,16 @@ case "$*" in
     "pr view $want_pr --json mergeCommit --jq .mergeCommit.oid")
         cat "$S/merge_sha" ;;
     "pr view $want_pr --json headRefOid --jq .headRefOid")
-        # GitHub keeps headRefOid after the merge deletes the branch.
-        if [ -f "$S/pr_head" ]; then
-            cat "$S/pr_head"
-            exit 0
+        pr_head_answer || exit 1 ;;
+    "pr view $want_pr --json headRefOid,state --jq "*)
+        if [ -f "$S/poll_head" ]; then
+            head="$(cat "$S/poll_head")"
+        else
+            head="$(pr_head_answer)" || exit 1
         fi
-        if [ -s "$S/stale_head_n" ] && [ "$(cat "$S/stale_head_n")" -gt 0 ]; then
-            echo $(( $(cat "$S/stale_head_n") - 1 )) > "$S/stale_head_n"
-            git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9^"
-            exit 0
-        fi
-        git --git-dir="$STUB_ORIGIN" rev-parse "refs/heads/milestone/v9.9.9"
-        # push_after_head_check: a commit lands right after this answer,
-        # before the script pulls (the race that the second check closes).
-        if [ -f "$S/push_after_head_check" ]; then
-            rm -rf "$S/racer"
-            git clone -q "$STUB_ORIGIN" "$S/racer" || exit 1
-            (
-                cd "$S/racer" || exit 1
-                git checkout -q milestone/v9.9.9
-                echo race > race.txt
-                git add race.txt
-                git commit -q -m "commit during the release"
-                git push -q origin milestone/v9.9.9
-            ) || exit 1
-        fi ;;
+        state=OPEN
+        [ -f "$S/poll_state" ] && state="$(cat "$S/poll_state")"
+        echo "$head $state" ;;
     "api repos/example-org/example-repo/branches/main/protection --jq "*)
         # Real gh prints the error body on stdout and the message on stderr.
         if [ -f "$S/protection_403" ]; then
@@ -1370,6 +1388,43 @@ if [ "$STATUSW13" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
     pass "Case W13: a passed and a failed run with one name -> exit 2, no merge"
 else
     fail "Case W13: same-name runs" "exit: $STATUSW13 (want 2)" "output: [$OUTW13]"
+fi
+
+# --- Case W14: a third PR head during the wait -> exit 2 at once ---------
+# The head is not the old head and not the pushed head: a commit landed
+# after the review. The wait must not run to the time limit.
+setup_case caseW14
+echo lint > "$STATE/required_classic"
+printf 'lint\tpass\n' > "$STATE/checks.1"
+THIRDW14=1111111111111111111111111111111111111111
+echo "$THIRDW14" > "$STATE/poll_head"
+MAINW14="$(git -C "$ORIGIN" rev-parse main)"
+OUTW14="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW14=$?
+if [ "$STATUSW14" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && ! grep -q '^pr checks' "$STATE/calls" && [ ! -s "$STATE/sleeps" ] \
+    && [ "$MAINW14" = "$(git -C "$ORIGIN" rev-parse main)" ] \
+    && [ -z "$(git -C "$ORIGIN" tag)" ] \
+    && printf '%s' "$OUTW14" | grep -q "PR #42 has head ${THIRDW14}, not [0-9a-f]\{40\}\. A commit landed after the review\. Nothing merged\."; then
+    pass "Case W14: third PR head -> exit 2 on the first poll, no sleep, no merge, main unchanged"
+else
+    fail "Case W14: third head -> exit 2" "exit: $STATUSW14 (want 2)" \
+        "sleeps: $(wc -l < "$STATE/sleeps" 2>/dev/null) (want 0)" "output: [$OUTW14]"
+fi
+
+# --- Case W15: the PR is closed during the wait -> exit 2 ----------------
+setup_case caseW15
+echo lint > "$STATE/required_classic"
+printf 'lint\tpass\n' > "$STATE/checks.1"
+echo CLOSED > "$STATE/poll_state"
+OUTW15="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
+STATUSW15=$?
+if [ "$STATUSW15" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
+    && [ ! -s "$STATE/sleeps" ] \
+    && printf '%s' "$OUTW15" | grep -q 'PR #42 is CLOSED\. Nothing merged\.'; then
+    pass "Case W15: closed PR during the wait -> exit 2, no merge"
+else
+    fail "Case W15: closed PR -> exit 2" "exit: $STATUSW15 (want 2)" "output: [$OUTW15]"
 fi
 
 # --- Case M16: classic linear history, rules read fails -> exit 1 --------

@@ -351,13 +351,18 @@ The script does these steps in this order:
    merge.
 4. It syncs local `main` to `origin/main`. Then it waits until each
    required check passes on the PR head, because the push in item 3 made a
-   new head. Until GitHub shows that head on the PR, each check is
-   pending. A required check with no run yet is pending. A skipped check
+   new head. While GitHub shows the head from before the push, each check
+   is pending. A required check with no run yet is pending. A skipped check
    counts as passed, and a cancelled check counts as failed. With no
    required checks, there is no wait. A failed check, or no pass in
    `--checks-timeout` minutes, stops the run with exit 2 and names the
    check. Nothing merges. Run the script again when the checks pass. The
    rerun does not push a second notes removal.
+   A PR head that the script did not push stops the run at once with exit
+   2 and "A commit landed after the review". Nothing merges. Stop. End
+   with plain text: run `/clear`, then type
+   `/flow:review-milestone <version>`. A PR that is not open also stops
+   the run with exit 2.
 5. It merges the PR with `--delete-branch`, and pulls the merge commit.
 6. It deletes the local milestone branch, if `gh` did not.
 7. It tags the PR's merge commit (from `gh pr view --json mergeCommit`, not
@@ -418,7 +423,8 @@ reviewed commit — the script's own output says which). The script checks
 local `main` before it pushes the notes removal. Every pull is
 `--ff-only`. Exit 2 means a step failed (merge conflict, push rejected, a
 required check failed or timed out, the PR head or its checks cannot be
-read, tag on the wrong commit), the
+read, a new PR head or a PR that is not open during the wait, tag on the
+wrong commit), the
 `release_notes` or `plans` key is absent, or the `release` value is not
 allowed.
 
