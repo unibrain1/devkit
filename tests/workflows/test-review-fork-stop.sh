@@ -3,7 +3,8 @@
 # Tests the fork stop of the 3 review jobs in claude-review.yml (issue #42).
 # A fork PR must not get a review, and it must not get a green check.
 #   - pr-to-milestone-review and comment-deep-review stop a fork PR in their
-#     "Resolve PR context" step. The test checks that each step has the check.
+#     "Resolve PR context" step. The test checks that each step has the check,
+#     and runs the run: block of each step with a fake gh.
 #   - milestone-review stops it in its first step, "Stop a fork PR". The
 #     step must fail the job: no if:, no continue-on-error. The reason is in
 #     docs/ci-workflows.md, "Fork PRs". The test also runs the run: block of
@@ -97,6 +98,34 @@ for job in pr-to-milestone-review comment-deep-review; do
     else
         fail "$label"
     fi
+
+    # Run the step with a fake gh. A fork or a missing isCrossRepository
+    # must stop the step before it writes pr_number to GITHUB_OUTPUT.
+    ctx_script="$TMPROOT/ctx-$job.sh"
+    step_run "${line:-0}" > "$ctx_script"
+    for case_ in true:stop null:stop false:pass; do
+        cross="${case_%%:*}"; want="${case_#*:}"
+        label="$job: Resolve PR context with isCrossRepository $cross"
+        printf '{"isCrossRepository":%s,"headRefName":"h","headRefOid":"%s"}\n' \
+            "$cross" "0123456789abcdef0123456789abcdef01234567" > "$TMPROOT/ctx.json"
+        gho="$TMPROOT/ctx-$job-$cross.out"
+        : > "$gho"
+        out="$(env -i PATH="$BIN:$PATH" GH_TOKEN=x EVENT_NAME=pull_request \
+            PR_EVENT_NUM=7 ISSUE_PR_NUM=7 REPO=o/r GITHUB_OUTPUT="$gho" \
+            STUB_PR_JSON="$TMPROOT/ctx.json" bash "$ctx_script" 2>&1)"
+        rc=$?
+        if [ "$want" = stop ]; then
+            if [ "$rc" -ne 0 ] && ! grep -q '^pr_number=' "$gho"; then
+                pass "$label: the step stops with no pr_number"
+            else
+                fail "$label: the step stops with no pr_number" "exit $rc, output: $out"
+            fi
+        elif [ "$rc" -eq 0 ] && grep -qx 'pr_number=7' "$gho"; then
+            pass "$label: the step goes on"
+        else
+            fail "$label: the step goes on" "exit $rc, output: $out"
+        fi
+    done
 done
 
 # --------------------------------------------------------- milestone-review

@@ -644,6 +644,25 @@ while read -r line <&3; do
         pass "$label"
     fi
 
+    # A new PR has no comments. The step must pass, and keep the one count
+    # line with omitted 0.
+    label="fetch step $blocks (line $line) passes a PR with an empty comment list"
+    printf '{"title": "t", "baseRefName": "b", "headRefName": "h", "number": 1, "comments": []}\n' \
+        > "$TMPROOT/empty-comments.json"
+    rt0="$TMPROOT/rt0-$blocks"
+    mkdir -p "$rt0" "$TMPROOT/w0-$blocks"
+    if ! out="$(cd "$TMPROOT/w0-$blocks" && PATH="$TMPROOT/bin:$PATH" HOME="$sb/home" \
+        STUB_PR_JSON="$TMPROOT/empty-comments.json" RUNNER_TEMP="$rt0" PR_NUM=1 REPO=o/r \
+        TRUSTED_COMMENTS_JQ="$FILTER_JQ" bash "$script" 2>&1)"; then
+        fail "$label" "the step failed: $out"
+    elif [ "$(cat "$rt0/pr-context/comments.jsonl")" != '{"omitted":0}' ]; then
+        fail "$label" "comments.jsonl: $(cat "$rt0/pr-context/comments.jsonl")"
+    elif ! printf '%s\n' "$out" | grep -qxF 'Kept 0 trusted comments. Omitted 0 other comments.'; then
+        fail "$label" "log: $out"
+    else
+        pass "$label"
+    fi
+
     # Each case must fail the step. The object comments pass the filter, so
     # only the comments-array guard stops them. The wrong filters print no
     # number on the last line, so only the omitted-count guard stops them.
