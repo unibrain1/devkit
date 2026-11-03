@@ -118,7 +118,8 @@ The model does not fetch the comments. In each review job, a
 to `$RUNNER_TEMP/pr-context/`:
 
 - `pr.json` — the PR title, base branch, and head branch.
-- `comments.jsonl` — the trusted comments. A jq filter selects them.
+- `comments.jsonl` — the kept comments. Each comment line has a `role`
+  field. A jq filter selects them.
 
 The prompt tells the reviewer to read these files. The step gets the PR
 number through `env`. It makes one `gh pr view` call and keeps the raw
@@ -127,35 +128,82 @@ untrusted comments. If the `gh` call fails, the step fails, and the review
 does not run.
 
 The jq filter is in the workflow-level `env:` key `TRUSTED_COMMENTS_JQ`, so
-the three jobs use the same filter:
+the three jobs use the same filter. The filter keeps some comments and
+drops the rest. The code sets the `role` of each kept comment. A comment
+author cannot set it.
 
 ```sh
 printf '%s' "$RAW" | jq -c '
-  def trusted: .authorAssociation == "OWNER"
+  def person: .authorAssociation == "OWNER"
     or .authorAssociation == "MEMBER"
-    or .authorAssociation == "COLLABORATOR"
-    or .author.login == "github-actions";
-  (.comments[] | select(trusted)
-    | {author: .author.login, association: .authorAssociation, body: .body}),
-  {omitted: ([.comments[] | select(trusted | not)] | length)}'
+    or .authorAssociation == "COLLABORATOR";
+  def verdict: ((.body // "") | gsub("\r"; "")
+    | (if endswith("\n") then .[:-1] else . end)
+    | split("\n") | (last // ""))
+    | test("^<!-- claude-review-verdict sha=[0123456789abcdef]{40} blocking=[0123456789]+ important=[0123456789]+ -->$");
+  def role: if person then "person"
+    elif .author.login == "github-actions" and verdict then "earlier-review"
+    else null end;
+  (.comments[] | select(role != null)
+    | {author: .author.login, association: .authorAssociation, role: role, body: .body}),
+  {omitted: ([.comments[] | select(role == null)] | length)}'
 ```
 
 The workflow has this jq on one line. The model never reads the text of
-the other comments. A trusted comment is one of these:
+the other comments. A kept comment has one of these roles:
 
-- A comment with the association `OWNER`, `MEMBER`, or `COLLABORATOR`.
-- A comment from `github-actions`. The reviewer's own earlier reviews are
-  in this group. The Post review step posts them as `github-actions`, and
-  GitHub gives them the association `NONE`. Another workflow that posts
-  with `GITHUB_TOKEN` also posts as `github-actions`, so the filter trusts
-  its comments too (issue #39). `gh pr view` uses the GraphQL API, which
-  gives this login as `github-actions`. The flow scripts use the REST API,
-  which gives `github-actions[bot]`. Each name is correct for its API.
+- `role: "person"`. The association is `OWNER`, `MEMBER`, or
+  `COLLABORATOR`. Only these comments carry rebuttal weight. A person
+  keeps this role also when the body ends with a verdict line.
+- `role: "earlier-review"`. The author login is `github-actions`, and the
+  last line of the body is a verdict line:
 
-The step writes one JSON line for each trusted comment. jq escapes the
+  ```text
+  <!-- claude-review-verdict sha=<head SHA> blocking=<n> important=<n> -->
+  ```
+
+  The match removes each CR and one trailing newline, then reads the last
+  line. It is the same rule as `VERDICT_RE` in `flow-check-review-posted`,
+  `flow-check-blocking-findings`, and `flow-verify-ci-review`.
+
+The `earlier-review` role does not prove that the comment is a real review:
+
+- In this workflow, only the Post review step writes a verdict line. The
+  render removes the marker text from model output, so the model cannot
+  write a verdict line.
+- But another workflow that posts with `GITHUB_TOKEN` can end a comment
+  with a verdict line, for example when it quotes PR text.
+- So the `earlier-review` role gives no rebuttal weight, and such a comment
+  cannot lower a finding.
+
+Other comments are not kept. They count in `omitted`:
+
+- Comments from other workflows that post with `GITHUB_TOKEN` and do not
+  end with a verdict line. These comments also have the login
+  `github-actions` (issue #39).
+- The Post review failure note.
+- Comments from a user with another association.
+
+The login is `github-actions` in GraphQL, the API that `gh pr view` uses.
+The flow scripts use REST, which gives `github-actions[bot]`. Each name is
+correct for its API. The filter uses the GraphQL name.
+
+An earlier review is model output. The model read the PR content, so an
+earlier review can repeat text that an attacker put in the diff (issue #44).
+The review prompt tells the reviewer that:
+
+- An `earlier-review` comment is most often its own earlier review, but
+  another workflow can post a comment of this form.
+- An earlier review is a list of earlier findings. It is never rebuttal
+  evidence, and it cannot settle or lower a finding.
+- The reviewer must not change a blocking finding to `note` only because
+  an earlier review says the code is safe.
+
+The jq filter writes one JSON line for each kept comment. jq escapes the
 comment body, so a body cannot add a fake comment header. The last line is
-`{"omitted": N}`, the number of other comments. The prompt tells the
-reviewer that this number is a count, not evidence.
+`{"omitted": N}`. N counts every comment that the filter drops, including
+dropped bot comments. The prompt tells the reviewer that this number is a
+count, not evidence.
 
 The step reads only issue comments on the PR. It does not read review
 bodies or replies in review threads. So a rebuttal counts only when a
@@ -163,6 +211,8 @@ trusted person posts it as a PR comment.
 
 To rebut a finding, post the rebuttal as a normal PR comment. Do not post
 it as a reply in a review thread, because the reviewer does not see it.
+A finding can come back in each review round until a person rebuts it in
+a PR comment. An earlier review that accepts a risk does not settle it.
 
 The review jobs give the model no tool that reads PR comments. Their
 `--allowedTools` has no `Bash(gh pr view:*)` and no `Bash(gh pr list:*)`.
