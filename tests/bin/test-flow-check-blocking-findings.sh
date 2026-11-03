@@ -455,7 +455,13 @@ case "$args" in
         #   STUB_BLOB_DIFF_PATH  this path has a different blob at the head
         #   STUB_BLOB_STALE=1    the merge base has the head blob of
         #                        STUB_BLOB_DIFF_PATH (only main changed it)
-        #   STUB_BLOB_ABSENT_REF main or head: each file is absent there (404)
+        #   STUB_BLOB_DIFF_PATHS more paths (space-separated) that differ at
+        #                        the head, like STUB_BLOB_DIFF_PATH
+        #   STUB_BLOB_STALE_PATHS paths (space-separated) that are stale: the
+        #                        merge base has their head blob. A path in
+        #                        this list also differs at the head.
+        #   STUB_BLOB_ABSENT_REF main, head or base: each file is absent
+        #                        there (404)
         #   STUB_BLOB_FAIL=1     each lookup fails with HTTP 500
         #   STUB_BLOB_FAIL_REF   main, head or base: only lookups there fail
         #                        with HTTP 500
@@ -491,9 +497,20 @@ case "$args" in
             exit 0
         fi
         blob=1111111111111111111111111111111111111111
-        if [ "$path" = "${STUB_BLOB_DIFF_PATH:-}" ]; then
-            if [ "$side" = "head" ] \
-                || { [ "$side" = "base" ] && [ "${STUB_BLOB_STALE:-0}" = "1" ]; }; then
+        differs=0
+        stale=0
+        if [ -n "${STUB_BLOB_DIFF_PATH:-}" ] && [ "$path" = "$STUB_BLOB_DIFF_PATH" ]; then
+            differs=1
+            [ "${STUB_BLOB_STALE:-0}" = "1" ] && stale=1
+        fi
+        for p in ${STUB_BLOB_DIFF_PATHS:-} ${STUB_BLOB_STALE_PATHS:-}; do
+            [ "$path" = "$p" ] && differs=1
+        done
+        for p in ${STUB_BLOB_STALE_PATHS:-}; do
+            [ "$path" = "$p" ] && stale=1
+        done
+        if [ "$differs" = "1" ]; then
+            if [ "$side" = "head" ] || { [ "$side" = "base" ] && [ "$stale" = "1" ]; }; then
                 blob=2222222222222222222222222222222222222222
             fi
         fi
@@ -792,6 +809,46 @@ if [ "$S" -eq 4 ] && [ "$POLLS" = "1" ] && ! grep -q 'workflow run' "$STUB_LOG" 
 else
     fail "B7f: head blob is the merge-base blob, main differs (stale) -> exit 4 with the old-copy text, no recovery run" \
         "exit: $S (want 4)" "polls: $POLLS (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7j: stale wins over edited across two files ---------------------------
+# A uses: ./ caller lists the caller first, then the reusable workflow. The
+# CI step says stale wins over edited. The guard must stop at a stale file
+# and report it, with the edited file before or after it in the list.
+WF_CALLER=.github/workflows/claude-code-review.yml
+WF_REUSE=.github/workflows/claude-review.yml
+printf '%s\n' "$CALLER_LOCAL" > "$CALLER_FILE"
+OUT_J1="$(STUB_POLL_EXIT=1 STUB_BLOB_DIFF_PATHS=$WF_CALLER STUB_BLOB_STALE_PATHS=$WF_REUSE \
+    run_verify 2>&1)"; S_J1=$?
+LOG_J1="$(cat "$STUB_LOG")"
+OUT_J2="$(STUB_POLL_EXIT=1 STUB_BLOB_STALE_PATHS=$WF_CALLER STUB_BLOB_DIFF_PATHS=$WF_REUSE \
+    run_verify 2>&1)"; S_J2=$?
+LOG_J2="$(cat "$STUB_LOG")"
+printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
+if [ "$S_J1" -eq 4 ] && grep -q "Review workflow file $WF_REUSE at the PR head is an old copy" <<< "$OUT_J1" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT_J1" \
+    && ! grep -q 'workflow run' <<< "$LOG_J1" \
+    && [ "$S_J2" -eq 4 ] && grep -q "Review workflow file $WF_CALLER at the PR head is an old copy" <<< "$OUT_J2" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT_J2" \
+    && ! grep -q 'workflow run' <<< "$LOG_J2"; then
+    pass "B7j: one file edited and one stale, in either order -> exit 4 with the old-copy text of the stale file, no recovery run"
+else
+    fail "B7j: one file edited and one stale, in either order -> exit 4 with the old-copy text of the stale file, no recovery run" \
+        "exits: $S_J1 $S_J2 (want 4 4)" "logs: [$LOG_J1] [$LOG_J2]" "outputs: [$OUT_J1] [$OUT_J2]"
+fi
+
+# --- B7k: a file absent at the merge base counts as edited ------------------
+# The head and main differ, and the merge base has no copy. The guard reads
+# this as edited, not as stale.
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_ABSENT_REF=base \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S=$?
+if [ "$S" -eq 4 ] && ! grep -q 'workflow run' "$STUB_LOG" \
+    && grep -q 'requires a merge to main first' <<< "$OUT" \
+    && ! grep -q 'is an old copy' <<< "$OUT"; then
+    pass "B7k: a file absent at the merge base (404) -> edited: exit 4 with the merge-to-main text, no old-copy text"
+else
+    fail "B7k: a file absent at the merge base (404) -> edited: exit 4 with the merge-to-main text, no old-copy text" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
 fi
 
 # --- B7g: the merge base lookup fails -> 1, no recovery --------------------

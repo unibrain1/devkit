@@ -83,6 +83,8 @@ cat > "$STUB_EXTRA" <<'STUB'
 # the branch head, as GitHub does for a short time after a push.
 # The wait reads the head and the state in one call. poll_head and
 # poll_state replace the head and the state (default OPEN) of that call.
+# An empty poll_state file gives an empty state. A poll_head_only file gives
+# the head with no space and no state.
 # poll_fail makes that call fail with exit 1.
 S="$STUB_STATE"
 echo "$*" >> "$S/calls"
@@ -138,6 +140,12 @@ case "$*" in
             head="$(cat "$S/poll_head")"
         else
             head="$(pr_head_answer)" || exit 1
+        fi
+        # poll_head_only: the answer is the head alone, with no space and no
+        # state.
+        if [ -f "$S/poll_head_only" ]; then
+            echo "$head"
+            exit 0
         fi
         state=OPEN
         [ -f "$S/poll_state" ] && state="$(cat "$S/poll_state")"
@@ -1505,22 +1513,30 @@ else
         "check: $WHYW17" "output 1: [$OUTW17A]" "output 2: [$OUTW17B]"
 fi
 
-# --- Case W18: a null or empty head in the poll answer -> exit 2 ---------
-# The message names a bad gh answer, not a new head.
-for HEADW18 in null ''; do
-    setup_case "caseW18${HEADW18:-empty}"
+# --- Case W18: a null or empty head, or an empty or missing state -------
+# The message names a bad gh answer, not a new head and not a PR state. The
+# state branch prints "PR #42 is <state>. Nothing merged.", so no such line
+# may appear.
+for MODEW18 in head-null head-empty state-empty state-missing; do
+    setup_case "caseW18${MODEW18}"
     echo lint > "$STATE/required_classic"
     printf 'lint\tpass\n' > "$STATE/checks.1"
-    printf '%s\n' "$HEADW18" > "$STATE/poll_head"
+    case "$MODEW18" in
+        head-null) printf 'null\n' > "$STATE/poll_head" ;;
+        head-empty) printf '\n' > "$STATE/poll_head" ;;
+        state-empty) : > "$STATE/poll_state" ;;
+        state-missing) : > "$STATE/poll_head_only" ;;
+    esac
     OUTW18="$(run_release "$VERSION" "$PR" "$MS" 2>&1)"
     STATUSW18=$?
     if [ "$STATUSW18" -eq 2 ] && ! grep -q '^pr merge' "$STATE/calls" \
         && [ ! -s "$STATE/sleeps" ] \
         && printf '%s' "$OUTW18" | grep -q 'cannot read the head commit of PR #42' \
+        && ! printf '%s' "$OUTW18" | grep -q 'PR #42 is ' \
         && ! printf '%s' "$OUTW18" | grep -q 'A commit landed'; then
-        pass "Case W18: poll head '${HEADW18}' -> exit 2, bad gh answer message"
+        pass "Case W18: poll answer ${MODEW18} -> exit 2, bad gh answer message"
     else
-        fail "Case W18: poll head '${HEADW18}' -> exit 2" "exit: $STATUSW18 (want 2)" "output: [$OUTW18]"
+        fail "Case W18: poll answer ${MODEW18} -> exit 2" "exit: $STATUSW18 (want 2)" "output: [$OUTW18]"
     fi
 done
 
