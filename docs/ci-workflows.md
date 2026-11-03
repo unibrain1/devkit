@@ -251,8 +251,11 @@ bare `Name`, in each row of the table.
 
 The check is a deny-list. It does not stop a rule for a command that runs
 other commands, for example `Bash(env:*)`, `Bash(bash:*)`, `Bash(xargs:*)`,
-`Bash(npx:*)`, `Bash(command:*)`, `Bash(exec:*)`, `Bash(timeout:*)`, or
-`Bash(sudo:*)`. Such a rule can run `gh`. It also does not stop a rule for
+`Bash(npx:*)`, `Bash(command:*)`, `Bash(exec:*)`, `Bash(timeout:*)`,
+`Bash(sudo:*)`, `Bash(sh:*)`, `Bash(python:*)`, `Bash(node:*)`,
+`Bash(perl:*)`, `Bash(awk:*)`, or `Bash(find:*)` (with `-exec`). Such a
+rule can run `gh`. This list is not complete: each interpreter, and each
+command that starts other commands, has the same risk. The check also does not stop a rule for
 a command that calls the GitHub API, for example `Bash(curl:*)`, or a
 GitHub MCP server with a different name. Do not add these rules.
 
