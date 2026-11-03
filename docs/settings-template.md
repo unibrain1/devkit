@@ -34,8 +34,16 @@ the allowlist, or if the allowlist names a script that does not exist.
    and `lint` keys in `.claude/project.md`.
 2. Keep the project's own `hooks` and other keys. Merge, do not replace.
 3. For Registry, change `"ref": "main"` to the devkit tag.
-4. Install the plugins at project scope:
-   `claude plugin install flow@devkit --scope project`. If `/plugin` shows
+4. Install both plugins in `enabledPlugins` at project scope. An enabled
+   plugin that is not installed does not load. `/flow:setup` does not
+   check this:
+
+   ```sh
+   claude plugin install flow@devkit --scope project
+   claude plugin install asd-ste100@devkit --scope project
+   ```
+
+   If `/plugin` shows
    `flow` at user scope, uninstall it there. A user-scope install loads
    `flow` in every repo, and a `ref` change in another project can leave it
    with no cache (design section 5).

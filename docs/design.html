@@ -423,7 +423,7 @@ flowchart LR
   },
   "enabledPlugins": { "flow@devkit": true, "asd-ste100@devkit": true }
 }</code></pre>
-<p>Install <code>flow</code> at project scope: <code>claude plugin install flow@devkit --scope project</code>. A user-scope install loads <code>flow</code> in every repo, and a <code>ref</code> change in another project can leave it with no cache. If <code>/plugin</code> shows <code>flow</code> at user scope, uninstall it there.</p>
+<p>Install both plugins at project scope: <code>claude plugin install flow@devkit --scope project</code> and <code>claude plugin install asd-ste100@devkit --scope project</code>. A plugin in <code>enabledPlugins</code> that is not installed does not load. A user-scope install loads <code>flow</code> in every repo, and a <code>ref</code> change in another project can leave it with no cache. If <code>/plugin</code> shows <code>flow</code> at user scope, uninstall it there.</p>
 <p>A plugin cannot ship a permission allowlist. Each project copies <code>templates/settings.json</code> one time when it migrates, and then owns its copy.</p>
 
 <h2 id="ci">Shared CI</h2>
