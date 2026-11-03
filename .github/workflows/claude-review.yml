@@ -890,6 +890,30 @@ jobs:
       id-token: write
 
     steps:
+      - name: Stop a fork PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # A fork PR must not run here (issue #42). A pull_request run from
+          # a fork gets no secrets, so no review can run. If the fork PR also
+          # edits the caller file, the self-referential guard can report
+          # edited, and the Gate can then pass with no review. So this step
+          # fails the job first. A check in the job if: is not enough. A
+          # skipped job passes a required check.
+          CROSS=$(gh pr view "$PR_NUM" --repo "$REPO" --json isCrossRepository -q .isCrossRepository)
+          if [ "$CROSS" = "true" ]; then
+            echo "::error::PR #${PR_NUM} comes from a fork. This job does not review a fork PR. A person must review it."
+            exit 1
+          fi
+          if [ "$CROSS" != "false" ]; then
+            echo "::error::gh pr view gave isCrossRepository '${CROSS}' for PR #${PR_NUM}, not true or false. This job stops."
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
