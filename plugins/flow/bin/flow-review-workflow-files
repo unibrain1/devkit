@@ -2,9 +2,11 @@
 #
 # Prints the workflow files that claude-code-action compares with the default
 # branch before it reviews a PR. When the PR head copy of one of them
-# differs from the default branch, the action skips the review until the
-# change is on the default branch. No re-run can post a review before the
-# merge (the self-review case).
+# differs from the default branch, the action skips the review. When the
+# PR changed the file (edited), no re-run can post a review before the
+# merge (the self-review case). When only the default branch changed it
+# (stale), the review runs again after the PR branch gets the default-branch
+# copy.
 #
 # WHY THIS SCRIPT EXISTS: the action compares the caller workflow, and also
 # each reusable workflow that the caller calls from its own repo

@@ -169,7 +169,8 @@ flow-verify-ci-review <pr-number> 30 300 --trigger=workflow
   the PR head differs from `main`, and this PR or an earlier PR in the
   milestone changed it. The review action skips a PR while any of these
   files is different from `main`, so no review can post before the merge.
-  Report it. Ask with AskUserQuestion:
+  If the file is absent at the merge base, the CI Gate fails and does not
+  pass with a warning. Report it. Ask with AskUserQuestion:
   `Proceed without the CI review` or `Stop`.
   - `Proceed without the CI review` → mark the PR ready:
     `gh pr ready <pr-number> --repo <repo>`. Record the
