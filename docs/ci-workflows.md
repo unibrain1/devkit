@@ -80,8 +80,11 @@ the caller on line 1, then each reusable workflow that the caller calls
 from its own repo (`uses: ./`). claude-code-action compares each of these
 files with the default branch. `flow-verify-ci-review` and
 `/flow:review-milestone` use this list to find a PR that cannot get a
-review before it merges. `flow-verify-ci-review` also takes the recovery
-workflow name from line 1.
+review before it merges. `flow-verify-ci-review` compares the blob of each
+file at the PR head with its blob on `main`, as the "Check workflow match"
+step does. A file that the PR does not change can also be different, for
+example after an earlier PR changed it on the milestone branch.
+`flow-verify-ci-review` also takes the recovery workflow name from line 1.
 
 ### Fork PRs
 

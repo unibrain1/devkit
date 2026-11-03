@@ -8,11 +8,13 @@
 # no review:
 #   1. GitHub's abuse or rate throttle can drop the webhook event, so no run
 #      starts (PR Registry #1718, Registry #1724).
-#   2. The action skips a PR that changes a review workflow file. These
-#      files are the caller and each reusable workflow that the caller calls
-#      with `uses: ./`. flow-review-workflow-files lists them. Each such
-#      file must match the default branch. This is intended security
-#      behavior. It does not clear until the PR merges to main.
+#   2. The action skips a PR when a review workflow file at the PR head
+#      differs from the copy on the default branch. These files are the
+#      caller and each reusable workflow that the caller calls with
+#      `uses: ./`. flow-review-workflow-files lists them. The PR itself, or
+#      an earlier PR merged into its base branch, can change the file. This
+#      is intended security behavior. It does not clear until the change
+#      merges to main.
 #   3. The model can stop before it returns a review.
 # The only proof is the review comment itself, never the job conclusion. This
 # script is the single place that checks the comment and runs the one
@@ -58,8 +60,8 @@
 #       important=0 with --include-important)
 #   1 = could not verify — a `gh` call failed (auth, network, rate limit),
 #       the head commit could not be read, flow-repo could not resolve the
-#       repo, flow-review-workflow-files or the guard's grep failed, or the
-#       arguments are not valid.
+#       repo, flow-review-workflow-files or a blob lookup of the guard
+#       failed, or the arguments are not valid.
 #       This is NOT the same as "no review posted".
 #   2 = a verdict for the head commit exists, but blocking > 0 (or, with
 #       --include-important, important > 0). See stdout for the counts.
@@ -71,9 +73,9 @@
 #       every unresolved finding gives the same code)
 #
 # Recovery runs at most once. Sometimes recovery cannot help. For example,
-# with --trigger=workflow, a PR that changes a review workflow file cannot get
-# a review before the merge. The script then prints why and exits 4. It does
-# not loop.
+# with --trigger=workflow, a PR whose head has a review workflow file that
+# differs from main cannot get a review before the merge. The script then
+# prints why and exits 4. It does not loop.
 #
 # History: Registry #1724 (a throttle dropped the review event of PR Registry #1718), Registry #2314
 # (a review for an older head counted), Registry #2506 (the old heading test missed a
@@ -213,6 +215,29 @@ poll() {
   done
 }
 
+# Prints the blob SHA of <path> at <ref>, the same lookup as the "Check
+# workflow match" step of claude-review.yml. Prints nothing when the file is
+# absent at <ref> (HTTP 404): that step reads an absent file as no mismatch.
+# Returns 1 on any other failure, so the guard fails closed. When the call
+# fails, gh prints the HTTP status on stderr, so the combined output holds
+# "(HTTP 404)" for an absent file.
+blob_sha() {
+  local path="$1" ref="$2" out
+  if out=$(gh api "repos/${REPO}/contents/${path}?ref=${ref}" --jq .sha 2>&1); then
+    if [[ $out =~ ^[0123456789abcdef]{40}([0123456789abcdef]{24})?$ ]]; then
+      printf '%s' "$out"
+      return 0
+    fi
+    echo "flow-verify-ci-review: could not verify: the blob of ${path} at ${ref} is not a SHA (got '${out}'), so the workflow-file guard cannot be checked." >&2
+    return 1
+  fi
+  case "$out" in
+    *"(HTTP 404)"*) return 0 ;;
+  esac
+  echo "flow-verify-ci-review: could not verify: the blob of ${path} at ${ref} could not be read, so the workflow-file guard cannot be checked: ${out}" >&2
+  return 1
+}
+
 # Initial poll.
 if poll; then
   : # comment found
@@ -247,36 +272,35 @@ else
   # re-running the workflow cannot clear a skip caused by the workflow file
   # itself not yet being the one merged to main.
   if [ "$TRIGGER" = "workflow" ]; then
-    # The files API, not `gh pr diff`: the diff endpoint returns HTTP 406 for
-    # a diff over 20,000 lines, which a large PR easily has (Registry #2225). The files
-    # API lists at most 3,000 files; a PR larger than that is not checked fully.
-    if ! PR_FILES=$(gh api "repos/${REPO}/pulls/${PR_NUM}/files" --paginate --jq '.[].filename'); then
-      echo "flow-verify-ci-review: could not verify: the PR's file list could not be read, so the workflow-file guard cannot be checked." >&2
-      exit 1
-    fi
     # The caller and each local reusable workflow it calls (#76). Fail
     # closed: with no list, the guard cannot be checked.
     if ! REVIEW_FILES=$("$SCRIPT_DIR/flow-review-workflow-files"); then
       echo "flow-verify-ci-review: could not verify: flow-review-workflow-files failed, so the workflow-file guard cannot be checked." >&2
       exit 1
     fi
-    # A here-string, not a piped `grep -q`: grep -q can exit at its first
-    # match while gh still has output queued, SIGPIPEing gh, and pipefail
-    # then turns that early exit into rc 141 — read as "no match" (Registry #2225).
-    # grep exit 1 is "no match". Exit 2 is a grep error, so fail closed.
-    grep_rc=0
-    MATCHED=$(grep -Fx -f <(printf '%s\n' "$REVIEW_FILES") <<< "$PR_FILES") || grep_rc=$?
-    case "$grep_rc" in
-      0)
-        echo "PR diff touches the review workflow itself (${MATCHED%%$'\n'*}) — the action's own workflow-file-must-match-main guard blocks a pre-merge re-run from clearing this. Recovery skipped; this requires a merge to main first." >&2
+    # The same test as the "Check workflow match" step of claude-review.yml:
+    # compare the blob at the PR head with the blob on main. The PR file
+    # list is not enough. After a change to the file merges into a
+    # milestone branch, a later PR on that branch does not change the file,
+    # but its head copy still differs from main, so the action skips it.
+    # A file that the PR changes also has a new head blob, so the blob test
+    # also covers each case that the file list found.
+    if ! GUARD_HEAD_SHA=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefOid -q .headRefOid) \
+        || ! [[ $GUARD_HEAD_SHA =~ ^[0123456789abcdef]{40}$ ]]; then
+      echo "flow-verify-ci-review: could not verify: the head commit of PR #${PR_NUM} could not be read, so the workflow-file guard cannot be checked." >&2
+      exit 1
+    fi
+    while IFS= read -r WF_PATH; do
+      [ -n "$WF_PATH" ] || continue
+      MAIN_BLOB=$(blob_sha "$WF_PATH" main) || exit 1
+      HEAD_BLOB=$(blob_sha "$WF_PATH" "$GUARD_HEAD_SHA") || exit 1
+      # A file that is absent on one side is not a mismatch, as in the CI
+      # step.
+      if [ -n "$MAIN_BLOB" ] && [ -n "$HEAD_BLOB" ] && [ "$MAIN_BLOB" != "$HEAD_BLOB" ]; then
+        echo "The review workflow itself (${WF_PATH}) at the PR head differs from main — the action's own workflow-file-must-match-main guard blocks a pre-merge re-run from clearing this. Recovery skipped; this requires a merge to main first. If only main changed the file, update the branch from main instead." >&2
         exit 4
-        ;;
-      1) ;;
-      *)
-        echo "flow-verify-ci-review: could not verify: grep failed (rc ${grep_rc}), so the workflow-file guard cannot be checked." >&2
-        exit 1
-        ;;
-    esac
+      fi
+    done <<< "$REVIEW_FILES"
     # Line 1 is the caller, the workflow that a recovery run starts.
     CALLER_WF=${REVIEW_FILES%%$'\n'*}
     CALLER_WF=${CALLER_WF##*/}

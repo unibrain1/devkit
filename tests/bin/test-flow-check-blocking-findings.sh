@@ -386,14 +386,6 @@ POLL_COUNT_FILE="$TMPROOT/poll-count"
 CHECK_ARGS_LOG="$TMPROOT/check-args.log"
 export CHECK_ARGS_LOG
 
-# Built once: the matching path, then 50000 more. That is about 540 KB, far
-# past a pipe buffer. The #2225 bug showed every time from 10000 lines up.
-DIFF_MATCH_FILE="$TMPROOT/gh-diff-match.txt"
-{
-    printf '%s\n' '.github/workflows/claude-code-review.yml'
-    seq 1 50000 | sed 's|^|app/f|'
-} > "$DIFF_MATCH_FILE"
-export DIFF_MATCH_FILE
 
 # Stub flow-poll-review-posted. The first call exits STUB_POLL_EXIT. When
 # STUB_POLL2_EXIT is set, the second call exits with it instead. A counter
@@ -443,27 +435,39 @@ case "$args" in
         printf '%s' "${STUB_LABELS:-}"
         exit 0
         ;;
-    "api repos/"*"/pulls/"*"/files"*)
-        case "${STUB_DIFF_MODE:-}" in
-            large-match)
-                # exec, so the exit code is the SIGPIPE code of cat. An
-                # `exit 0` would hide the code that the old bug read.
-                exec cat "${DIFF_MATCH_FILE:?DIFF_MATCH_FILE not set}"
-                ;;
-            small-match)
-                printf '%s\n' 'app/index.php' '.github/workflows/claude-code-review.yml'
-                exit 0
-                ;;
-            reusable-match)
-                printf '%s\n' 'app/index.php' '.github/workflows/claude-review.yml'
-                exit 0
-                ;;
-            fail)
-                echo "gh: simulated PR file list failure (stub)" >&2
-                exit 1
-                ;;
-            *) exit 0 ;;
-        esac
+    "api repos/"*"/contents/"*)
+        # The blob lookups of the workflow-file guard. By default each file
+        # has the same blob at the head and on main.
+        #   STUB_BLOB_DIFF_PATH  this path has a different blob at the head
+        #   STUB_BLOB_ABSENT_REF main or head: each file is absent there (404)
+        #   STUB_BLOB_FAIL=1     each lookup fails with HTTP 500
+        endpoint="$2"
+        path="${endpoint#repos/*/*/contents/}"
+        path="${path%%\?ref=*}"
+        ref="${endpoint##*\?ref=}"
+        filter=""
+        while [ $# -gt 0 ]; do
+            [ "$1" = "--jq" ] && filter="${2-}"
+            shift
+        done
+        side=head
+        [ "$ref" = "main" ] && side=main
+        if [ "${STUB_BLOB_FAIL:-0}" = "1" ]; then
+            printf '{"message":"Server Error","status":"500"}'
+            echo "gh: Server Error (HTTP 500)" >&2
+            exit 1
+        fi
+        if [ "${STUB_BLOB_ABSENT_REF:-}" = "$side" ]; then
+            printf '{"message":"Not Found","status":"404"}'
+            echo "gh: Not Found (HTTP 404)" >&2
+            exit 1
+        fi
+        blob=1111111111111111111111111111111111111111
+        if [ "$side" = "head" ] && [ "$path" = "${STUB_BLOB_DIFF_PATH:-}" ]; then
+            blob=2222222222222222222222222222222222222222
+        fi
+        jq -cn --arg sha "$blob" '{sha: $sha}' | jq -r "${filter:-.}"
+        exit $?
         ;;
     "workflow run "*)
         if [ "${STUB_WORKFLOW_RUN_FAIL:-0}" = "1" ]; then
@@ -617,53 +621,73 @@ else
         "exits: $SA $SB $SC $SD (want 1 4 1 0)" "polls: $POLLS_B $POLLS_D (want 2 2)"
 fi
 
-# --- B7: a large PR file list with an early match (#2225) -------------------
-# STUB_POLL_EXIT=1 forces the recovery path to the workflow-file guard. A
-# piped `grep -q` would SIGPIPE gh here and, under pipefail, read that as "no
-# match". The guard must still see the match, skip recovery, and exit 4 after
-# one poll. The poll count and the missing `workflow run` line are the checks
-# that catch the bug.
-OUT="$(STUB_POLL_EXIT=1 STUB_CHECK_EXIT=0 STUB_DIFF_MODE=large-match run_verify 2>&1)"; S=$?
+# --- B7: the head blob of the caller differs from main -> 4, no recovery ----
+# STUB_POLL_EXIT=1 forces the recovery path to the workflow-file guard. The
+# PR file list does not have the file: an earlier PR merged the change into
+# the milestone branch. The CI step "Check workflow match" still reports
+# edited, so no re-run can post a review. The guard must not read the PR
+# file list, must skip recovery, and must exit 4 after one poll.
+OUT="$(STUB_POLL_EXIT=1 STUB_CHECK_EXIT=0 \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S=$?
 POLLS="$(cat "$POLL_COUNT_FILE" 2>/dev/null || echo '?')"
 if [ "$S" -eq 4 ] && [ "$POLLS" = "1" ] && ! grep -q 'workflow run' "$STUB_LOG" \
+    && ! grep -q '/pulls/' "$STUB_LOG" \
+    && grep -q "contents/.github/workflows/claude-code-review.yml?ref=$H1" "$STUB_LOG" \
+    && grep -q 'contents/.github/workflows/claude-code-review.yml?ref=main' "$STUB_LOG" \
     && grep -q 'review workflow itself (.github/workflows/claude-code-review.yml)' <<< "$OUT" \
     && grep -q 'requires a merge to main first' <<< "$OUT"; then
-    pass "B7: PR changes the review workflow (large file list) -> exit 4 with the explanation, no recovery run, one poll"
+    pass "B7: head blob of the caller differs from main, file not in the PR file list -> exit 4 with the explanation, no recovery run, one poll"
 else
-    fail "B7: PR changes the review workflow (large file list) -> exit 4 with the explanation, no recovery run, one poll" \
-        "exit: $S (want 4)" "polls: $POLLS (want 1)" "output: [$OUT]"
+    fail "B7: head blob of the caller differs from main, file not in the PR file list -> exit 4 with the explanation, no recovery run, one poll" \
+        "exit: $S (want 4)" "polls: $POLLS (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
 fi
 
-OUT="$(STUB_POLL_EXIT=1 STUB_DIFF_MODE=small-match run_verify 2>&1)"; S=$?
-if [ "$S" -eq 4 ] && ! grep -q 'workflow run' "$STUB_LOG"; then
-    pass "B7b: PR changes the review workflow (short file list) -> exit 4, no recovery run"
+# --- B7b: equal blobs, or a file absent on one side -> recovery runs --------
+# The CI step reads an absent file as no mismatch, so the guard does too.
+OUT="$(STUB_POLL_EXIT=1 run_verify 2>&1)"; S=$?
+LOG_EQ="$(cat "$STUB_LOG")"
+OUT_AH="$(STUB_POLL_EXIT=1 STUB_BLOB_ABSENT_REF=head \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S_AH=$?
+LOG_AH="$(cat "$STUB_LOG")"
+OUT_AM="$(STUB_POLL_EXIT=1 STUB_BLOB_ABSENT_REF=main \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S_AM=$?
+LOG_AM="$(cat "$STUB_LOG")"
+if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' <<< "$LOG_EQ" \
+    && grep -q 'contents/.github/workflows/claude-code-review.yml?ref=main' <<< "$LOG_EQ" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT" \
+    && [ "$S_AH" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' <<< "$LOG_AH" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT_AH" \
+    && [ "$S_AM" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' <<< "$LOG_AM" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT_AM"; then
+    pass "B7b: equal blobs, or a file absent at the head or on main (404) -> the recovery runs"
 else
-    fail "B7b: PR changes the review workflow (short file list) -> exit 4, no recovery run" \
-        "exit: $S (want 4)" "output: [$OUT]"
+    fail "B7b: equal blobs, or a file absent at the head or on main (404) -> the recovery runs" \
+        "exits: $S $S_AH $S_AM (want 4 4 4)" "logs: [$LOG_EQ] [$LOG_AH] [$LOG_AM]" \
+        "outputs: [$OUT] [$OUT_AH] [$OUT_AM]"
 fi
 
-# --- B7c: the PR changes only the reusable workflow (#76) ------------------
+# --- B7c: only the reusable workflow differs from main (#76) ---------------
 # A caller that calls the reusable review with uses: ./ makes the action
 # compare that file too. The guard must see it. A caller that calls it @main
 # does not, so the recovery runs.
 printf '%s\n' "$CALLER_LOCAL" > "$CALLER_FILE"
-OUT="$(STUB_POLL_EXIT=1 STUB_DIFF_MODE=reusable-match run_verify 2>&1)"; S=$?
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_DIFF_PATH=.github/workflows/claude-review.yml run_verify 2>&1)"; S=$?
 printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
 if [ "$S" -eq 4 ] && ! grep -q 'workflow run' "$STUB_LOG" \
     && grep -q 'review workflow itself (.github/workflows/claude-review.yml)' <<< "$OUT" \
     && grep -q 'requires a merge to main first' <<< "$OUT"; then
-    pass "B7c: a uses: ./ caller and a PR that changes only the reusable workflow -> exit 4, no recovery run"
+    pass "B7c: a uses: ./ caller and a head where only the reusable workflow differs from main -> exit 4, no recovery run"
 else
-    fail "B7c: a uses: ./ caller and a PR that changes only the reusable workflow -> exit 4, no recovery run" \
+    fail "B7c: a uses: ./ caller and a head where only the reusable workflow differs from main -> exit 4, no recovery run" \
         "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
 fi
 
-OUT="$(STUB_POLL_EXIT=1 STUB_DIFF_MODE=reusable-match run_verify 2>&1)"; S=$?
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_DIFF_PATH=.github/workflows/claude-review.yml run_verify 2>&1)"; S=$?
 if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' "$STUB_LOG" \
     && ! grep -q 'requires a merge to main first' <<< "$OUT"; then
-    pass "B7c2: an @main caller and the same PR -> the recovery runs the caller"
+    pass "B7c2: an @main caller and the same head -> the recovery runs the caller"
 else
-    fail "B7c2: an @main caller and the same PR -> the recovery runs the caller" \
+    fail "B7c2: an @main caller and the same head -> the recovery runs the caller" \
         "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
 fi
 
@@ -693,38 +717,28 @@ else
         "exit: $S (want 1)" "output: [$OUT]"
 fi
 
-# --- B7e: grep fails in the guard (rc 2) -> 1, no recovery ---------------
-# rc 2 is a grep error, not "no match". The guard must fail closed. The grep
-# stub fails only for the guard's pattern-file call.
-GREPFAIL="$TMPROOT/grepfail"
-mkdir -p "$GREPFAIL"
-REAL_GREP="$(command -v grep)"
-cat > "$GREPFAIL/grep" <<STUB
-#!/bin/bash
-case " \$* " in
-    *" -f "*) exit 2 ;;
-esac
-exec "$REAL_GREP" "\$@"
-STUB
-chmod +x "$GREPFAIL/grep"
-reset_verify_state
-OUT="$(cd "$VERIFY_WORKDIR" && STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" STUB_POLL_EXIT=1 \
-    PATH="$GREPFAIL:$STUBDIR:$PATH" bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger=workflow 2>&1)"; S=$?
-if [ "$S" -eq 1 ] && grep -q 'grep failed (rc 2)' <<< "$OUT" \
+# --- B7e: a blob lookup fails (not a 404) -> 1, no recovery ----------------
+# Only a 404 means "absent". Any other failure must fail closed.
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_FAIL=1 run_verify 2>&1)"; S=$?
+if [ "$S" -eq 1 ] && grep -q 'could not verify' <<< "$OUT" \
+    && grep -q 'HTTP 500' <<< "$OUT" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT" \
     && ! grep -q 'workflow run' "$STUB_LOG"; then
-    pass "B7e: grep fails in the guard -> exit 1 (fail closed), no recovery run"
+    pass "B7e: a blob lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run"
 else
-    fail "B7e: grep fails in the guard -> exit 1 (fail closed), no recovery run" \
+    fail "B7e: a blob lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run" \
         "exit: $S (want 1)" "output: [$OUT]"
 fi
 
-# --- B8: the PR file list call fails -> 1 -----------------------------------
-OUT="$(STUB_POLL_EXIT=1 STUB_DIFF_MODE=fail run_verify 2>&1)"; S=$?
-if [ "$S" -eq 1 ] && grep -q 'file list could not be read' <<< "$OUT" \
+# --- B8: the head commit lookup of the guard fails -> 1 ---------------------
+# The poll stub exits 1, so this is the only `gh pr view` call.
+OUT="$(STUB_POLL_EXIT=1 STUB_GH_FAIL_PR_VIEW=1 run_verify 2>&1)"; S=$?
+if [ "$S" -eq 1 ] && grep -q 'head commit of PR #1 could not be read' <<< "$OUT" \
+    && ! grep -q 'contents/' "$STUB_LOG" \
     && ! grep -q 'workflow run' "$STUB_LOG"; then
-    pass "B8: PR file list call fails -> exit 1, message names the failure, no recovery run"
+    pass "B8: the head commit lookup of the guard fails -> exit 1, message names the failure, no recovery run"
 else
-    fail "B8: PR file list call fails -> exit 1, message names the failure, no recovery run" \
+    fail "B8: the head commit lookup of the guard fails -> exit 1, message names the failure, no recovery run" \
         "exit: $S (want 1)" "output: [$OUT]"
 fi
 

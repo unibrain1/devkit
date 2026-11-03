@@ -164,10 +164,12 @@ flow-verify-ci-review <pr-number> 30 300 --trigger=workflow
   exists. Report it. Stop. The PR stays draft. Tell the user to run
   `/flow:address-pr-comments`, then type `/flow:finish-issue <issue-number>`
   again.
-- **Exit 4, and stderr contains `requires a merge to main first`** — the
-  PR changes a review workflow file (a path that
-  `flow-review-workflow-files` prints). The review action skips a PR that
-  changes any of these files, so no review can post before the merge.
+- **Exit 4, and stderr contains `requires a merge to main first`** — a
+  review workflow file (a path that `flow-review-workflow-files` prints) at
+  the PR head is different from the copy on `main`. This PR, or an earlier
+  PR in the milestone, changed it. The review action skips a PR while any
+  of these files is different from `main`, so no review can post before
+  the merge.
   Report it. Ask with AskUserQuestion:
   `Proceed without the CI review` or `Stop`.
   - `Proceed without the CI review` → mark the PR ready:
