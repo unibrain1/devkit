@@ -4,8 +4,10 @@
 # claude-review.yml (issues #40, #29, #47). A caller adds rules to
 # --allowedTools with extra_allowed_tools. The step must fail the job on a
 # rule that reads PR comments (a gh Bash rule, a Bash rule that allows each
-# command, WebFetch, a GitHub MCP rule), on a git Bash rule, and on a bare
-# Read, Grep or Glob. It must pass each other rule.
+# command, WebFetch, a GitHub MCP rule), on a git Bash rule, on a Bash rule
+# with shell syntax in its first word, on a bare Read, Grep or Glob, and on
+# a part that is not one Name or Name(...) rule. It must pass each other
+# rule.
 #
 # The test checks the text of the step in each job: its place, its env, no
 # if: and no continue-on-error, no expression in run:, and the same run:
@@ -109,9 +111,14 @@ for spec in pr-to-milestone-review:- milestone-review:"Stop a fork PR" comment-d
         want_idx=1
         label="$job: '$CHECK_NAME' is the first step"
     else
-        idx_before="$(printf '%s\n' "$steps" | grep -nF " $before" | cut -d: -f1)"
-        want_idx=$(( ${idx_before:-0} + 1 ))
+        # The index of the first step whose name is exactly <before>.
+        idx_before="$(printf '%s\n' "$steps" | awk -v n="$before" '{ s = $0; sub(/^[0-9]+ /, "", s) } s == n { print NR; exit }')"
         label="$job: '$CHECK_NAME' comes right after '$before'"
+        if [ -n "$idx_before" ]; then
+            want_idx=$(( idx_before + 1 ))
+        else
+            want_idx="none (no '$before' step)"
+        fi
     fi
     if [ "$idx_check" = "$want_idx" ]; then
         pass "$label"
@@ -170,8 +177,8 @@ run_step() {
 
 # reject <value> [rule] [reason]: the step must exit 1 and name the rule in
 # an ::error:: line. The rule is <value> when the second argument is absent
-# or empty. When <reason> is given, the line must end with the rule, ". ",
-# and the start of <reason>.
+# or empty. When <reason> is given, the line must contain the rule, then
+# ". ", then the start of <reason>.
 reject() {
     local label="reject: '$1'" rule="${2:-$1}"
     run_step "$1"
@@ -229,20 +236,43 @@ reject "Bash(gh	api:*)"
 reject "Bash(GH_TOKEN=x	gh api:*)"
 # A GitHub MCP server rule with any text in parentheses.
 reject 'mcp__github(get_issue)'
+# Shell syntax in or before the first word can hide gh. A ? or a [ is a
+# glob, as * is.
+for r in 'Bash(gh</dev/null api:*)' 'Bash(gh>&2 api:*)' 'Bash(gh|cat)' 'Bash(gh;ls)' \
+    'Bash(2>/dev/null gh api:*)' 'Bash(>x gh api:*)' 'Bash(! gh api:*)' 'Bash(time gh api:*)' \
+    'Bash(A+=x gh api:*)' 'Bash(a.b=1 gh:*)' 'Bash(A=1)' 'Bash(coproc gh api:*)' 'Bash(if gh api:*)' \
+    'Bash(while gh api:*)' 'Bash(A=1 time gh api:*)'; do
+    reject "$r" '' 'Its first word is shell syntax or has shell syntax'
+done
+for r in 'Bash(/usr/bin/g[h] api:*)' 'Bash(/usr/bin/g? api:*)' 'Bash(/usr/bin/gi[t] log:*)' 'Bash(?h:*)' \
+    'Bash(A[1]=x gh api:*)'; do
+    reject "$r" '' 'Its first word has a glob, so it can run gh.'
+done
+# A lower-case or _ NAME=value word before gh does not hide it.
+reject 'Bash(gh_token=x gh api:*)' '' 'gh can read each PR comment.'
+reject 'Bash(_X=1 gh api:*)' '' 'gh can read each PR comment.'
+# Each Name(...) with only * and / in it is the bare Name.
+for r in 'Read(***)' 'Read(**/**)' 'Grep(/)' 'Glob(*/*)'; do
+    reject "$r" '' 'A bare rule reaches each path on the runner.'
+done
+for r in 'Bash(/)' 'Bash(//)' 'Bash(/*/)'; do
+    reject "$r" '' 'It allows each command, gh too.'
+done
 
 # Claude Code splits --allowedTools at spaces outside parentheses too. The
 # step splits at commas only, so a part that is not one rule must fail.
 # A comma inside parentheses splits a rule into two broken parts.
 for r in 'Bash(npm test:*) Bash(gh api:*)' 'Read(./src/**) WebFetch' 'WebSearch WebFetch' \
-    'Read(./src/**) Read' 'Bash(npm test:*' 'Bash(npm (x))' 'gh api:*)' 'Bash(x:*)y'; do
-    reject "$r"
+    'Read(./src/**) Read' 'Bash(npm test:*' 'Bash(npm (x))' 'gh api:*)' 'Bash(x:*)y' \
+    'Bash(x) WebFetch)' 'Bash(npm WebFetch(y)' '(gh api:*)'; do
+    reject "$r" '' 'It is not one Name or Name(...) rule'
 done
 reject 'Bash(foo,gh api:*)' 'Bash(foo'
 reject 'Bash(foo,gh api:*)' 'gh api:*)'
 # A quote could end the --allowedTools string in claude_args.
 # shellcheck disable=SC2016 # the rules are literal input text
 for r in 'x" --dangerously-skip-permissions "' 'Bash(npm "x":*)' "Bash(npm 'x':*)" 'Bash($(gh api):*)' \
-    'Bash(`gh`:*)' 'Bash(npm \x:*)'; do
+    'Bash(`gh`:*)' 'Bash(npm \x:*)' 'Bash(npm $HOME:*)'; do
     reject "$r"
 done
 
@@ -283,7 +313,9 @@ allow ' , ,'
 for r in 'Bash(npm test:*)' 'Bash(ghost:*)' 'Bash(github-cli-x:*)' 'Bash(gitleaks:*)' \
     'Read(./src/**)' 'Grep(./**)' 'mcp__github_inline_comment__create_inline_comment' \
     'WebSearch' 'Bash(npm test:*),Bash(composer lint:*)' 'Bash( npm test:*)' \
-    'Bash(FOO=1 npm test:*)' 'Bash(npm run build --mode=x:*)' 'Bash(npm test -- a.js)'; do
+    'Bash(FOO=1 npm test:*)' 'Bash(npm run build --mode=x:*)' 'Bash(npm test -- a.js)' \
+    'Bash(g++ -c:*)' 'Bash(./node_modules/.bin/eslint:*)' 'Bash(~/bin/lint:*)' 'Bash(FOO=1  npm test:*)' \
+    'Read(./**)' 'Glob(src/*)' 'Bash(timeout-check:*)'; do
     allow "$r"
 done
 

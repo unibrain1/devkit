@@ -238,18 +238,25 @@ has one of these forms:
 | A part that is not one `Name` or `Name(...)` rule, or that has a quote, a backquote, a `$`, or a backslash | `Read(./src/**) WebFetch`, `Bash(npm (x))`, `x" --flag "` | Claude Code also splits `--allowedTools` at spaces outside parentheses, so the step cannot check the part. A quote can end the `--allowedTools` value. Put a comma between rules |
 | A Bash rule whose first word is `gh` or ends in `/gh`. The step skips `NAME=value` words before the command | `Bash(gh api:*)`, `Bash(/usr/bin/gh issue view:*)`, `Bash(GH_TOKEN=x gh api:*)` | Reads PR comments |
 | A Bash rule that allows each command: no command, or a `*` in the first word | `Bash`, `Bash()`, `Bash(*)`, `Bash(g*:*)` | Allows `gh` too |
+| A Bash rule with a `?` or a `[` in the first word | `Bash(/usr/bin/g[h] api:*)`, `Bash(g? api:*)` | The shell can expand the glob to `gh` |
 | A Bash rule whose first word is `git` or ends in `/git` | `Bash(git log:*)` | Writes files (see "No git read commands for Claude") |
+| A Bash rule whose first word is a reserved word (`time`, `coproc`, `if`, `then`, `elif`, `else`, `while`, `until`, `do`, `case`, `for`, `select`, `function`), or has a character that is not a letter, a digit, `_`, `.`, `/`, `+`, `~`, or `-` | `Bash(gh</dev/null api:*)`, `Bash(2>/dev/null gh api:*)`, `Bash(! gh api:*)`, `Bash(coproc gh api:*)`, `Bash(A+=x gh api:*)` | Shell syntax can hide `gh` from the step |
 | `WebFetch` | `WebFetch`, `WebFetch(domain:github.com)` | Reads PR pages |
 | A GitHub MCP rule | `mcp__github`, `mcp__github__get_issue` | Reads issues and PRs |
-| A bare `Read`, `Grep`, or `Glob`. Claude Code applies `Name()`, `Name(*)`, and `Name(**)` as the bare `Name`, so the step checks them as the bare `Name` for each row | `Read`, `Read(*)`, `Grep()` | Reaches each path on the runner (see "File reach of the review") |
+| A bare `Read`, `Grep`, or `Glob` | `Read`, `Read(*)`, `Grep()`, `Read(***)` | Reaches each path on the runner (see "File reach of the review") |
+
+Claude Code applies `Name()`, `Name(*)`, and `Name(**)` as the bare `Name`.
+The step checks each `Name(...)` that has only `*` and `/` in it as the
+bare `Name`, in each row of the table.
 
 The check is a deny-list. It does not stop a rule for a command that runs
 other commands, for example `Bash(env:*)`, `Bash(bash:*)`, `Bash(xargs:*)`,
 `Bash(npx:*)`, `Bash(command:*)`, `Bash(exec:*)`, `Bash(timeout:*)`, or
 `Bash(sudo:*)`. Such a rule can run `gh`. It also does not stop a rule for
 a command that calls the GitHub API, for example `Bash(curl:*)`, or a
-GitHub MCP server with a different name. Do not add these rules. `tests/workflows/test-review-extra-tools.sh` runs the step
-on each form.
+GitHub MCP server with a different name. Do not add these rules.
+
+`tests/workflows/test-review-extra-tools.sh` runs the step on each form.
 
 `tests/workflows/test-review-comment-trust.sh` checks the env key, the
 fetch step before each Claude step, the file reads and trust text in each
