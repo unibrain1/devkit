@@ -70,7 +70,7 @@ The findings feed into Step 4's triage.
 | 0 | A review for the head commit exists, with no Blocking findings | Proceed to Step 2-3 |
 | 2 | A review for the head commit exists, with Blocking findings | Proceed to Step 2-3 — its findings feed into Step 4's triage same as any other comment |
 | 3 | The PR title has `[skip-review]` — review is intentionally skipped, not missing | Proceed to Step 2-3 (there is nothing from this source) |
-| 4 | No review after the poll and one recovery attempt | Report it. If the PR diff touches the review workflow file, report that distinctly: re-triggering does not help until the workflow file change is merged to `main`. Then proceed to Step 2-3 |
+| 4 | No review after the poll and one recovery attempt, or a review workflow file at the PR head differs from `main` | Report it. If stderr contains `requires a merge to main first`, report that distinctly: this branch or its base branch changed the file, and a re-run does not help until the change merges to `main`. If stderr contains `is an old copy`, report that distinctly: only `main` changed the file, so the PR branch must get the `main` copy (update the branch). Then proceed to Step 2-3 |
 | 1 | Could not verify (`gh` failed — auth/network/rate-limit) | Stop, report the actual `gh` error. Do NOT treat this as "no review posted". Tell the user to fix the `gh` problem, then type `/flow:address-pr-comments` again |
 
 Report to the user if recovery was needed and what happened — never

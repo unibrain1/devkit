@@ -166,10 +166,9 @@ flow-verify-ci-review <pr-number> 30 300 --trigger=workflow
   again.
 - **Exit 4, and stderr contains `requires a merge to main first`** — a
   review workflow file (a path that `flow-review-workflow-files` prints) at
-  the PR head is different from the copy on `main`. This PR, or an earlier
-  PR in the milestone, changed it. The review action skips a PR while any
-  of these files is different from `main`, so no review can post before
-  the merge.
+  the PR head differs from `main`, and this PR or an earlier PR in the
+  milestone changed it. The review action skips a PR while any of these
+  files is different from `main`, so no review can post before the merge.
   Report it. Ask with AskUserQuestion:
   `Proceed without the CI review` or `Stop`.
   - `Proceed without the CI review` → mark the PR ready:
@@ -177,6 +176,13 @@ flow-verify-ci-review <pr-number> 30 300 --trigger=workflow
     choice for Step 9. Go to Step 3.
   - `Stop` → stop. The PR stays draft. Tell the user to type
     `/flow:finish-issue <issue-number>` again when they choose to proceed.
+- **Exit 4, and stderr contains `is an old copy`** — a review workflow
+  file at the PR head is an old copy. Only `main` changed it. The CI Gate
+  fails for this PR, and a merge to `main` does not help. Report it. Stop.
+  The PR stays draft. Tell the user to do these steps:
+  1. Bring the `main` copy of the file onto the base branch.
+  2. Update the PR branch from its base branch.
+  3. Type `/flow:finish-issue <issue-number>` again.
 - **Exit 4, any other stderr** — no comment posted, even after the
   script's one recovery attempt. Report it and the stderr. Stop. The PR
   stays draft. Tell the user to fix the cause, then type

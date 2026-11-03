@@ -315,7 +315,12 @@ flow-verify-ci-review <pr-number> 30 300 --trigger=label \
   and proceed to Step 5.
 - **Exit 4** — no review comment for the head commit, even after the
   script's one recovery attempt. Show the script's stderr. Then check
-  whether the PR changes a review workflow file itself.
+  whether the milestone branch changed a review workflow file, so that its
+  copy at the PR head differs from `main`. The base of this PR is `main`,
+  so the PR file list holds each file that the branch changed after its
+  merge base with `main`. That is the `edited` case of the CI step "Check
+  workflow match". A file that only `main` changed is not in the list. The
+  CI step reports it as `stale`, and the Gate fails with a note.
   `flow-review-workflow-files` prints these files (see
   `docs/ci-workflows.md` in devkit). Run this on the milestone branch,
   because the script reads the caller from the work tree:

@@ -81,9 +81,19 @@ from its own repo (`uses: ./`). claude-code-action compares each of these
 files with the default branch. `flow-verify-ci-review` and
 `/flow:review-milestone` use this list to find a PR that cannot get a
 review before it merges. `flow-verify-ci-review` compares the blob of each
-file at the PR head with its blob on `main`, as the "Check workflow match"
-step does. A file that the PR does not change can also be different, for
-example after an earlier PR changed it on the milestone branch.
+file at the PR head with its blob on `main`. The "Check workflow match"
+step compares with the default branch. A file that the PR does not change
+can also be different, for example after an earlier PR changed it on the
+milestone branch. For a mismatch, `flow-verify-ci-review` reads the blob at
+the merge base of `main` and the head, as the CI step does. It then exits 4
+with one of two texts:
+
+- `requires a merge to main first` (edited): this branch or its base branch
+  changed the file. No review can post before the change merges to `main`.
+- `is an old copy` (stale): the head has the merge-base copy, and only
+  `main` changed the file. The Gate fails. Update the PR branch after its
+  base branch has the `main` copy.
+
 `flow-verify-ci-review` also takes the recovery workflow name from line 1.
 
 ### Fork PRs

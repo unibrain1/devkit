@@ -14,7 +14,8 @@
 #      `uses: ./`. flow-review-workflow-files lists them. The PR itself, or
 #      an earlier PR merged into its base branch, can change the file. This
 #      is intended security behavior. It does not clear until the change
-#      merges to main.
+#      merges to main. When only main changed the file, the PR head has an
+#      old copy. It clears when the PR branch gets the main copy.
 #   3. The model can stop before it returns a review.
 # The only proof is the review comment itself, never the job conclusion. This
 # script is the single place that checks the comment and runs the one
@@ -60,22 +61,27 @@
 #       important=0 with --include-important)
 #   1 = could not verify — a `gh` call failed (auth, network, rate limit),
 #       the head commit could not be read, flow-repo could not resolve the
-#       repo, flow-review-workflow-files or a blob lookup of the guard
-#       failed, or the arguments are not valid.
+#       repo, flow-review-workflow-files or a blob or merge base lookup of
+#       the guard failed, or the arguments are not valid.
 #       This is NOT the same as "no review posted".
 #   2 = a verdict for the head commit exists, but blocking > 0 (or, with
 #       --include-important, important > 0). See stdout for the counts.
 #   3 = no review, but the PR title has `[skip-review]` — the correct outcome
 #       by design (--check-skip-tag only)
 #   4 = no verdict for the head commit after the poll and one recovery
-#       attempt (or after the poll alone, with --trigger=none)
+#       attempt (or after the poll alone, with --trigger=none). With
+#       --trigger=workflow, also no verdict after the poll alone when a
+#       review workflow file at the PR head differs from main. stderr then
+#       holds "requires a merge to main first" (this branch or its base
+#       branch changed the file) or "is an old copy" (only main changed it)
 #   5 = reserved (not used. --include-important failures use exit 2, so
 #       every unresolved finding gives the same code)
 #
 # Recovery runs at most once. Sometimes recovery cannot help. For example,
 # with --trigger=workflow, a PR whose head has a review workflow file that
-# differs from main cannot get a review before the merge. The script then
-# prints why and exits 4. It does not loop.
+# differs from main cannot get a review before the merge, or before the PR
+# branch gets the main copy. The script then prints why and exits 4. It
+# does not loop.
 #
 # History: Registry #1724 (a throttle dropped the review event of PR Registry #1718), Registry #2314
 # (a review for an older head counted), Registry #2506 (the old heading test missed a
@@ -215,27 +221,65 @@ poll() {
   done
 }
 
-# Prints the blob SHA of <path> at <ref>, the same lookup as the "Check
-# workflow match" step of claude-review.yml. Prints nothing when the file is
+# gh_capture <gh args...>
+# Runs gh and sets GH_STATUS, GH_OUT (stdout) and GH_ERR (stderr). A notice
+# that gh prints on stderr then cannot change the value that the caller
+# matches. Returns 1 when it cannot make the temp file for stderr.
+gh_capture() {
+  local err
+  err="$(mktemp)" || return 1
+  GH_STATUS=0
+  GH_OUT="$(gh "$@" 2>"$err")" || GH_STATUS=$?
+  GH_ERR="$(cat "$err")"
+  rm -f "$err"
+  return 0
+}
+
+# Prints the blob SHA of <path> at <ref>. The "Check workflow match" step of
+# claude-review.yml does the same lookup. Prints nothing when the file is
 # absent at <ref> (HTTP 404): that step reads an absent file as no mismatch.
-# Returns 1 on any other failure, so the guard fails closed. When the call
-# fails, gh prints the HTTP status on stderr, so the combined output holds
-# "(HTTP 404)" for an absent file.
+# Returns 1 on any other failure, so the guard fails closed. The SHA test
+# reads stdout only. The 404 test reads stderr only, because gh prints the
+# HTTP status there.
 blob_sha() {
-  local path="$1" ref="$2" out
-  if out=$(gh api "repos/${REPO}/contents/${path}?ref=${ref}" --jq .sha 2>&1); then
-    if [[ $out =~ ^[0123456789abcdef]{40}([0123456789abcdef]{24})?$ ]]; then
-      printf '%s' "$out"
-      return 0
-    fi
-    echo "flow-verify-ci-review: could not verify: the blob of ${path} at ${ref} is not a SHA (got '${out}'), so the workflow-file guard cannot be checked." >&2
+  local path="$1" ref="$2"
+  if ! gh_capture api "repos/${REPO}/contents/${path}?ref=${ref}" --jq .sha; then
+    echo "flow-verify-ci-review: could not verify: could not make a temp file for the blob lookup of ${path} at ${ref}, so the workflow-file guard cannot be checked." >&2
     return 1
   fi
-  case "$out" in
+  if [ "$GH_STATUS" -eq 0 ]; then
+    if [[ $GH_OUT =~ ^[0123456789abcdef]{40}([0123456789abcdef]{24})?$ ]]; then
+      printf '%s' "$GH_OUT"
+      return 0
+    fi
+    echo "flow-verify-ci-review: could not verify: the blob of ${path} at ${ref} is not a SHA (got '${GH_OUT}'), so the workflow-file guard cannot be checked." >&2
+    return 1
+  fi
+  case "$GH_ERR" in
     *"(HTTP 404)"*) return 0 ;;
   esac
-  echo "flow-verify-ci-review: could not verify: the blob of ${path} at ${ref} could not be read, so the workflow-file guard cannot be checked: ${out}" >&2
+  echo "flow-verify-ci-review: could not verify: the blob of ${path} at ${ref} could not be read, so the workflow-file guard cannot be checked: ${GH_ERR}" >&2
   return 1
+}
+
+# Prints the merge base of main and <head SHA>. The "Check workflow match"
+# step gets it from the same compare call, with the default branch in place
+# of main. Returns 1 on any failure, so the guard fails closed.
+merge_base_sha() {
+  local head="$1"
+  if ! gh_capture api "repos/${REPO}/compare/main...${head}" --jq .merge_base_commit.sha; then
+    echo "flow-verify-ci-review: could not verify: could not make a temp file for the merge base lookup, so the workflow-file guard cannot be checked." >&2
+    return 1
+  fi
+  if [ "$GH_STATUS" -ne 0 ]; then
+    echo "flow-verify-ci-review: could not verify: the merge base of main and ${head} could not be read, so the workflow-file guard cannot be checked: ${GH_ERR}" >&2
+    return 1
+  fi
+  if ! [[ $GH_OUT =~ ^[0123456789abcdef]{40}$ ]]; then
+    echo "flow-verify-ci-review: could not verify: the merge base of main and ${head} is not a SHA (got '${GH_OUT}'), so the workflow-file guard cannot be checked." >&2
+    return 1
+  fi
+  printf '%s' "$GH_OUT"
 }
 
 # Initial poll.
@@ -278,29 +322,54 @@ else
       echo "flow-verify-ci-review: could not verify: flow-review-workflow-files failed, so the workflow-file guard cannot be checked." >&2
       exit 1
     fi
-    # The same test as the "Check workflow match" step of claude-review.yml:
-    # compare the blob at the PR head with the blob on main. The PR file
-    # list is not enough. After a change to the file merges into a
+    # Compare the blob at the PR head with the blob on main. The CI step
+    # "Check workflow match" compares with the default branch. The PR file
+    # list is not enough: after a change to the file merges into a
     # milestone branch, a later PR on that branch does not change the file,
     # but its head copy still differs from main, so the action skips it.
-    # A file that the PR changes also has a new head blob, so the blob test
-    # also covers each case that the file list found.
     if ! GUARD_HEAD_SHA=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefOid -q .headRefOid) \
         || ! [[ $GUARD_HEAD_SHA =~ ^[0123456789abcdef]{40}$ ]]; then
       echo "flow-verify-ci-review: could not verify: the head commit of PR #${PR_NUM} could not be read, so the workflow-file guard cannot be checked." >&2
       exit 1
     fi
+    # A mismatch is edited or stale, with the rule of the CI step. The blob
+    # at the merge base of main and the head tells them apart:
+    #   stale  - the head blob is the merge-base blob, so only main changed
+    #            the file. stale wins over edited, as in the CI step.
+    #   edited - this branch or its base branch changed the file. A file
+    #            that is absent at the merge base is also edited here. The
+    #            CI step reads it as no result, and the Gate fails.
+    # The merge base is read only at the first mismatch.
+    STALE_PATH=""
+    EDITED_PATH=""
+    MERGE_BASE=""
     while IFS= read -r WF_PATH; do
       [ -n "$WF_PATH" ] || continue
       MAIN_BLOB=$(blob_sha "$WF_PATH" main) || exit 1
       HEAD_BLOB=$(blob_sha "$WF_PATH" "$GUARD_HEAD_SHA") || exit 1
       # A file that is absent on one side is not a mismatch, as in the CI
       # step.
-      if [ -n "$MAIN_BLOB" ] && [ -n "$HEAD_BLOB" ] && [ "$MAIN_BLOB" != "$HEAD_BLOB" ]; then
-        echo "The review workflow itself (${WF_PATH}) at the PR head differs from main — the action's own workflow-file-must-match-main guard blocks a pre-merge re-run from clearing this. Recovery skipped; this requires a merge to main first. If only main changed the file, update the branch from main instead." >&2
-        exit 4
+      if [ -z "$MAIN_BLOB" ] || [ -z "$HEAD_BLOB" ] || [ "$MAIN_BLOB" = "$HEAD_BLOB" ]; then
+        continue
       fi
+      if [ -z "$MERGE_BASE" ]; then
+        MERGE_BASE=$(merge_base_sha "$GUARD_HEAD_SHA") || exit 1
+      fi
+      BASE_BLOB=$(blob_sha "$WF_PATH" "$MERGE_BASE") || exit 1
+      if [ "$HEAD_BLOB" = "$BASE_BLOB" ]; then
+        STALE_PATH="$WF_PATH"
+        break
+      fi
+      [ -n "$EDITED_PATH" ] || EDITED_PATH="$WF_PATH"
     done <<< "$REVIEW_FILES"
+    if [ -n "$STALE_PATH" ]; then
+      echo "Review workflow file ${STALE_PATH} at the PR head is an old copy. Only main changed it. Update the PR branch from its base branch, after the base branch has the main copy. Recovery skipped." >&2
+      exit 4
+    fi
+    if [ -n "$EDITED_PATH" ]; then
+      echo "The review workflow itself (${EDITED_PATH}) at the PR head differs from main — the action's own workflow-file-must-match-main guard blocks a pre-merge re-run from clearing this. Recovery skipped; this requires a merge to main first." >&2
+      exit 4
+    fi
     # Line 1 is the caller, the workflow that a recovery run starts.
     CALLER_WF=${REVIEW_FILES%%$'\n'*}
     CALLER_WF=${CALLER_WF##*/}

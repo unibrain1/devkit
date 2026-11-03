@@ -48,6 +48,8 @@ gh_stub_install "$STUBDIR" || exit 1
 # --- Fixtures ----------------------------------------------------------------
 # H1 is the head commit of the PR. H0 is an older commit of the same PR.
 H1="9fceb02d0ae598e95dc970b74767f19372d61af8"
+# The merge base that the compare stub prints by default.
+MB="3333333333333333333333333333333333333333"
 H0="3b18e512dba79e4c8300dd08aeb7f61b7a4f5da9"
 BOT="github-actions[bot]"
 T1="2026-10-20T10:00:00Z"
@@ -435,12 +437,30 @@ case "$args" in
         printf '%s' "${STUB_LABELS:-}"
         exit 0
         ;;
+    "api repos/"*"/compare/main..."*)
+        # The merge base lookup of the workflow-file guard.
+        #   STUB_MERGE_BASE        the merge base it prints (default MB)
+        #   STUB_COMPARE_FAIL=1    the lookup fails with HTTP 500
+        if [ "${STUB_COMPARE_FAIL:-0}" = "1" ]; then
+            printf '{"message":"Server Error","status":"500"}'
+            echo "gh: Server Error (HTTP 500)" >&2
+            exit 1
+        fi
+        printf '%s\n' "${STUB_MERGE_BASE:-3333333333333333333333333333333333333333}"
+        exit 0
+        ;;
     "api repos/"*"/contents/"*)
         # The blob lookups of the workflow-file guard. By default each file
-        # has the same blob at the head and on main.
+        # has the same blob at the head, on main, and at the merge base.
         #   STUB_BLOB_DIFF_PATH  this path has a different blob at the head
+        #   STUB_BLOB_STALE=1    the merge base has the head blob of
+        #                        STUB_BLOB_DIFF_PATH (only main changed it)
         #   STUB_BLOB_ABSENT_REF main or head: each file is absent there (404)
         #   STUB_BLOB_FAIL=1     each lookup fails with HTTP 500
+        #   STUB_BLOB_FAIL_REF   main, head or base: only lookups there fail
+        #                        with HTTP 500
+        #   STUB_BLOB_NULL_REF   main, head or base: lookups there print null
+        #   STUB_GH_NOTICE=1     each lookup prints a notice on stderr
         endpoint="$2"
         path="${endpoint#repos/*/*/contents/}"
         path="${path%%\?ref=*}"
@@ -452,7 +472,11 @@ case "$args" in
         done
         side=head
         [ "$ref" = "main" ] && side=main
-        if [ "${STUB_BLOB_FAIL:-0}" = "1" ]; then
+        [ "$ref" = "${STUB_MERGE_BASE:-3333333333333333333333333333333333333333}" ] && side=base
+        if [ "${STUB_GH_NOTICE:-0}" = "1" ]; then
+            echo "A new release of gh is available: 2.0.0 -> 2.1.0" >&2
+        fi
+        if [ "${STUB_BLOB_FAIL:-0}" = "1" ] || [ "${STUB_BLOB_FAIL_REF:-}" = "$side" ]; then
             printf '{"message":"Server Error","status":"500"}'
             echo "gh: Server Error (HTTP 500)" >&2
             exit 1
@@ -462,9 +486,16 @@ case "$args" in
             echo "gh: Not Found (HTTP 404)" >&2
             exit 1
         fi
+        if [ "${STUB_BLOB_NULL_REF:-}" = "$side" ]; then
+            echo null
+            exit 0
+        fi
         blob=1111111111111111111111111111111111111111
-        if [ "$side" = "head" ] && [ "$path" = "${STUB_BLOB_DIFF_PATH:-}" ]; then
-            blob=2222222222222222222222222222222222222222
+        if [ "$path" = "${STUB_BLOB_DIFF_PATH:-}" ]; then
+            if [ "$side" = "head" ] \
+                || { [ "$side" = "base" ] && [ "${STUB_BLOB_STALE:-0}" = "1" ]; }; then
+                blob=2222222222222222222222222222222222222222
+            fi
         fi
         jq -cn --arg sha "$blob" '{sha: $sha}' | jq -r "${filter:-.}"
         exit $?
@@ -624,9 +655,10 @@ fi
 # --- B7: the head blob of the caller differs from main -> 4, no recovery ----
 # STUB_POLL_EXIT=1 forces the recovery path to the workflow-file guard. The
 # PR file list does not have the file: an earlier PR merged the change into
-# the milestone branch. The CI step "Check workflow match" still reports
-# edited, so no re-run can post a review. The guard must not read the PR
-# file list, must skip recovery, and must exit 4 after one poll.
+# the milestone branch. The merge base has the main blob, so the CI step
+# "Check workflow match" reports edited, and no re-run can post a review.
+# The guard must not read the PR file list, must skip recovery, and must
+# exit 4 after one poll.
 OUT="$(STUB_POLL_EXIT=1 STUB_CHECK_EXIT=0 \
     STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S=$?
 POLLS="$(cat "$POLL_COUNT_FILE" 2>/dev/null || echo '?')"
@@ -634,11 +666,15 @@ if [ "$S" -eq 4 ] && [ "$POLLS" = "1" ] && ! grep -q 'workflow run' "$STUB_LOG" 
     && ! grep -q '/pulls/' "$STUB_LOG" \
     && grep -q "contents/.github/workflows/claude-code-review.yml?ref=$H1" "$STUB_LOG" \
     && grep -q 'contents/.github/workflows/claude-code-review.yml?ref=main' "$STUB_LOG" \
+    && grep -q "compare/main...$H1" "$STUB_LOG" \
+    && grep -q "contents/.github/workflows/claude-code-review.yml?ref=$MB" "$STUB_LOG" \
     && grep -q 'review workflow itself (.github/workflows/claude-code-review.yml)' <<< "$OUT" \
-    && grep -q 'requires a merge to main first' <<< "$OUT"; then
-    pass "B7: head blob of the caller differs from main, file not in the PR file list -> exit 4 with the explanation, no recovery run, one poll"
+    && grep -q 'requires a merge to main first' <<< "$OUT" \
+    && ! grep -q 'is an old copy' <<< "$OUT" \
+    && ! grep -q 'update the branch from main' <<< "$OUT"; then
+    pass "B7: head blob of the caller differs from main and from the merge base (edited) -> exit 4 with the explanation, no recovery run, one poll"
 else
-    fail "B7: head blob of the caller differs from main, file not in the PR file list -> exit 4 with the explanation, no recovery run, one poll" \
+    fail "B7: head blob of the caller differs from main and from the merge base (edited) -> exit 4 with the explanation, no recovery run, one poll" \
         "exit: $S (want 4)" "polls: $POLLS (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
 fi
 
@@ -728,6 +764,81 @@ if [ "$S" -eq 1 ] && grep -q 'could not verify' <<< "$OUT" \
 else
     fail "B7e: a blob lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run" \
         "exit: $S (want 1)" "output: [$OUT]"
+fi
+
+# --- B7e2: only the head-side blob lookup fails -> 1, no recovery ---------
+# The main lookup succeeds. A failed head lookup must not read as "absent".
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_FAIL_REF=head run_verify 2>&1)"; S=$?
+if [ "$S" -eq 1 ] && grep -q 'could not verify' <<< "$OUT" \
+    && grep -q "at $H1 could not be read" <<< "$OUT" \
+    && ! grep -q 'workflow run' "$STUB_LOG"; then
+    pass "B7e2: only the head-side blob lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run"
+else
+    fail "B7e2: only the head-side blob lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run" \
+        "exit: $S (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7f: the head has the merge-base copy, main changed it (stale) -> 4 ---
+# The CI step reports stale, and the Gate fails. A merge to main does not
+# help: the PR branch must get the main copy.
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_STALE=1 \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S=$?
+POLLS="$(cat "$POLL_COUNT_FILE" 2>/dev/null || echo '?')"
+if [ "$S" -eq 4 ] && [ "$POLLS" = "1" ] && ! grep -q 'workflow run' "$STUB_LOG" \
+    && grep -q "contents/.github/workflows/claude-code-review.yml?ref=$MB" "$STUB_LOG" \
+    && grep -q 'Review workflow file .github/workflows/claude-code-review.yml at the PR head is an old copy' <<< "$OUT" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT"; then
+    pass "B7f: head blob is the merge-base blob, main differs (stale) -> exit 4 with the old-copy text, no recovery run"
+else
+    fail "B7f: head blob is the merge-base blob, main differs (stale) -> exit 4 with the old-copy text, no recovery run" \
+        "exit: $S (want 4)" "polls: $POLLS (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7g: the merge base lookup fails -> 1, no recovery --------------------
+OUT="$(STUB_POLL_EXIT=1 STUB_COMPARE_FAIL=1 \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S=$?
+if [ "$S" -eq 1 ] && grep -q 'could not verify' <<< "$OUT" \
+    && grep -q 'merge base of main' <<< "$OUT" && grep -q 'HTTP 500' <<< "$OUT" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT" \
+    && ! grep -q 'workflow run' "$STUB_LOG"; then
+    pass "B7g: the merge base lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run"
+else
+    fail "B7g: the merge base lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run" \
+        "exit: $S (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7h: a lookup prints a value that is not a SHA -> 1 -------------------
+# Check a blob lookup at the head and at the merge base, and the merge base
+# lookup itself.
+OUT_H="$(STUB_POLL_EXIT=1 STUB_BLOB_NULL_REF=head run_verify 2>&1)"; S_H=$?
+LOG_H="$(cat "$STUB_LOG")"
+OUT_B="$(STUB_POLL_EXIT=1 STUB_BLOB_NULL_REF=base \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S_B=$?
+LOG_B="$(cat "$STUB_LOG")"
+OUT_M="$(STUB_POLL_EXIT=1 STUB_MERGE_BASE=null \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S_M=$?
+LOG_M="$(cat "$STUB_LOG")"
+if [ "$S_H" -eq 1 ] && grep -q "is not a SHA (got 'null')" <<< "$OUT_H" \
+    && ! grep -q 'workflow run' <<< "$LOG_H" \
+    && [ "$S_B" -eq 1 ] && grep -q "is not a SHA (got 'null')" <<< "$OUT_B" \
+    && ! grep -q 'workflow run' <<< "$LOG_B" \
+    && [ "$S_M" -eq 1 ] && grep -q "merge base of main and $H1 is not a SHA (got 'null')" <<< "$OUT_M" \
+    && ! grep -q 'workflow run' <<< "$LOG_M"; then
+    pass "B7h: a head blob, a merge-base blob, or a merge base of null -> exit 1, no recovery run"
+else
+    fail "B7h: a head blob, a merge-base blob, or a merge base of null -> exit 1, no recovery run" \
+        "exits: $S_H $S_B $S_M (want 1 1 1)" "outputs: [$OUT_H] [$OUT_B] [$OUT_M]"
+fi
+
+# --- B7i: a gh notice on stderr does not hide the SHA on stdout ------------
+# The SHA test reads stdout only, so the equal blobs give the recovery run.
+OUT="$(STUB_POLL_EXIT=1 STUB_GH_NOTICE=1 run_verify 2>&1)"; S=$?
+if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' "$STUB_LOG" \
+    && ! grep -q 'could not verify' <<< "$OUT"; then
+    pass "B7i: gh prints a notice on stderr and a SHA on stdout -> the SHA counts, the recovery runs"
+else
+    fail "B7i: gh prints a notice on stderr and a SHA on stdout -> the SHA counts, the recovery runs" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
 fi
 
 # --- B8: the head commit lookup of the guard fails -> 1 ---------------------
