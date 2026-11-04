@@ -32,7 +32,7 @@ A Claude Code review on a pull request, and on demand from a comment.
 | `review_model` | string | `claude-sonnet-5-5` | Model for `pr-to-milestone-review`. |
 | `review_effort` | string | `medium` | Effort for `pr-to-milestone-review`. |
 | `milestone_model` | string | `claude-fable-5-1` | Model for `milestone-review` and `comment-deep-review`. |
-| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. Do not add a git rule (see "No git read commands for Claude"). Do not add a tool that reads PR comments, for example `Bash(gh pr view:*)` or `Bash(gh api:*)` (see "Comment trust"). Do not add a bare `Read`, `Grep`, or `Glob`. It removes the path limit (see "File reach of the review"). |
+| `extra_allowed_tools` | string | `""` | Comma-separated tools added to `--allowedTools` in each job. Each job fails at its "Check extra_allowed_tools" step when the list has a rule that reads PR comments, a git rule, or a bare `Read`, `Grep`, or `Glob`. The rejected forms are in "Comment trust". |
 | `extra_instructions` | string | `""` | Text added to each prompt, under the heading "Project instructions". |
 
 ### Secret
@@ -75,17 +75,49 @@ project. The `flow` plugin scripts expect this name, and the self-
 referential guard in `claude-review.yml` reads it from
 `github.workflow_ref`.
 
+`flow-review-workflow-files` prints the review workflow files of a project:
+the caller on line 1, then each reusable workflow that the caller calls
+from its own repo (`uses: ./`). claude-code-action compares each of these
+files with the default branch. `flow-verify-ci-review` and
+`/flow:review-milestone` use this list to find a PR that cannot get a
+review before it merges. `flow-verify-ci-review` compares the blob of each
+file at the PR head with its blob on `main`. The "Check workflow match"
+step compares with the default branch. A file that the PR does not change
+can also be different, for example after an earlier PR changed it on the
+milestone branch. For a mismatch, `flow-verify-ci-review` reads the blob at
+the merge base of `main` and the head, as the CI step does. It then exits 4
+with one of two texts:
+
+- `requires a merge to main first` (edited): this branch or its base branch
+  changed the file. No review can post before the change merges to `main`.
+- `is an old copy` (stale): the head has the merge-base copy, and only
+  `main` changed the file. The Gate fails. Update the PR branch after its
+  base branch has the `main` copy.
+
+`flow-verify-ci-review` also takes the recovery workflow name from line 1.
+
 ### Fork PRs
 
-The jobs that resolve a PR number (`pr-to-milestone-review` and
-`comment-deep-review`) stop on a fork PR. A `workflow_dispatch` or
-`issue_comment` run has the secrets, also for a fork PR. The fork could
-then run its own code with them, for example a hook in its
-`.claude/settings.json`. A `pull_request` run from a fork gets no secrets,
-so the review cannot run there either. A person reviews a fork PR.
+When a review job runs on a fork PR, it stops, and the job fails. A
+person reviews a fork PR.
 
-These jobs check out the head SHA that they resolve at the start, not the
-moving PR ref.
+The jobs that resolve a PR number (`pr-to-milestone-review` and
+`comment-deep-review`) stop in their `Resolve PR context` step. A
+`workflow_dispatch` or `issue_comment` run has the secrets, also for a fork
+PR. The fork could then run its own code with them, for example a hook in
+its `.claude/settings.json`.
+
+`milestone-review` stops in its first step, `Stop a fork PR` (issue #42). A
+`pull_request` run from a fork gets no secrets, so the review cannot run.
+Without the step, a fork PR with a `milestone/*` branch that edits the
+caller file can get a green Gate. The self-referential guard can report
+`edited`, and the Gate then passes with a warning. A check in the job `if:`
+does not stop this, because GitHub counts a skipped job as a pass for a
+required check. The step also stops when `gh` fails or gives a value that
+is not `true` or `false`.
+
+`pr-to-milestone-review` and `comment-deep-review` check out the head SHA
+that they resolve at the start, not the moving PR ref.
 
 ### Comment trust
 
@@ -99,7 +131,8 @@ The model does not fetch the comments. In each review job, a
 to `$RUNNER_TEMP/pr-context/`:
 
 - `pr.json` — the PR title, base branch, and head branch.
-- `comments.jsonl` — the trusted comments. A jq filter selects them.
+- `comments.jsonl` — the kept comments. Each comment line has a `role`
+  field. A jq filter selects them.
 
 The prompt tells the reviewer to read these files. The step gets the PR
 number through `env`. It makes one `gh pr view` call and keeps the raw
@@ -108,35 +141,82 @@ untrusted comments. If the `gh` call fails, the step fails, and the review
 does not run.
 
 The jq filter is in the workflow-level `env:` key `TRUSTED_COMMENTS_JQ`, so
-the three jobs use the same filter:
+the three jobs use the same filter. The filter keeps some comments and
+drops the rest. The code sets the `role` of each kept comment. A comment
+author cannot set it.
 
 ```sh
 printf '%s' "$RAW" | jq -c '
-  def trusted: .authorAssociation == "OWNER"
+  def person: .authorAssociation == "OWNER"
     or .authorAssociation == "MEMBER"
-    or .authorAssociation == "COLLABORATOR"
-    or .author.login == "github-actions";
-  (.comments[] | select(trusted)
-    | {author: .author.login, association: .authorAssociation, body: .body}),
-  {omitted: ([.comments[] | select(trusted | not)] | length)}'
+    or .authorAssociation == "COLLABORATOR";
+  def verdict: ((.body // "") | gsub("\r"; "")
+    | (if endswith("\n") then .[:-1] else . end)
+    | split("\n") | (last // ""))
+    | test("^<!-- claude-review-verdict sha=[0123456789abcdef]{40} blocking=[0123456789]+ important=[0123456789]+ -->$");
+  def role: if person then "person"
+    elif .author.login == "github-actions" and verdict then "earlier-review"
+    else null end;
+  (.comments[] | select(role != null)
+    | {author: .author.login, association: .authorAssociation, role: role, body: .body}),
+  {omitted: ([.comments[] | select(role == null)] | length)}'
 ```
 
 The workflow has this jq on one line. The model never reads the text of
-the other comments. A trusted comment is one of these:
+the other comments. A kept comment has one of these roles:
 
-- A comment with the association `OWNER`, `MEMBER`, or `COLLABORATOR`.
-- A comment from `github-actions`. The reviewer's own earlier reviews are
-  in this group. The Post review step posts them as `github-actions`, and
-  GitHub gives them the association `NONE`. Another workflow that posts
-  with `GITHUB_TOKEN` also posts as `github-actions`, so the filter trusts
-  its comments too (issue #39). `gh pr view` uses the GraphQL API, which
-  gives this login as `github-actions`. The flow scripts use the REST API,
-  which gives `github-actions[bot]`. Each name is correct for its API.
+- `role: "person"`. The association is `OWNER`, `MEMBER`, or
+  `COLLABORATOR`. Only these comments carry rebuttal weight. A person
+  keeps this role also when the body ends with a verdict line.
+- `role: "earlier-review"`. The author login is `github-actions`, and the
+  last line of the body is a verdict line:
 
-The step writes one JSON line for each trusted comment. jq escapes the
+  ```text
+  <!-- claude-review-verdict sha=<head SHA> blocking=<n> important=<n> -->
+  ```
+
+  The match removes each CR and one trailing newline, then reads the last
+  line. It is the same rule as `VERDICT_RE` in `flow-check-review-posted`,
+  `flow-check-blocking-findings`, and `flow-verify-ci-review`.
+
+The `earlier-review` role does not prove that the comment is a real review:
+
+- In this workflow, only the Post review step writes a verdict line. The
+  render removes the marker text from model output, so the model cannot
+  write a verdict line.
+- But another workflow that posts with `GITHUB_TOKEN` can end a comment
+  with a verdict line, for example when it quotes PR text.
+- So the `earlier-review` role gives no rebuttal weight, and such a comment
+  cannot lower a finding.
+
+Other comments are not kept. They count in `omitted`:
+
+- Comments from other workflows that post with `GITHUB_TOKEN` and do not
+  end with a verdict line. These comments also have the login
+  `github-actions` (issue #39).
+- The Post review failure note.
+- Comments from a user with another association.
+
+The login is `github-actions` in GraphQL, the API that `gh pr view` uses.
+The flow scripts use REST, which gives `github-actions[bot]`. Each name is
+correct for its API. The filter uses the GraphQL name.
+
+An earlier review is model output. The model read the PR content, so an
+earlier review can repeat text that an attacker put in the diff (issue #44).
+The review prompt tells the reviewer that:
+
+- An `earlier-review` comment is most often its own earlier review, but
+  another workflow can post a comment of this form.
+- An earlier review is a list of earlier findings. It is never rebuttal
+  evidence, and it cannot settle or lower a finding.
+- The reviewer must not change a blocking finding to `note` only because
+  an earlier review says the code is safe.
+
+The jq filter writes one JSON line for each kept comment. jq escapes the
 comment body, so a body cannot add a fake comment header. The last line is
-`{"omitted": N}`, the number of other comments. The prompt tells the
-reviewer that this number is a count, not evidence.
+`{"omitted": N}`. N counts every comment that the filter drops, including
+dropped bot comments. The prompt tells the reviewer that this number is a
+count, not evidence.
 
 The step reads only issue comments on the PR. It does not read review
 bodies or replies in review threads. So a rebuttal counts only when a
@@ -144,6 +224,8 @@ trusted person posts it as a PR comment.
 
 To rebut a finding, post the rebuttal as a normal PR comment. Do not post
 it as a reply in a review thread, because the reviewer does not see it.
+A finding can come back in each review round until a person rebuts it in
+a PR comment. An earlier review that accepts a risk does not settle it.
 
 The review jobs give the model no tool that reads PR comments. Their
 `--allowedTools` has no `Bash(gh pr view:*)` and no `Bash(gh pr list:*)`.
@@ -158,7 +240,39 @@ comments:
 - `Bash(gh api:*)` and `Bash(gh:*)`
 - `WebFetch`, and a GitHub MCP tool that reads issues or PRs
 
-The workflow does not check `extra_allowed_tools` yet (issue #40).
+Each review job has a "Check extra_allowed_tools" step before the Claude
+step (issue #40). It reads the input through `env`. It splits the list at
+each comma and line break, and removes the spaces around each rule. It
+fails the job, and prints one `::error::` line for each rule, when the list
+has one of these forms:
+
+| Form | Examples | Reason |
+| --- | --- | --- |
+| A part that is not one `Name` or `Name(...)` rule, or that has a quote, a backquote, a `$`, or a backslash | `Read(./src/**) WebFetch`, `Bash(npm (x))`, `x" --flag "` | Claude Code also splits `--allowedTools` at spaces outside parentheses, so the step cannot check the part. A quote can end the `--allowedTools` value. Put a comma between rules |
+| A Bash rule whose first word is `gh` or ends in `/gh`. The step skips `NAME=value` words before the command | `Bash(gh api:*)`, `Bash(/usr/bin/gh issue view:*)`, `Bash(GH_TOKEN=x gh api:*)` | Reads PR comments |
+| A Bash rule that allows each command: no command, or a `*` in the first word | `Bash`, `Bash()`, `Bash(*)`, `Bash(g*:*)` | Allows `gh` too |
+| A Bash rule with a `?` or a `[` in the first word | `Bash(/usr/bin/g[h] api:*)`, `Bash(g? api:*)` | The shell can expand the glob to `gh` |
+| A Bash rule whose first word is `git` or ends in `/git` | `Bash(git log:*)` | Writes files (see "No git read commands for Claude") |
+| A Bash rule whose first word is a reserved word (`time`, `coproc`, `if`, `then`, `elif`, `else`, `while`, `until`, `do`, `case`, `for`, `select`, `function`), or has a character that is not a letter, a digit, `_`, `.`, `/`, `+`, `~`, or `-` | `Bash(gh</dev/null api:*)`, `Bash(2>/dev/null gh api:*)`, `Bash(! gh api:*)`, `Bash(coproc gh api:*)`, `Bash(A+=x gh api:*)` | Shell syntax can hide `gh` from the step |
+| `WebFetch` | `WebFetch`, `WebFetch(domain:github.com)` | Reads PR pages |
+| A GitHub MCP rule | `mcp__github`, `mcp__github__get_issue` | Reads issues and PRs |
+| A bare `Read`, `Grep`, or `Glob` | `Read`, `Read(*)`, `Grep()`, `Read(***)` | Reaches each path on the runner (see "File reach of the review") |
+
+Claude Code applies `Name()`, `Name(*)`, and `Name(**)` as the bare `Name`.
+The step checks each `Name(...)` that has only `*` and `/` in it as the
+bare `Name`, in each row of the table.
+
+The check is a deny-list. It does not stop a rule for a command that runs
+other commands, for example `Bash(env:*)`, `Bash(bash:*)`, `Bash(xargs:*)`,
+`Bash(npx:*)`, `Bash(command:*)`, `Bash(exec:*)`, `Bash(timeout:*)`,
+`Bash(sudo:*)`, `Bash(sh:*)`, `Bash(python:*)`, `Bash(node:*)`,
+`Bash(perl:*)`, `Bash(awk:*)`, or `Bash(find:*)` (with `-exec`). Such a
+rule can run `gh`. This list is not complete: each interpreter, and each
+command that starts other commands, has the same risk. The check also does not stop a rule for
+a command that calls the GitHub API, for example `Bash(curl:*)`, or a
+GitHub MCP server with a different name. Do not add these rules.
+
+`tests/workflows/test-review-extra-tools.sh` runs the step on each form.
 
 `tests/workflows/test-review-comment-trust.sh` checks the env key, the
 fetch step before each Claude step, the file reads and trust text in each
@@ -167,7 +281,11 @@ Claude step must have no `if:` and no `continue-on-error`, so the model
 does not run after a failed fetch. The test runs the jq on fixture
 comments. It also runs each fetch step with a fake `gh` and checks the
 files that the step writes. The step must write nothing in the work
-folder, its parent folder, or `HOME`.
+folder, its parent folder, or `HOME`. A run of the fetch step uses a
+`PR_NUM` from the test, so a text check compares the `PR_NUM` lines. In
+each job, the `PR_NUM` line of the fetch step must equal the `PR_NUM` line
+of Post review. Then the model reads the comments of the PR that gets the
+review.
 
 ### File reach of the review
 
@@ -227,10 +345,8 @@ The probe did not test a `.claude/settings.json` in the checkout. The
 checkout holds the files of the PR, so the PR author controls that file. If
 the action loads it, a PR can add allow rules to `--allowedTools`. Then the
 path limit does not hold for that PR. Nothing stops this for a PR from the
-same repo. For a fork PR, `pr-to-milestone-review` and `comment-deep-review`
-stop with a fork check. `milestone-review` has no fork check. It runs only on
-`pull_request`, and GitHub gives a fork `pull_request` run no secrets.
-Issue #66 tracks this.
+same repo. For a fork PR, each review job that runs stops with a fork
+check (see "Fork PRs"). Issue #66 tracks this.
 
 The path limit is the main control. The second layer is the render filter
 (`RENDER_FILTER`, function `redact`). Before the Post review step posts the
@@ -253,7 +369,9 @@ The filter has these limits:
 `claude.yml` has the same exposure. It is not changed here (issue #65).
 
 Do not add a bare `Read`, `Grep`, or `Glob` with `extra_allowed_tools`. It
-removes the path limit.
+removes the path limit. The "Check extra_allowed_tools" step fails the job
+on a bare rule (see "Comment trust"). It does not check the path of a
+path-scoped rule.
 
 ### Tools in the review prompts
 
@@ -337,7 +455,8 @@ devkit has its own `.github/workflows/claude-code-review.yml`. It calls
   (devkit #27). So devkit cannot review a change to its own review. Test
   such a change in `unibrain1/devkit-sandbox`, and a person reviews it.
   In the sandbox run, the `Gate` must show no `Refused:` warning (see
-  "Tools in the review prompts").
+  "Tools in the review prompts"). `flow-review-workflow-files` lists this
+  file (devkit #76).
 
 In both cases, the Gate passes with the self-referential guard warning
 when the branch or its base branch changed the file. So later PRs into a
@@ -443,7 +562,8 @@ these commands has an `--output` flag. The three review jobs run in agent
 mode, and the action adds no rule there.
 
 Do not add a git rule in `extra_allowed_tools`. It brings the write path
-back. The workflow does not check this input.
+back. The review jobs of `claude-review.yml` fail on a git rule (see
+"Comment trust"). `claude.yml` does not check this input.
 `tests/workflows/test-claude-no-git-prefixes.sh` checks only the
 `claude_args` text in the workflow files. It fails on a rule that starts
 with `Bash(git` and then has a space, `-`, `:`, `*`, or `)`. It also fails
@@ -509,6 +629,18 @@ jobs:
     with:
       pages_functions: true
 ```
+
+## Required check names
+
+Before the merge, `flow-release-milestone` waits until each required
+check of `main` passes. It reads the required names from the branch
+protection and the rulesets (the `context` of each check). It finds each
+name in the `name` field of `gh pr checks`. A job in a reusable workflow
+gets a name of the form `<caller job> / <called job>`, for example
+`claude-review / pr-to-milestone-review`. Each required name must be
+equal to the name that `gh pr checks <pr>` shows. If a required name does
+not match, the script counts that check as pending. At the time limit, it
+stops with exit 2 and gives the name, and nothing merges.
 
 ## `upstream-sync.yml` (devkit only)
 

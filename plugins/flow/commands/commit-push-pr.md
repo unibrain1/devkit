@@ -109,7 +109,7 @@ prose.
       the first kept branch in the list. If none is kept, keep `origin/main`.
    3. Make a temp file for the file list with `mktemp`. Put the base ref in
       place of `<base-ref>` and the temp file in place of `<files-list>`.
-      Run these two commands, one at a time:
+      Run these two commands, in two separate Bash calls:
 
       ```bash
       git diff --name-only --merge-base <base-ref> > <files-list>

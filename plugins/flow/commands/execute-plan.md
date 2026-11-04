@@ -158,14 +158,27 @@ actually present (repo state contradicts the checkbox — flag this explicitly,
 it means a previous run's edit was reverted, lost, or never actually
 committed to disk), and which are genuinely not started.
 
-**If any item is marked `[x]` but repo state contradicts it**, use
-AskUserQuestion before proceeding — do not decide this yourself and do not
-silently re-do or silently trust the checkbox:
+**If any item is marked `[x]` but repo state contradicts it**, ask the user
+before you continue. Do not decide this yourself. Do not redo the item or
+trust the checkbox with no question. Ask about all such items in one round,
+as the `flow:workflow` skill, `references/review.md`, "Decision rounds",
+says:
 
+- Collect every contradicted item before you ask.
+- Put one item in each question, and at most 4 questions in one
+  AskUserQuestion call. For more than 4 items, send the next call directly
+  after you get the answers.
+  Do no other work between the calls.
 - Question: "Plan says '`<item>`' is done, but I don't see it in `<file>`.
   How should I proceed?"
-- Options: `Treat as not done, redo it` (recommended), `It's actually done —
-  update the checkbox, don't redo`, `Let me look myself first`
+- Options: `Treat as not done, redo it`, `It's actually done — update the
+  checkbox, don't redo`, `Let me look myself first`. Put
+  `Treat as not done, redo it` first, with `(Recommended)` in its label.
+  Its description gives the reason.
+
+Act on the answers only after the last call. If an answer is
+`Let me look myself first`, act on the other answers. Then stop and report
+that item to the user. Do not continue to Step 4.
 
 This discrepancy is exactly the kind of drift the re-verification step
 exists to catch, so it always goes to the user — never resolved
@@ -388,19 +401,34 @@ deleted from it, so they do not show here.
 - **Exit 0, every line is in the plan's Ledger items section** — the plan
   approved these items and they are not fixed yet. Fix each one now, as in
   Step 5 ("Ledger items"), or mark it N/A in Step 8. Proceed to Step 6.7.
-- **Exit 0, a line not in the plan** — offer it, don't fix it
-  unconditionally and don't silently skip it. For each new item, in order:
-  state the file and item text, then AskUserQuestion: "`<file>` has an
-  open cleanup-ledger item not in this plan: `<item text>`. Fix it in this
-  PR?" Options: `Fix now` (recommended only when the fix is small and
-  doesn't expand scope beyond the plan's files), `Add to plan and fix now`
-  (recommended when it's larger — updates the Implementation Checklist
-  first, then fixes), `Leave for its own PR`. Act on the answer: `Fix now`
-  or `Add to plan and fix now` — fix it, delete its line from the ledger
-  file as in Step 5, then add the item to the plan's `## Ledger items`
-  section as ``- [x] <item text> — `<path>` ``, word for word;
-  `Leave for its own PR` — no action here, it stays in the ledger for a
-  future branch that's asked the same way.
+- **Exit 0, a line not in the plan** — offer it. Do not fix it with no
+  question, and do not skip it with no record. Ask about all new items in
+  one round, as the `flow:workflow` skill, `references/review.md`,
+  "Decision rounds", says:
+  - Collect every new item before you ask.
+  - Put one item in each question, and at most 4 questions in one
+    AskUserQuestion call. For more than 4 items, send the next call
+    directly after you get the answers.
+    Do no other work between the calls.
+  - Each question states the file and the item text: "`<file>` has an open
+    cleanup-ledger item not in this plan: `<item text>`. Fix it in this
+    PR?"
+  - The options are `Fix now`, `Add to plan and fix now` and
+    `Leave for its own PR`. Put the recommended option first, with
+    `(Recommended)` in its label. Its description gives the reason.
+    Recommend `Fix now` only when the fix is small and stays in the plan's
+    files. Recommend `Add to plan and fix now` when the fix is larger.
+
+  Act on the answers only after the last call, in item order:
+  - `Fix now` — fix it. Delete its line from the ledger file as in Step 5.
+    Add the item to the plan's `## Ledger items` section as
+    ``- [x] <item text> — `<path>` ``, word for word.
+  - `Add to plan and fix now` — add the item to the Implementation
+    Checklist in the checklist item form, with its file and its
+    parallel-safety annotation. Then do the same steps as for `Fix now`.
+    Then tick the new checklist line (`- [x]`).
+  - `Leave for its own PR` — no action. The item stays in the ledger for a
+    later branch.
 - **Exit 2** — the ledger file is missing or unreadable. Treat it as
   "can't verify," not "clean". Tell the user and continue. This check does
   not block the rest of the workflow.
@@ -607,12 +635,26 @@ branch still has the same fingerprint.
 
 Before moving to hand-off, re-scan the plan file: every checklist item should
 now be `[x]` or carry the N/A marker below. If any other item remains `[ ]`,
-use AskUserQuestion rather than deciding
-yourself — even when it looks like the item turned out to be unnecessary:
+ask the user. Do not decide yourself, even when the item looks unnecessary.
+Ask about all such items in one round, as the `flow:workflow` skill,
+`references/review.md`, "Decision rounds", says:
 
+- Collect every unchecked item before you ask.
+- Put one item in each question, and at most 4 questions in one
+  AskUserQuestion call. For more than 4 items, send the next call directly
+  after you get the answers.
+  Do no other work between the calls.
 - Question: "'`<item>`' is still unchecked. How should I handle it?"
 - Options: `Mark N/A with a reason` (only offer this when you can state why
-  it turned out unnecessary), `Do the work now`, `Let me look myself first`
+  it turned out unnecessary), `Do the work now`, `Let me look myself first`.
+  Put the recommended option first, with `(Recommended)` in its label. Its
+  description gives the reason. Recommend `Mark N/A with a reason` when you
+  can state why the item is unnecessary. Otherwise recommend
+  `Do the work now`.
+
+Act on the answers only after the last call. If an answer is
+`Let me look myself first`, act on the other answers. Then stop and report
+that item to the user. Do not set the status line.
 
 Do not silently leave unchecked items with no explanation, and do not
 silently mark something N/A on your own judgment — that defeats the purpose
@@ -711,8 +753,8 @@ within this command — that happens later, at merge time, not here.
   unannotated items.
 - **Surface discrepancies, never silently resolve them** — a checked item
   that isn't actually in the repo, or unchecked items with no remaining work,
-  both get raised to the user via AskUserQuestion (Steps 3 and 8), never
-  decided unilaterally.
+  both get raised to the user via AskUserQuestion (Steps 3 and 8), all in
+  one round, never decided unilaterally.
 - **Never assume — verify via code or ask.** Objective facts about the repo
   (does the file exist, does the test pass, is this function already
   implemented) get checked directly — grep/read/run it, don't guess and
@@ -733,8 +775,8 @@ within this command — that happens later, at merge time, not here.
   `/flow:review-pr`.
 - **Check the cleanup ledger for touched files, offer to fix, never fix
   unconditionally and never silently skip** (Step 6.6) — a file this plan
-  ends up touching may carry an open ledger item the plan never saw. Ask the
-  user per item; act on their answer.
+  ends up touching may carry an open ledger item the plan never saw. Ask
+  about all items in one round. Act on the answers after the last call.
 - **A fixed ledger item leaves the ledger in the same branch** — delete its
   line from the `ledger` file (Step 5, "Ledger items").
 - **Never absorb a deviation** — a change the plan did not approve stops

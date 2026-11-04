@@ -13,8 +13,9 @@
 # real jq filter of the script on fixture JSON, so a wrong filter fails here.
 # The fixtures are issue comments in the real GitHub shape (id, created_at,
 # user.login, body). Part B runs a copy of flow-verify-ci-review beside stub
-# sibling scripts, which the copy finds through its own SCRIPT_DIR. No network
-# and no real gh.
+# sibling scripts, which the copy finds through its own SCRIPT_DIR. flow-repo
+# and flow-review-workflow-files are the real scripts. The copy runs in a
+# fixture git repo with a caller file. No network and no real gh.
 #
 # Environment (optional): CHECK_BLOCKING_SCRIPT and VERIFY_SCRIPT point the
 # test at other copies of the scripts. The proof that a case can fail uses it
@@ -47,6 +48,8 @@ gh_stub_install "$STUBDIR" || exit 1
 # --- Fixtures ----------------------------------------------------------------
 # H1 is the head commit of the PR. H0 is an older commit of the same PR.
 H1="9fceb02d0ae598e95dc970b74767f19372d61af8"
+# The merge base that the compare stub prints by default.
+MB="3333333333333333333333333333333333333333"
 H0="3b18e512dba79e4c8300dd08aeb7f61b7a4f5da9"
 BOT="github-actions[bot]"
 T1="2026-10-20T10:00:00Z"
@@ -361,21 +364,30 @@ VSCRIPTS="$TMPROOT/vscripts"
 mkdir -p "$VSCRIPTS"
 cp "$VERIFY_SCRIPT" "$VSCRIPTS/flow-verify-ci-review"
 chmod +x "$VSCRIPTS/flow-verify-ci-review"
-# The copy finds flow-repo beside itself, so it needs the real one.
+# The copy finds flow-repo and flow-review-workflow-files beside itself, so
+# it needs the real ones.
 cp "$REAL_REPO/plugins/flow/bin/flow-repo" "$VSCRIPTS/flow-repo"
+cp "$REAL_REPO/plugins/flow/bin/flow-review-workflow-files" "$VSCRIPTS/flow-review-workflow-files"
+
+# flow-review-workflow-files reads the caller from the work tree. Each run
+# goes in a fixture repo, not in the repo that runs the tests. The default
+# caller calls the reusable review @main, as a caller repo does (#76).
+VERIFY_WORKDIR="$TMPROOT/caller-repo"
+mkdir -p "$VERIFY_WORKDIR/.github/workflows"
+git -C "$VERIFY_WORKDIR" init -q
+CALLER_FILE="$VERIFY_WORKDIR/.github/workflows/claude-code-review.yml"
+CALLER_REMOTE='jobs:
+  claude-review:
+    uses: unibrain1/devkit/.github/workflows/claude-review.yml@main'
+CALLER_LOCAL='jobs:
+  claude-review:
+    uses: ./.github/workflows/claude-review.yml'
+printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
 
 POLL_COUNT_FILE="$TMPROOT/poll-count"
 CHECK_ARGS_LOG="$TMPROOT/check-args.log"
 export CHECK_ARGS_LOG
 
-# Built once: the matching path, then 50000 more. That is about 540 KB, far
-# past a pipe buffer. The #2225 bug showed every time from 10000 lines up.
-DIFF_MATCH_FILE="$TMPROOT/gh-diff-match.txt"
-{
-    printf '%s\n' '.github/workflows/claude-code-review.yml'
-    seq 1 50000 | sed 's|^|app/f|'
-} > "$DIFF_MATCH_FILE"
-export DIFF_MATCH_FILE
 
 # Stub flow-poll-review-posted. The first call exits STUB_POLL_EXIT. When
 # STUB_POLL2_EXIT is set, the second call exits with it instead. A counter
@@ -425,23 +437,85 @@ case "$args" in
         printf '%s' "${STUB_LABELS:-}"
         exit 0
         ;;
-    "api repos/"*"/pulls/"*"/files"*)
-        case "${STUB_DIFF_MODE:-}" in
-            large-match)
-                # exec, so the exit code is the SIGPIPE code of cat. An
-                # `exit 0` would hide the code that the old bug read.
-                exec cat "${DIFF_MATCH_FILE:?DIFF_MATCH_FILE not set}"
-                ;;
-            small-match)
-                printf '%s\n' 'app/index.php' '.github/workflows/claude-code-review.yml'
-                exit 0
-                ;;
-            fail)
-                echo "gh: simulated PR file list failure (stub)" >&2
-                exit 1
-                ;;
-            *) exit 0 ;;
-        esac
+    "api repos/"*"/compare/main..."*)
+        # The merge base lookup of the workflow-file guard.
+        #   STUB_MERGE_BASE        the merge base it prints (default MB)
+        #   STUB_COMPARE_FAIL=1    the lookup fails with HTTP 500
+        if [ "${STUB_COMPARE_FAIL:-0}" = "1" ]; then
+            printf '{"message":"Server Error","status":"500"}'
+            echo "gh: Server Error (HTTP 500)" >&2
+            exit 1
+        fi
+        printf '%s\n' "${STUB_MERGE_BASE:-3333333333333333333333333333333333333333}"
+        exit 0
+        ;;
+    "api repos/"*"/contents/"*)
+        # The blob lookups of the workflow-file guard. By default each file
+        # has the same blob at the head, on main, and at the merge base.
+        #   STUB_BLOB_DIFF_PATH  this path has a different blob at the head
+        #   STUB_BLOB_STALE=1    the merge base has the head blob of
+        #                        STUB_BLOB_DIFF_PATH (only main changed it)
+        #   STUB_BLOB_DIFF_PATHS more paths (space-separated) that differ at
+        #                        the head, like STUB_BLOB_DIFF_PATH
+        #   STUB_BLOB_STALE_PATHS paths (space-separated) that are stale: the
+        #                        merge base has their head blob. A path in
+        #                        this list also differs at the head.
+        #   STUB_BLOB_ABSENT_REF main, head or base: each file is absent
+        #                        there (404)
+        #   STUB_BLOB_FAIL=1     each lookup fails with HTTP 500
+        #   STUB_BLOB_FAIL_REF   main, head or base: only lookups there fail
+        #                        with HTTP 500
+        #   STUB_BLOB_NULL_REF   main, head or base: lookups there print null
+        #   STUB_GH_NOTICE=1     each lookup prints a notice on stderr
+        endpoint="$2"
+        path="${endpoint#repos/*/*/contents/}"
+        path="${path%%\?ref=*}"
+        ref="${endpoint##*\?ref=}"
+        filter=""
+        while [ $# -gt 0 ]; do
+            [ "$1" = "--jq" ] && filter="${2-}"
+            shift
+        done
+        side=head
+        [ "$ref" = "main" ] && side=main
+        [ "$ref" = "${STUB_MERGE_BASE:-3333333333333333333333333333333333333333}" ] && side=base
+        if [ "${STUB_GH_NOTICE:-0}" = "1" ]; then
+            echo "A new release of gh is available: 2.0.0 -> 2.1.0" >&2
+        fi
+        if [ "${STUB_BLOB_FAIL:-0}" = "1" ] || [ "${STUB_BLOB_FAIL_REF:-}" = "$side" ]; then
+            printf '{"message":"Server Error","status":"500"}'
+            echo "gh: Server Error (HTTP 500)" >&2
+            exit 1
+        fi
+        if [ "${STUB_BLOB_ABSENT_REF:-}" = "$side" ]; then
+            printf '{"message":"Not Found","status":"404"}'
+            echo "gh: Not Found (HTTP 404)" >&2
+            exit 1
+        fi
+        if [ "${STUB_BLOB_NULL_REF:-}" = "$side" ]; then
+            echo null
+            exit 0
+        fi
+        blob=1111111111111111111111111111111111111111
+        differs=0
+        stale=0
+        if [ -n "${STUB_BLOB_DIFF_PATH:-}" ] && [ "$path" = "$STUB_BLOB_DIFF_PATH" ]; then
+            differs=1
+            [ "${STUB_BLOB_STALE:-0}" = "1" ] && stale=1
+        fi
+        for p in ${STUB_BLOB_DIFF_PATHS:-} ${STUB_BLOB_STALE_PATHS:-}; do
+            [ "$path" = "$p" ] && differs=1
+        done
+        for p in ${STUB_BLOB_STALE_PATHS:-}; do
+            [ "$path" = "$p" ] && stale=1
+        done
+        if [ "$differs" = "1" ]; then
+            if [ "$side" = "head" ] || { [ "$side" = "base" ] && [ "$stale" = "1" ]; }; then
+                blob=2222222222222222222222222222222222222222
+            fi
+        fi
+        jq -cn --arg sha "$blob" '{sha: $sha}' | jq -r "${filter:-.}"
+        exit $?
         ;;
     "workflow run "*)
         if [ "${STUB_WORKFLOW_RUN_FAIL:-0}" = "1" ]; then
@@ -473,25 +547,23 @@ reset_verify_state() {
     : > "$CHECK_ARGS_LOG"
 }
 
-run_verify() {
+# verify_with <trigger> [flags...]
+# Runs the script copy in the fixture repo with the given --trigger.
+verify_with() {
+    local trigger="$1"
+    shift
     reset_verify_state
-    STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" PATH="$STUBDIR:$PATH" \
-        bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger=workflow "$@"
+    (cd "$VERIFY_WORKDIR" && STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" \
+        PATH="$STUBDIR:$PATH" bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger="$trigger" "$@")
 }
 
-# shellcheck disable=SC2119,SC2120 # "$@" stays for cases that need extra flags
-run_verify_label() {
-    reset_verify_state
-    STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" PATH="$STUBDIR:$PATH" \
-        bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger=label "$@"
-}
+run_verify() { verify_with workflow "$@"; }
 
 # shellcheck disable=SC2119,SC2120 # "$@" stays for cases that need extra flags
-run_verify_none() {
-    reset_verify_state
-    STUB_POLL_COUNT_FILE="$POLL_COUNT_FILE" STUB_EXTRA="$EXTRA" PATH="$STUBDIR:$PATH" \
-        bash "$VSCRIPTS/flow-verify-ci-review" 1 1 1 --trigger=none "$@"
-}
+run_verify_label() { verify_with label "$@"; }
+
+# shellcheck disable=SC2119,SC2120 # "$@" stays for cases that need extra flags
+run_verify_none() { verify_with none "$@"; }
 
 # --- B1: a verdict for the head -> reads the findings, no recovery ----------
 OUT="$(STUB_POLL_EXIT=0 STUB_CHECK_EXIT=0 run_verify 2>&1)"; S=$?
@@ -597,37 +669,244 @@ else
         "exits: $SA $SB $SC $SD (want 1 4 1 0)" "polls: $POLLS_B $POLLS_D (want 2 2)"
 fi
 
-# --- B7: a large PR file list with an early match (#2225) -------------------
-# STUB_POLL_EXIT=1 forces the recovery path to the workflow-file guard. A
-# piped `grep -q` would SIGPIPE gh here and, under pipefail, read that as "no
-# match". The guard must still see the match, skip recovery, and exit 4 after
-# one poll. The poll count and the missing `workflow run` line are the checks
-# that catch the bug.
-OUT="$(STUB_POLL_EXIT=1 STUB_CHECK_EXIT=0 STUB_DIFF_MODE=large-match run_verify 2>&1)"; S=$?
+# --- B7: the head blob of the caller differs from main -> 4, no recovery ----
+# STUB_POLL_EXIT=1 forces the recovery path to the workflow-file guard. The
+# PR file list does not have the file: an earlier PR merged the change into
+# the milestone branch. The merge base has the main blob, so the CI step
+# "Check workflow match" reports edited, and no re-run can post a review.
+# The guard must not read the PR file list, must skip recovery, and must
+# exit 4 after one poll.
+OUT="$(STUB_POLL_EXIT=1 STUB_CHECK_EXIT=0 \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S=$?
 POLLS="$(cat "$POLL_COUNT_FILE" 2>/dev/null || echo '?')"
 if [ "$S" -eq 4 ] && [ "$POLLS" = "1" ] && ! grep -q 'workflow run' "$STUB_LOG" \
-    && grep -q 'claude-code-review.yml itself' <<< "$OUT"; then
-    pass "B7: PR changes the review workflow (large file list) -> exit 4 with the explanation, no recovery run, one poll"
+    && ! grep -q '/pulls/' "$STUB_LOG" \
+    && grep -q "contents/.github/workflows/claude-code-review.yml?ref=$H1" "$STUB_LOG" \
+    && grep -q 'contents/.github/workflows/claude-code-review.yml?ref=main' "$STUB_LOG" \
+    && grep -q "compare/main...$H1" "$STUB_LOG" \
+    && grep -q "contents/.github/workflows/claude-code-review.yml?ref=$MB" "$STUB_LOG" \
+    && grep -q 'review workflow itself (.github/workflows/claude-code-review.yml)' <<< "$OUT" \
+    && grep -q 'requires a merge to main first' <<< "$OUT" \
+    && ! grep -q 'is an old copy' <<< "$OUT" \
+    && ! grep -q 'update the branch from main' <<< "$OUT"; then
+    pass "B7: head blob of the caller differs from main and from the merge base (edited) -> exit 4 with the explanation, no recovery run, one poll"
 else
-    fail "B7: PR changes the review workflow (large file list) -> exit 4 with the explanation, no recovery run, one poll" \
-        "exit: $S (want 4)" "polls: $POLLS (want 1)" "output: [$OUT]"
+    fail "B7: head blob of the caller differs from main and from the merge base (edited) -> exit 4 with the explanation, no recovery run, one poll" \
+        "exit: $S (want 4)" "polls: $POLLS (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
 fi
 
-OUT="$(STUB_POLL_EXIT=1 STUB_DIFF_MODE=small-match run_verify 2>&1)"; S=$?
-if [ "$S" -eq 4 ] && ! grep -q 'workflow run' "$STUB_LOG"; then
-    pass "B7b: PR changes the review workflow (short file list) -> exit 4, no recovery run"
+# --- B7b: equal blobs, or a file absent on one side -> recovery runs --------
+# The CI step reads an absent file as no mismatch, so the guard does too.
+OUT="$(STUB_POLL_EXIT=1 run_verify 2>&1)"; S=$?
+LOG_EQ="$(cat "$STUB_LOG")"
+OUT_AH="$(STUB_POLL_EXIT=1 STUB_BLOB_ABSENT_REF=head \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S_AH=$?
+LOG_AH="$(cat "$STUB_LOG")"
+OUT_AM="$(STUB_POLL_EXIT=1 STUB_BLOB_ABSENT_REF=main \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S_AM=$?
+LOG_AM="$(cat "$STUB_LOG")"
+if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' <<< "$LOG_EQ" \
+    && grep -q 'contents/.github/workflows/claude-code-review.yml?ref=main' <<< "$LOG_EQ" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT" \
+    && [ "$S_AH" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' <<< "$LOG_AH" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT_AH" \
+    && [ "$S_AM" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' <<< "$LOG_AM" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT_AM"; then
+    pass "B7b: equal blobs, or a file absent at the head or on main (404) -> the recovery runs"
 else
-    fail "B7b: PR changes the review workflow (short file list) -> exit 4, no recovery run" \
-        "exit: $S (want 4)" "output: [$OUT]"
+    fail "B7b: equal blobs, or a file absent at the head or on main (404) -> the recovery runs" \
+        "exits: $S $S_AH $S_AM (want 4 4 4)" "logs: [$LOG_EQ] [$LOG_AH] [$LOG_AM]" \
+        "outputs: [$OUT] [$OUT_AH] [$OUT_AM]"
 fi
 
-# --- B8: the PR file list call fails -> 1 -----------------------------------
-OUT="$(STUB_POLL_EXIT=1 STUB_DIFF_MODE=fail run_verify 2>&1)"; S=$?
-if [ "$S" -eq 1 ] && grep -q 'file list could not be read' <<< "$OUT" \
+# --- B7c: only the reusable workflow differs from main (#76) ---------------
+# A caller that calls the reusable review with uses: ./ makes the action
+# compare that file too. The guard must see it. A caller that calls it @main
+# does not, so the recovery runs.
+printf '%s\n' "$CALLER_LOCAL" > "$CALLER_FILE"
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_DIFF_PATH=.github/workflows/claude-review.yml run_verify 2>&1)"; S=$?
+printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
+if [ "$S" -eq 4 ] && ! grep -q 'workflow run' "$STUB_LOG" \
+    && grep -q 'review workflow itself (.github/workflows/claude-review.yml)' <<< "$OUT" \
+    && grep -q 'requires a merge to main first' <<< "$OUT"; then
+    pass "B7c: a uses: ./ caller and a head where only the reusable workflow differs from main -> exit 4, no recovery run"
+else
+    fail "B7c: a uses: ./ caller and a head where only the reusable workflow differs from main -> exit 4, no recovery run" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_DIFF_PATH=.github/workflows/claude-review.yml run_verify 2>&1)"; S=$?
+if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' "$STUB_LOG" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT"; then
+    pass "B7c2: an @main caller and the same head -> the recovery runs the caller"
+else
+    fail "B7c2: an @main caller and the same head -> the recovery runs the caller" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# A uses: ./ caller gives a 2-line list. The recovery must run line 1 (the
+# caller), not the last line: the reusable workflow has no workflow_dispatch.
+printf '%s\n' "$CALLER_LOCAL" > "$CALLER_FILE"
+OUT="$(STUB_POLL_EXIT=1 run_verify 2>&1)"; S=$?
+printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
+if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' "$STUB_LOG" \
+    && ! grep -q 'workflow run claude-review.yml' "$STUB_LOG"; then
+    pass "B7c3: a uses: ./ caller and a PR with no review workflow file -> the recovery runs the caller"
+else
+    fail "B7c3: a uses: ./ caller and a PR with no review workflow file -> the recovery runs the caller" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7d: flow-review-workflow-files fails -> 1, no recovery ---------------
+printf '#!/bin/bash\nexit 1\n' > "$VSCRIPTS/flow-review-workflow-files"
+chmod +x "$VSCRIPTS/flow-review-workflow-files"
+OUT="$(STUB_POLL_EXIT=1 run_verify 2>&1)"; S=$?
+cp "$REAL_REPO/plugins/flow/bin/flow-review-workflow-files" "$VSCRIPTS/flow-review-workflow-files"
+if [ "$S" -eq 1 ] && grep -q 'flow-review-workflow-files failed' <<< "$OUT" \
     && ! grep -q 'workflow run' "$STUB_LOG"; then
-    pass "B8: PR file list call fails -> exit 1, message names the failure, no recovery run"
+    pass "B7d: flow-review-workflow-files fails -> exit 1 (fail closed), no recovery run"
 else
-    fail "B8: PR file list call fails -> exit 1, message names the failure, no recovery run" \
+    fail "B7d: flow-review-workflow-files fails -> exit 1 (fail closed), no recovery run" \
+        "exit: $S (want 1)" "output: [$OUT]"
+fi
+
+# --- B7e: a blob lookup fails (not a 404) -> 1, no recovery ----------------
+# Only a 404 means "absent". Any other failure must fail closed.
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_FAIL=1 run_verify 2>&1)"; S=$?
+if [ "$S" -eq 1 ] && grep -q 'could not verify' <<< "$OUT" \
+    && grep -q 'HTTP 500' <<< "$OUT" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT" \
+    && ! grep -q 'workflow run' "$STUB_LOG"; then
+    pass "B7e: a blob lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run"
+else
+    fail "B7e: a blob lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run" \
+        "exit: $S (want 1)" "output: [$OUT]"
+fi
+
+# --- B7e2: only the head-side blob lookup fails -> 1, no recovery ---------
+# The main lookup succeeds. A failed head lookup must not read as "absent".
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_FAIL_REF=head run_verify 2>&1)"; S=$?
+if [ "$S" -eq 1 ] && grep -q 'could not verify' <<< "$OUT" \
+    && grep -q "at $H1 could not be read" <<< "$OUT" \
+    && ! grep -q 'workflow run' "$STUB_LOG"; then
+    pass "B7e2: only the head-side blob lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run"
+else
+    fail "B7e2: only the head-side blob lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run" \
+        "exit: $S (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7f: the head has the merge-base copy, main changed it (stale) -> 4 ---
+# The CI step reports stale, and the Gate fails. A merge to main does not
+# help: the PR branch must get the main copy.
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_STALE=1 \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S=$?
+POLLS="$(cat "$POLL_COUNT_FILE" 2>/dev/null || echo '?')"
+if [ "$S" -eq 4 ] && [ "$POLLS" = "1" ] && ! grep -q 'workflow run' "$STUB_LOG" \
+    && grep -q "contents/.github/workflows/claude-code-review.yml?ref=$MB" "$STUB_LOG" \
+    && grep -q 'Review workflow file .github/workflows/claude-code-review.yml at the PR head is an old copy' <<< "$OUT" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT"; then
+    pass "B7f: head blob is the merge-base blob, main differs (stale) -> exit 4 with the old-copy text, no recovery run"
+else
+    fail "B7f: head blob is the merge-base blob, main differs (stale) -> exit 4 with the old-copy text, no recovery run" \
+        "exit: $S (want 4)" "polls: $POLLS (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7j: stale wins over edited across two files ---------------------------
+# A uses: ./ caller lists the caller first, then the reusable workflow. The
+# CI step says stale wins over edited. The guard must stop at a stale file
+# and report it, with the edited file before or after it in the list.
+WF_CALLER=.github/workflows/claude-code-review.yml
+WF_REUSE=.github/workflows/claude-review.yml
+printf '%s\n' "$CALLER_LOCAL" > "$CALLER_FILE"
+OUT_J1="$(STUB_POLL_EXIT=1 STUB_BLOB_DIFF_PATHS=$WF_CALLER STUB_BLOB_STALE_PATHS=$WF_REUSE \
+    run_verify 2>&1)"; S_J1=$?
+LOG_J1="$(cat "$STUB_LOG")"
+OUT_J2="$(STUB_POLL_EXIT=1 STUB_BLOB_STALE_PATHS=$WF_CALLER STUB_BLOB_DIFF_PATHS=$WF_REUSE \
+    run_verify 2>&1)"; S_J2=$?
+LOG_J2="$(cat "$STUB_LOG")"
+printf '%s\n' "$CALLER_REMOTE" > "$CALLER_FILE"
+if [ "$S_J1" -eq 4 ] && grep -q "Review workflow file $WF_REUSE at the PR head is an old copy" <<< "$OUT_J1" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT_J1" \
+    && ! grep -q 'workflow run' <<< "$LOG_J1" \
+    && [ "$S_J2" -eq 4 ] && grep -q "Review workflow file $WF_CALLER at the PR head is an old copy" <<< "$OUT_J2" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT_J2" \
+    && ! grep -q 'workflow run' <<< "$LOG_J2"; then
+    pass "B7j: one file edited and one stale, in either order -> exit 4 with the old-copy text of the stale file, no recovery run"
+else
+    fail "B7j: one file edited and one stale, in either order -> exit 4 with the old-copy text of the stale file, no recovery run" \
+        "exits: $S_J1 $S_J2 (want 4 4)" "logs: [$LOG_J1] [$LOG_J2]" "outputs: [$OUT_J1] [$OUT_J2]"
+fi
+
+# --- B7k: a file absent at the merge base counts as edited ------------------
+# The head and main differ, and the merge base has no copy. The guard reads
+# this as edited, not as stale.
+OUT="$(STUB_POLL_EXIT=1 STUB_BLOB_ABSENT_REF=base \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S=$?
+if [ "$S" -eq 4 ] && ! grep -q 'workflow run' "$STUB_LOG" \
+    && grep -q 'requires a merge to main first' <<< "$OUT" \
+    && ! grep -q 'is an old copy' <<< "$OUT"; then
+    pass "B7k: a file absent at the merge base (404) -> edited: exit 4 with the merge-to-main text, no old-copy text"
+else
+    fail "B7k: a file absent at the merge base (404) -> edited: exit 4 with the merge-to-main text, no old-copy text" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7g: the merge base lookup fails -> 1, no recovery --------------------
+OUT="$(STUB_POLL_EXIT=1 STUB_COMPARE_FAIL=1 \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S=$?
+if [ "$S" -eq 1 ] && grep -q 'could not verify' <<< "$OUT" \
+    && grep -q 'merge base of main' <<< "$OUT" && grep -q 'HTTP 500' <<< "$OUT" \
+    && ! grep -q 'requires a merge to main first' <<< "$OUT" \
+    && ! grep -q 'workflow run' "$STUB_LOG"; then
+    pass "B7g: the merge base lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run"
+else
+    fail "B7g: the merge base lookup fails with HTTP 500 -> exit 1 (fail closed), no recovery run" \
+        "exit: $S (want 1)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B7h: a lookup prints a value that is not a SHA -> 1 -------------------
+# Check a blob lookup at the head and at the merge base, and the merge base
+# lookup itself.
+OUT_H="$(STUB_POLL_EXIT=1 STUB_BLOB_NULL_REF=head run_verify 2>&1)"; S_H=$?
+LOG_H="$(cat "$STUB_LOG")"
+OUT_B="$(STUB_POLL_EXIT=1 STUB_BLOB_NULL_REF=base \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S_B=$?
+LOG_B="$(cat "$STUB_LOG")"
+OUT_M="$(STUB_POLL_EXIT=1 STUB_MERGE_BASE=null \
+    STUB_BLOB_DIFF_PATH=.github/workflows/claude-code-review.yml run_verify 2>&1)"; S_M=$?
+LOG_M="$(cat "$STUB_LOG")"
+if [ "$S_H" -eq 1 ] && grep -q "is not a SHA (got 'null')" <<< "$OUT_H" \
+    && ! grep -q 'workflow run' <<< "$LOG_H" \
+    && [ "$S_B" -eq 1 ] && grep -q "is not a SHA (got 'null')" <<< "$OUT_B" \
+    && ! grep -q 'workflow run' <<< "$LOG_B" \
+    && [ "$S_M" -eq 1 ] && grep -q "merge base of main and $H1 is not a SHA (got 'null')" <<< "$OUT_M" \
+    && ! grep -q 'workflow run' <<< "$LOG_M"; then
+    pass "B7h: a head blob, a merge-base blob, or a merge base of null -> exit 1, no recovery run"
+else
+    fail "B7h: a head blob, a merge-base blob, or a merge base of null -> exit 1, no recovery run" \
+        "exits: $S_H $S_B $S_M (want 1 1 1)" "outputs: [$OUT_H] [$OUT_B] [$OUT_M]"
+fi
+
+# --- B7i: a gh notice on stderr does not hide the SHA on stdout ------------
+# The SHA test reads stdout only, so the equal blobs give the recovery run.
+OUT="$(STUB_POLL_EXIT=1 STUB_GH_NOTICE=1 run_verify 2>&1)"; S=$?
+if [ "$S" -eq 4 ] && grep -q 'workflow run claude-code-review.yml' "$STUB_LOG" \
+    && ! grep -q 'could not verify' <<< "$OUT"; then
+    pass "B7i: gh prints a notice on stderr and a SHA on stdout -> the SHA counts, the recovery runs"
+else
+    fail "B7i: gh prints a notice on stderr and a SHA on stdout -> the SHA counts, the recovery runs" \
+        "exit: $S (want 4)" "log: [$(cat "$STUB_LOG")]" "output: [$OUT]"
+fi
+
+# --- B8: the head commit lookup of the guard fails -> 1 ---------------------
+# The poll stub exits 1, so this is the only `gh pr view` call.
+OUT="$(STUB_POLL_EXIT=1 STUB_GH_FAIL_PR_VIEW=1 run_verify 2>&1)"; S=$?
+if [ "$S" -eq 1 ] && grep -q 'head commit of PR #1 could not be read' <<< "$OUT" \
+    && ! grep -q 'contents/' "$STUB_LOG" \
+    && ! grep -q 'workflow run' "$STUB_LOG"; then
+    pass "B8: the head commit lookup of the guard fails -> exit 1, message names the failure, no recovery run"
+else
+    fail "B8: the head commit lookup of the guard fails -> exit 1, message names the failure, no recovery run" \
         "exit: $S (want 1)" "output: [$OUT]"
 fi
 

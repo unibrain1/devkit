@@ -70,7 +70,7 @@ The findings feed into Step 4's triage.
 | 0 | A review for the head commit exists, with no Blocking findings | Proceed to Step 2-3 |
 | 2 | A review for the head commit exists, with Blocking findings | Proceed to Step 2-3 — its findings feed into Step 4's triage same as any other comment |
 | 3 | The PR title has `[skip-review]` — review is intentionally skipped, not missing | Proceed to Step 2-3 (there is nothing from this source) |
-| 4 | No review after the poll and one recovery attempt | Report it. If the PR diff touches the review workflow file, report that distinctly: re-triggering does not help until the workflow file change is merged to `main`. Then proceed to Step 2-3 |
+| 4 | No review after the poll and one recovery attempt, or a review workflow file at the PR head differs from `main` | Report it. If stderr contains `requires a merge to main first`, report that distinctly: this branch or its base branch changed the file, and a re-run does not help until the change merges to `main`. If stderr contains `is an old copy`, report that distinctly: only `main` changed the file, so the PR branch must get the `main` copy (update the branch). Then proceed to Step 2-3 |
 | 1 | Could not verify (`gh` failed — auth/network/rate-limit) | Stop, report the actual `gh` error. Do NOT treat this as "no review posted". Tell the user to fix the `gh` problem, then type `/flow:address-pr-comments` again |
 
 Report to the user if recovery was needed and what happened — never
@@ -127,7 +127,22 @@ If there are **no Blocking items**, skip to Step 7.
 
 ## Step 5: Fix Blocking Items
 
-For each Blocking item, launch a `flow:software-developer` agent to fix it.
+Before you launch a fix agent, find each Blocking item that looks like a
+false positive. Do not fix it. Ask about all of them in one round, as the
+`flow:workflow` skill, `references/review.md`, "Decision rounds", says.
+Put at most 4 questions in one AskUserQuestion call. Send the next call
+directly after the answers come back, with no other work between the calls.
+Each question states the item and the reason that it looks like a false
+positive. The options are `False positive` and `Fix it`. Put the recommended
+option first, with `(Recommended)` in its label. Its description gives the
+reason. Act on the answers only after the last call:
+
+- **False positive** — record it as a review decision (see "PR body
+  records") with `False positive: <reason>`. Do not fix it.
+- **Fix it** — fix it with the other Blocking items.
+
+For each Blocking item that is not a false positive, launch a
+`flow:software-developer` agent to fix it.
 Provide the agent with:
 
 - The specific file and line number
@@ -139,11 +154,6 @@ Run agents for independent files in parallel. For items in the same file,
 run sequentially.
 
 After each fix, verify the change looks correct before moving on.
-
-If a Blocking item looks like a false positive, do not fix it. Present it to
-the user with the reason. If the user agrees, record it as a review decision
-(see "PR body records") with `False positive: <reason>`. If the user does not
-agree, fix it.
 
 ## Step 5.5: Local review on full branch diff (before committing) — gated
 
@@ -264,42 +274,60 @@ user to fix the failure, then type `/flow:address-pr-comments` again.
 
 ## Step 7: Present Advisory Items
 
-If there are Advisory items, walk them one at a time — same pattern
-`/flow:review-pr` Step 6 uses for Recommendation items, so a finding never
-disappears with no record of the decision. For each item, in order:
+If there are Advisory items, ask about all of them in one round, as the
+`flow:workflow` skill, `references/review.md`, "Decision rounds", says.
+This is the same round that `/flow:review-pr` Step 6 uses for
+Recommendation items, so a finding never disappears with no record of the
+decision.
 
-1. State the item (source, file:line, suggestion).
-2. Ask via `AskUserQuestion`, options `Fix now`, `Defer`, `Skip entirely`.
-3. Act on the answer:
-   - **Fix now** — follow the fix-commit-push pattern from Steps 5–6,
-     including the ledger check in Step 6.
-   - **Defer** on a hotfix PR (Step 6: the PR base is `main`) — a hotfix
-     takes no ledger edits. Ask a follow-up `AskUserQuestion` with options
-     `New GitHub issue` and `Skip entirely`. Offer `New GitHub issue` only
-     for a defect. For `New GitHub issue`, do the *New GitHub issue* item
-     below. For `Skip entirely`, do the **Skip entirely** item below.
-   - **Defer** on any other PR — ask a follow-up `AskUserQuestion` (options
-     `Cleanup ledger`, `New GitHub issue`) — same distinction `/flow:review-pr`
-     Step 6 uses. If the `ledger` key is absent, offer only `New GitHub issue`
-     and `Skip entirely`:
-     - *Cleanup ledger* — edit the ledger file with
-       the Edit tool, in the form `/flow:review-pr` Step 6 gives. Use the file
-       path without its `:line` part, and the issue number in
-       `(found in #<N>)`. The ledger format and the heading match rule are in
-       the `flow:workflow` skill, `references/plans-and-ledger.md`,
-       `Cleanup ledger`. `flow-ledger-items-for-files` uses the same rule.
-       Add the line under the matching heading. If no heading matches, add
-       ``### `<path>` `` in path order.
-       Commit and push the edit the same way as Step 6.
-     - *New GitHub issue* — only for a defect. Follow `/flow:found`'s "Defer"
-       steps (`bug:` title, labels `bug,triage,signal:discovered`). A
-       finding that is not a defect goes to the ledger.
+- Collect every Advisory item before you ask.
+- Ask with AskUserQuestion. Put one item in each question, and at most 4
+  questions in one call. For more than 4 items, send the next call directly
+  after the answers come back. Do no other work between the calls.
+- Act on the answers only after the last call.
 
-     Record the decision with `Deferred: ledger` or `Deferred: issue #<n>`
-     (see "PR body records").
-   - **Skip entirely** — no code change. Record it as a review decision with
-     `Skipped: <reason>` (see "PR body records").
-4. Continue to the next Advisory item.
+Each question has these parts:
+
+1. The item (source, file:line, suggestion).
+2. A one-line recommendation with a short pro and con for the other
+   options. The con of `Skip entirely` is the skip reason, unless the user
+   adds a note to the answer.
+3. The options for the item. Put the recommended option first, with
+   `(Recommended)` in its label. Its description gives the reason. Do not
+   show an option that the table leaves out:
+
+   | Item | Options |
+   | --- | --- |
+   | A defect (a user or an operator can see a wrong result) | `Fix now`, `Cleanup ledger`, `New GitHub issue`, `Skip entirely` |
+   | Any other item | `Fix now`, `Cleanup ledger`, `Skip entirely` |
+
+   A hotfix PR (Step 6: the PR base is `main`) takes no ledger edits. On a
+   hotfix PR, and when the `ledger` key is absent, leave out
+   `Cleanup ledger`. A finding that is not a defect goes to the ledger, not
+   to a new issue.
+
+After the last call, act on each answer in item order:
+
+- **Fix now** — launch a fix agent for it, as in Step 5.
+- **Cleanup ledger** — edit the ledger file with the Edit tool, in the form
+  `/flow:review-pr` Step 6 gives. Use the file path without its `:line`
+  part, and the issue number in `(found in #<N>)`. The ledger format and the
+  heading match rule are in the `flow:workflow` skill,
+  `references/plans-and-ledger.md`, `Cleanup ledger`.
+  `flow-ledger-items-for-files` uses the same rule. Add the line under the
+  matching heading. If no heading matches, add ``### `<path>` `` in path
+  order. Record the decision with `Deferred: ledger` (see "PR body
+  records").
+- **New GitHub issue** — follow `/flow:found`'s "Defer" steps (`bug:`
+  title, labels `bug,triage,signal:discovered`). Record the decision with
+  `Deferred: issue #<n>` (see "PR body records").
+- **Skip entirely** — no code change. Record it as a review decision with
+  `Skipped: <reason>` (see "PR body records"). The reason is the user's
+  note, or the con from the question.
+
+After the last answer, if any answer was `Fix now` or `Cleanup ledger`, do
+one fix-commit-push pass for all of them, with the pattern from Steps 5–6,
+including the ledger check in Step 6.
 
 ## Step 8: Summary
 

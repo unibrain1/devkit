@@ -5,7 +5,7 @@
 # order, no judgment calls); /release-milestone keeps the human confirmation
 # gate (its own Step 5) before calling this script.
 #
-# Usage: flow-release-milestone [--dry-run] [--reviewed-sha <sha>] <version> <pr-number> <milestone-number>
+# Usage: flow-release-milestone [--dry-run] [--reviewed-sha <sha>] [--checks-timeout <minutes>] <version> <pr-number> <milestone-number>
 #
 # <version>: e.g. v2.17.0
 # <pr-number>: the milestone PR number (numeric, no leading '#')
@@ -23,6 +23,24 @@
 #   the head that this script pushed, so a push during the run also fails
 #   the merge instead of landing unreviewed code.
 #
+# --checks-timeout <minutes>: the time limit of the wait for required checks
+#   (below). Default 30.
+#
+# Copy of the script: when this file is in the work tree of the repo that it
+# releases (a `claude --plugin-dir plugins/flow` session), a checkout changes
+# the file while bash reads it, and a session that starts on main runs the
+# last release's script. So the script first extracts its own bin folder at
+# the --reviewed-sha commit with git archive to a temp folder, and execs that
+# copy. The helper scripts in that folder come from the same commit. When
+# the commit is not local, the script first fetches refs/pull/<pr>/head. A run
+# from the work tree needs --reviewed-sha: without it, the script stops with
+# exit 1. It does not run code that nobody reviewed. FLOW_RELEASE_REEXEC
+# marks the copy, so it does not do this again. The temp folder is removed
+# when the copy exits, or when the copy step stops with exit 1. With
+# --dry-run there is no copy: a dry run checks out nothing, so the file
+# cannot change while bash reads it. A script in the plugin cache does not
+# change on a checkout, so it runs as it is.
+#
 # Merge method: before Step 6, the script reads the classic branch
 # protection and the rulesets of main. When either requires linear history,
 # Step 8 merges with --squash (one commit on main for each release). Else it
@@ -31,12 +49,31 @@
 # sources for another reason, it stops with exit 1. The check runs only
 # while the PR is open.
 #
+# Required checks: before Step 6, the script reads the required status check
+# names of main from the classic branch protection and the rulesets. Step 6
+# pushes a new PR head, so before Step 8 the script waits until each of those
+# checks passes on that head. Until GitHub shows the pushed commit as the PR
+# head, every check counts as pending. This applies only while GitHub shows
+# the head from before the push. Any other head stops the run at once with
+# exit 2: a commit landed after the review. A PR that is not open also stops
+# the run with exit 2. A required check with no run yet counts as pending.
+# A skipped check counts as passed. A cancelled check counts as failed. When
+# two runs have the same name, each must pass. It polls `gh pr checks` every
+# FLOW_RELEASE_CHECK_INTERVAL seconds (default 30). The time limit counts
+# the sleeps, not the time of the gh calls. A failed check, or no pass in
+# --checks-timeout minutes, stops the run with exit 2 and nothing merges.
+# With no required checks, there is no wait. The required check names come
+# from main, not from `gh pr checks --required`.
+# Right after a push, GitHub may report no checks yet, so that list can be
+# empty.
+#
 # Resume: run the script again with the same arguments after it stops. Each
 # step checks whether an earlier run already did its work, and skips it:
 #   - Step 6 skips when the PR is merged. When the release-notes file is
 #     already removed by a commit on the milestone branch, it pushes the
 #     branch and continues.
-#   - Step 8 skips when the PR is merged.
+#   - The wait for required checks and Step 8 skip when the PR is merged.
+#     A rerun after a failed wait waits again.
 #   - Step 8's gh pr merge --delete-branch normally deletes the local
 #     milestone branch. When the branch is still there, Step 10 deletes it
 #     with -D only when its tip is the PR head commit. Else it keeps the
@@ -67,7 +104,10 @@
 #   1 = a check stopped the run before the failing step changed anything
 #       (bad args, deploy remote, closed PR, release notes missing with no
 #       removal commit, stray local commits on main, flow-repo failed, the
-#       branch protection or rules of main cannot be read).
+#       branch protection or rules of main cannot be read, a bad
+#       --reviewed-sha, <pr-number>, --checks-timeout or
+#       FLOW_RELEASE_CHECK_INTERVAL, a run from the work tree with no
+#       --reviewed-sha, no copy of the script at the reviewed commit).
 #       Fix the cause and run the script again.
 #   2 = a step itself failed (e.g. merge conflict, push rejected, a pull
 #       that is not a fast-forward, tag on the wrong commit, no project.md).
@@ -76,6 +116,10 @@
 #       .claude/project.md. This script cannot release without them, so it
 #       stops before it changes anything. Also: a `release` value other than
 #       publish or draft. The script stops before it changes anything.
+#       Also: a required check failed, did not pass in --checks-timeout
+#       minutes, or the PR head or its checks cannot be read. Also: during
+#       the wait, the PR head is a commit that this script did not push, or
+#       the PR is not open.
 #       Also: Step 13 finds no saved release notes and no removal commit.
 #       Before Step 6 the same condition gives exit 1. In Step 13 the PR is
 #       already merged, so exit 1 ("nothing changed") does not apply.
@@ -85,6 +129,8 @@ set -Eeuo pipefail
 
 DRY_RUN=0
 REVIEWED_SHA=""
+CHECKS_TIMEOUT_MIN=30
+ARGS=("$@")
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
@@ -92,16 +138,104 @@ while [ "$#" -gt 0 ]; do
       REVIEWED_SHA="${2:?--reviewed-sha needs a commit SHA}"
       shift 2
       ;;
+    --checks-timeout)
+      CHECKS_TIMEOUT_MIN="${2:?--checks-timeout needs a number of minutes}"
+      shift 2
+      ;;
     *) break ;;
   esac
 done
 
-USAGE="Usage: flow-release-milestone [--dry-run] [--reviewed-sha <sha>] <version> <pr-number> <milestone-number>"
+USAGE="Usage: flow-release-milestone [--dry-run] [--reviewed-sha <sha>] [--checks-timeout <minutes>] <version> <pr-number> <milestone-number>"
 VERSION="${1:?$USAGE}"
 PR_NUMBER="${2:?$USAGE}"
 MILESTONE_NUMBER="${3:?$USAGE}"
 
+# The SHA goes to git archive before any other check, so it must be a full
+# SHA: a branch name or a short SHA can name a commit that nobody reviewed.
+if [ -n "$REVIEWED_SHA" ] && ! printf '%s' "$REVIEWED_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+  echo "flow-release-milestone: --reviewed-sha must be a full 40-character commit SHA (got '${REVIEWED_SHA}')." >&2
+  exit 1
+fi
+case "$PR_NUMBER" in
+  ''|*[!0-9]*)
+    echo "flow-release-milestone: <pr-number> must be digits only (got '${PR_NUMBER}')." >&2
+    exit 1
+    ;;
+esac
+
+# positive_int <value> <what>
+# Prints <value> as a decimal number. Exits 1 unless it is a positive
+# integer. 10#: a leading zero must not make bash read the value as octal.
+positive_int() {
+  case "$1" in
+    *[!0-9]*|'') ;;
+    *) if [ "$((10#$1))" -gt 0 ]; then echo "$((10#$1))"; return 0; fi ;;
+  esac
+  echo "flow-release-milestone: $2 must be a positive whole number (got '$1')." >&2
+  exit 1
+}
+CHECKS_TIMEOUT_MIN="$(positive_int "$CHECKS_TIMEOUT_MIN" "--checks-timeout (minutes)")"
+CHECK_INTERVAL="$(positive_int "${FLOW_RELEASE_CHECK_INTERVAL:-30}" "FLOW_RELEASE_CHECK_INTERVAL (seconds)")"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- Run a copy of the script from the release commit ---
+# See "Copy of the script" in the header. This runs before anything else, so
+# each later line comes from the copy.
+if [ -z "${FLOW_RELEASE_REEXEC:-}" ]; then
+  TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  # pwd -P: on macOS, /tmp and /var are symlinks, so compare real paths.
+  [ -n "$TOP" ] && TOP="$(cd "$TOP" && pwd -P)"
+  REAL_DIR="$(cd "$SCRIPT_DIR" && pwd -P)"
+  # Outside a git work tree, TOP is empty. The pattern then cannot match.
+  case "${TOP:-/nonexistent}:$REAL_DIR" in
+    "${TOP}:${TOP}"/*)
+      REL_DIR="${REAL_DIR#"$TOP"/}"
+      SOURCE="$REVIEWED_SHA"
+      if [ "$DRY_RUN" -eq 1 ]; then
+        echo "[dry-run] a real run copies ${REL_DIR} from ${SOURCE:-<--reviewed-sha>} and runs that copy"
+      elif [ -z "$SOURCE" ]; then
+        echo "flow-release-milestone: this script runs from the work tree of the repo that it releases. Give --reviewed-sha <sha>, so it runs the reviewed copy. Stop. Nothing changed." >&2
+        exit 1
+      else
+        if ! git cat-file -e "${SOURCE}^{commit}" 2>/dev/null; then
+          git fetch -q origin "refs/pull/${PR_NUMBER}/head" || true
+        fi
+        # The template holds TMPDIR, so macOS and Linux use the same folder,
+        # and the trap guard below can match the name flow-release.XXXXXX. cd
+        # and pwd give the same form of the path that SCRIPT_DIR gets in the
+        # copy (TMPDIR can end in a slash), so the trap guard below matches.
+        COPY_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/flow-release.XXXXXX")"
+        COPY_ROOT="$(cd "$COPY_ROOT" && pwd)"
+        if ! git archive "$SOURCE" "$REL_DIR" 2>/dev/null | tar -x -C "$COPY_ROOT" \
+          || [ ! -f "${COPY_ROOT}/${REL_DIR}/flow-release-milestone" ]; then
+          rm -rf "$COPY_ROOT"
+          echo "flow-release-milestone: commit '${SOURCE}' has no ${REL_DIR}/flow-release-milestone, or the commit is not in this repo. This script runs from the work tree, so it runs only the copy at the reviewed commit. Stop. Nothing changed." >&2
+          exit 1
+        fi
+        echo "Running the release script from ${SOURCE} (copy in ${COPY_ROOT}/${REL_DIR})."
+        export FLOW_RELEASE_REEXEC=1 FLOW_RELEASE_COPY_ROOT="$COPY_ROOT"
+        exec bash "${COPY_ROOT}/${REL_DIR}/flow-release-milestone" "${ARGS[@]}"
+      fi
+      ;;
+  esac
+fi
+# The copy removes its own temp folder at exit. exec replaced the first
+# process, so no trap there can do it. The folder holds the helper scripts
+# that SCRIPT_DIR names, so it must stay until the exit. The trap is set
+# only when the folder has the name that mktemp gives it and this script is
+# in it. A value left in the environment, such as / or a parent folder, then
+# sets no trap.
+if [ -n "${FLOW_RELEASE_REEXEC:-}" ] && [ -n "${FLOW_RELEASE_COPY_ROOT:-}" ]; then
+  case "${FLOW_RELEASE_COPY_ROOT%/}" in
+    */flow-release.??????)
+      case "$SCRIPT_DIR" in
+        "${FLOW_RELEASE_COPY_ROOT%/}"/*) trap 'rm -rf "$FLOW_RELEASE_COPY_ROOT"' EXIT ;;
+      esac
+      ;;
+  esac
+fi
 
 # The repo is read one time. flow-repo prints its own error.
 if ! REPO="$("${SCRIPT_DIR}/flow-repo")"; then
@@ -230,27 +364,38 @@ if [ -n "$REVIEWED_SHA" ] && [ "$PR_STATE" = "OPEN" ]; then
   require_reviewed "$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)" "PR #${PR_NUMBER} head"
 fi
 
-# --- Check the merge method ---
-# GitHub refuses a merge commit when main requires linear history. Classic
-# branch protection or a ruleset can require it, so read both. These reads
-# run before Step 6, so exit 1 still means that nothing changed.
+# --- Check the merge method and the required checks ---
+# GitHub refuses a merge commit when main requires linear history, and
+# refuses any merge until the required checks pass on the PR head. Classic
+# branch protection or a ruleset can require each, so read both. One read of
+# each source gives both answers: the first line is the linear-history value,
+# and each later line is a required check name. These reads run before Step
+# 6, so exit 1 still means that nothing changed.
 
-# gh_read <api path> <jq filter>
-# Sets GH_STATUS and GH_OUT. On success GH_OUT is stdout only, so a gh
-# warning on stderr cannot change the value that the caller matches. On
-# failure GH_OUT also holds stderr, because gh puts the message there.
-# The `|| exit $?` inside the substitution keeps the ERR trap quiet: bash
-# 3.2 runs the inherited trap in the subshell even when `||` follows the
-# substitution.
-gh_read() {
+# gh_capture <gh args...>
+# Runs gh and sets GH_STATUS, GH_OUT (stdout) and GH_ERR (stderr). A gh
+# warning on stderr then cannot change the value that the caller matches.
+# The `|| exit $?` inside the substitution keeps the ERR trap quiet. On
+# bash 3.2.57, when a command in the substitution has its stderr sent to a
+# file and exits non-zero, the inherited trap runs in the subshell, also
+# when `||` follows the substitution. Bash 5 does not do this.
+gh_capture() {
   local err
   err="$(mktemp)"
   GH_STATUS=0
-  GH_OUT="$(gh api "$1" --jq "$2" 2>"$err" || exit $?)" || GH_STATUS=$?
-  if [ "$GH_STATUS" -ne 0 ]; then
-    GH_OUT="${GH_OUT}$(cat "$err")"
-  fi
+  GH_OUT="$(gh "$@" 2>"$err" || exit $?)" || GH_STATUS=$?
+  GH_ERR="$(cat "$err")"
   rm -f "$err"
+}
+
+# gh_read <api path> <jq filter>
+# gh_capture for a gh api read. On failure GH_OUT also holds stderr, because
+# gh puts the message there.
+gh_read() {
+  gh_capture api "$1" --jq "$2"
+  if [ "$GH_STATUS" -ne 0 ]; then
+    GH_OUT="${GH_OUT}${GH_ERR}"
+  fi
 }
 
 # protection_fail <gh output>
@@ -263,44 +408,73 @@ protection_fail() {
 
 # A private repo on the GitHub Free plan has no branch protection and no
 # rulesets. GitHub answers both reads with this text. Such a repo cannot
-# require linear history.
+# require linear history or checks.
 NO_PROTECTION_PLAN="Upgrade to GitHub Pro"
 
 MERGE_FLAG="--merge"
+REQUIRED_CHECKS=""
 if [ "$PR_STATE" = "OPEN" ]; then
-  step "Check the merge method"
-  gh_read "repos/${REPO}/branches/main/protection" '.required_linear_history.enabled // false'
-  case "${GH_STATUS}:${GH_OUT}" in
+  step "Check the merge method and the required checks"
+  gh_read "repos/${REPO}/branches/main/protection" \
+    '(.required_linear_history.enabled // false), ((.required_status_checks.contexts // []) + [(.required_status_checks.checks // [])[].context] | .[])'
+  if [ "$GH_STATUS" -eq 0 ]; then
+    FIRST="$(printf '%s\n' "$GH_OUT" | sed -n 1p)"
+    REQUIRED_CHECKS="$(printf '%s\n' "$GH_OUT" | sed 1d)"
+  else
+    # On failure, match the whole output: gh can print a notice first.
+    FIRST="$GH_OUT"
+  fi
+  case "${GH_STATUS}:${FIRST}" in
     0:true) MERGE_FLAG="--squash" ;;
     0:false|*"Branch not protected"*|*"${NO_PROTECTION_PLAN}"*) ;;
     *) protection_fail "$GH_OUT" ;;
   esac
-  # Classic protection decides only when it requires linear history. Else
-  # check the rulesets.
-  if [ "$MERGE_FLAG" = "--merge" ]; then
-    gh_read "repos/${REPO}/rules/branches/main" '[.[] | select(.type == "required_linear_history")] | length'
-    case "${GH_STATUS}:${GH_OUT}" in
-      0:0|*"${NO_PROTECTION_PLAN}"*) ;;
-      # A count must be digits only. Anything else is not a valid answer.
-      0:|0:*[!0-9]*) protection_fail "$GH_OUT" ;;
-      0:*) MERGE_FLAG="--squash" ;;
-      *) protection_fail "$GH_OUT" ;;
-    esac
+  gh_read "repos/${REPO}/rules/branches/main" \
+    '([.[] | select(.type == "required_linear_history")] | length), (.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context)'
+  if [ "$GH_STATUS" -eq 0 ]; then
+    FIRST="$(printf '%s\n' "$GH_OUT" | sed -n 1p)"
+    REQUIRED_CHECKS="$(printf '%s\n%s\n' "$REQUIRED_CHECKS" "$(printf '%s\n' "$GH_OUT" | sed 1d)")"
+  else
+    FIRST="$GH_OUT"
   fi
+  # A ruleset read that fails stops the run, also when classic protection
+  # already chose squash: without it, the script does not know each
+  # required check.
+  case "${GH_STATUS}:${FIRST}" in
+    0:0|*"${NO_PROTECTION_PLAN}"*) ;;
+    # A count must be digits only. Anything else is not a valid answer.
+    0:|0:*[!0-9]*) protection_fail "$GH_OUT" ;;
+    0:*) MERGE_FLAG="--squash" ;;
+    *) protection_fail "$GH_OUT" ;;
+  esac
   if [ "$MERGE_FLAG" = "--squash" ]; then
     echo "Merge method: squash (main requires linear history)"
   else
     echo "Merge method: merge (main does not require linear history)"
   fi
+  REQUIRED_CHECKS="$(printf '%s\n' "$REQUIRED_CHECKS" | sed '/^$/d' | sort -u)"
+  if [ -n "$REQUIRED_CHECKS" ]; then
+    echo "Required checks: $(printf '%s\n' "$REQUIRED_CHECKS" | paste -sd ',' - | sed 's/,/, /g')"
+  else
+    echo "Required checks: none"
+  fi
 fi
 
 # --- Step 6: save release notes, delete the file, push to the milestone branch ---
+OLD_HEAD=""
 step "Step 6: remove release notes from milestone branch"
 if [ "$PR_STATE" = "MERGED" ]; then
   echo "PR #${PR_NUMBER} is already merged — skipping."
 else
   run git checkout "$BRANCH"
   run git pull --ff-only origin "$BRANCH"
+  # OLD_HEAD is the tip of the remote branch before this script pushes.
+  # GitHub can show it as the PR head for a short time after the push. On a
+  # rerun after the push, it is the pushed head, so the wait also counts
+  # the --reviewed-sha commit as the head from before the push.
+  if [ "$DRY_RUN" -eq 0 ]; then
+    OLD_HEAD="$(git rev-parse FETCH_HEAD)"
+  fi
   # The pull can bring a commit that landed after the check above. Check
   # again on the local branch, before this script commits or pushes.
   if [ "$DRY_RUN" -eq 0 ]; then
@@ -340,18 +514,128 @@ step "Step 7: sync main"
 run git checkout main
 run git pull --ff-only origin main
 
-# --- Step 8: merge the PR ---
-step "Step 8: merge PR #${PR_NUMBER}"
-if [ "$PR_STATE" = "MERGED" ]; then
-  echo "PR #${PR_NUMBER} is already merged — skipping."
-else
-  # Merge only the head that this script pushed. The local branch matches
-  # origin after Step 6, so a push by anyone else since then fails here.
+# --- Wait for the required checks on the PR head ---
+# EXPECTED_HEAD is the head that this script pushed. The local branch
+# matches origin after Step 6. The wait reads the checks only when the PR
+# shows this head. Step 8 merges only this head, so a push by anyone else
+# since then fails the merge.
+if [ "$PR_STATE" = "OPEN" ]; then
   if [ "$DRY_RUN" -eq 1 ]; then
     EXPECTED_HEAD="<milestone branch HEAD after Step 6>"
   else
     EXPECTED_HEAD="$(git rev-parse "refs/heads/${BRANCH}")"
   fi
+fi
+
+# gh_poll_fail <what>
+# Exits 2 with the gh error. Step 6 already pushed, so exit 1 does not apply.
+gh_poll_fail() {
+  echo "flow-release-milestone: cannot read the $1 of PR #${PR_NUMBER}. gh said: ${GH_ERR:-nothing (exit ${GH_STATUS})}" >&2
+  echo "Nothing merged. Fix the cause, then run the script again." >&2
+  exit 2
+}
+
+# GitHub shows the pushed commit as the PR head some time after the push.
+# Until then, `gh pr checks` shows the checks of the old head, so the head
+# is read first. `gh pr checks` can exit 8 while a check is pending (the
+# help text of gh 2.103.3 says so). The script accepts exit 0 and exit 8,
+# and reads the state of each check from its bucket. Before the first CI
+# run starts, gh can fail with "no checks reported". The script then counts
+# each required check as pending. This text match depends on the gh wording.
+step "Wait for required checks"
+if [ "$PR_STATE" = "MERGED" ]; then
+  echo "PR #${PR_NUMBER} is already merged — skipping."
+elif [ -z "$REQUIRED_CHECKS" ]; then
+  echo "No required checks on main — no wait."
+elif [ "$DRY_RUN" -eq 1 ]; then
+  echo "[dry-run] gh pr checks $PR_NUMBER --json name,bucket  # wait until each required check passes on the pushed head, at most ${CHECKS_TIMEOUT_MIN} min"
+else
+  LIMIT=$((CHECKS_TIMEOUT_MIN * 60))
+  ELAPSED=0
+  while :; do
+    PENDING=""
+    gh_capture pr view "$PR_NUMBER" --json headRefOid,state --jq '"\(.headRefOid) \(.state)"'
+    [ "$GH_STATUS" -eq 0 ] || gh_poll_fail "head commit"
+    HEAD_NOW="${GH_OUT%% *}"
+    STATE_NOW=""
+    case "$GH_OUT" in *" "*) STATE_NOW="${GH_OUT#* }" ;; esac
+    # A null or empty field is a bad gh answer, not a new head or a state.
+    if ! printf '%s' "$HEAD_NOW" | grep -qE '^[0123456789abcdef]{40}$' \
+      || [ -z "$STATE_NOW" ]; then
+      GH_ERR="a bad answer '${GH_OUT}'"
+      gh_poll_fail "head commit"
+    fi
+    if [ "$STATE_NOW" != "OPEN" ]; then
+      echo "PR #${PR_NUMBER} is ${STATE_NOW}. Nothing merged." >&2
+      exit 2
+    fi
+    # GitHub can show the head from before the push for a short time. That
+    # is OLD_HEAD, or the reviewed commit on a rerun after the push, when
+    # OLD_HEAD is already the pushed head.
+    if [ "$HEAD_NOW" != "$EXPECTED_HEAD" ] \
+      && { [ "$HEAD_NOW" = "$OLD_HEAD" ] \
+        || { [ -n "$REVIEWED_SHA" ] && [ "$HEAD_NOW" = "$REVIEWED_SHA" ]; }; }; then
+      PENDING="the PR head ${EXPECTED_HEAD} (GitHub shows ${HEAD_NOW})"
+    elif [ "$HEAD_NOW" != "$EXPECTED_HEAD" ]; then
+      echo "PR #${PR_NUMBER} has head ${HEAD_NOW}, not ${EXPECTED_HEAD}. A commit landed after the review. Nothing merged. Review the new commit, then run the release again." >&2
+      exit 2
+    else
+      gh_capture pr checks "$PR_NUMBER" --json name,bucket --jq '.[] | "\(.name)\t\(.bucket)"'
+      CHECKS="$GH_OUT"
+      case "$GH_STATUS" in
+        0|8) ;;
+        *)
+          case "$GH_ERR" in
+            *"no checks reported"*) CHECKS="" ;;
+            *) gh_poll_fail "checks" ;;
+          esac
+          ;;
+      esac
+      while IFS= read -r NAME; do
+        # Each run with this name counts. A failed or cancelled run fails
+        # the check. ENVIRON, not -v: awk -v changes backslashes in a name.
+        STATE="$(printf '%s\n' "$CHECKS" | N="$NAME" awk -F '\t' '
+          $1 == ENVIRON["N"] {
+            seen = 1
+            if ($2 == "fail" || $2 == "cancel") { bad = $2 }
+            else if ($2 != "pass" && $2 != "skipping") { wait = 1 }
+          }
+          END {
+            if (bad != "") print bad
+            else if (!seen || wait) print "pending"
+            else print "pass"
+          }')"
+        case "$STATE" in
+          pass) ;;
+          fail|cancel)
+            echo "Required check '${NAME}' is ${STATE} on PR #${PR_NUMBER}. Nothing merged. Fix the check, wait for it to pass, then run the script again." >&2
+            exit 2
+            ;;
+          *) PENDING="${PENDING:+${PENDING}, }${NAME}" ;;
+        esac
+      done <<EOF
+${REQUIRED_CHECKS}
+EOF
+    fi
+    if [ -z "$PENDING" ]; then
+      echo "Required checks pass."
+      break
+    fi
+    if [ "$ELAPSED" -ge "$LIMIT" ]; then
+      echo "Required checks not done after ${CHECKS_TIMEOUT_MIN} min: ${PENDING}. Nothing merged. Run the script again when the checks pass." >&2
+      exit 2
+    fi
+    echo "Waiting for: ${PENDING}"
+    sleep "$CHECK_INTERVAL"
+    ELAPSED=$((ELAPSED + CHECK_INTERVAL))
+  done
+fi
+
+# --- Step 8: merge the PR ---
+step "Step 8: merge PR #${PR_NUMBER}"
+if [ "$PR_STATE" = "MERGED" ]; then
+  echo "PR #${PR_NUMBER} is already merged — skipping."
+else
   run gh pr merge "$PR_NUMBER" "$MERGE_FLAG" --delete-branch --match-head-commit "$EXPECTED_HEAD"
 fi
 
