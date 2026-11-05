@@ -47,3 +47,18 @@ the allowlist, or if the allowlist names a script that does not exist.
    `flow` at user scope, uninstall it there. A user-scope install loads
    `flow` in every repo, and a `ref` change in another project can leave it
    with no cache (design section 5).
+
+5. Check `.claude/settings.json` after the installs. The install writes
+   the file again in its own key order, also when `enabledPlugins`
+   already has the plugin (issue #92). If only the key order changed,
+   discard the change:
+
+   ```sh
+   diff <(git show HEAD:.claude/settings.json | jq -S .) \
+     <(jq -S . .claude/settings.json) \
+     && git checkout -- .claude/settings.json
+   ```
+
+   The `diff` compares the two files with the keys in sorted order. It
+   exits 0 only when the content is the same, and only then does the
+   `git checkout` run.
