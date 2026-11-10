@@ -179,12 +179,13 @@ holds the choice. Do not ask again.
 
 **Readiness check (milestone mode only).** `/flow:plan-milestone` admits
 an issue to a milestone. It writes an `## Acceptance criteria` section in
-the issue body and applies `status:ready`. `/flow:new-issue` and
+the issue body and applies `status:ready`. The check accepts a `##` or
+`###` heading for this section. `/flow:new-issue` and
 `/flow:found` write no acceptance criteria. Check the three marks:
 
 ```bash
 gh issue view ISSUE_NUMBER -R <repo> --json milestone,labels,body \
-  --jq '{milestone: (.milestone.title // "none"), status_ready: any(.labels[]; .name == "status:ready"), acceptance_criteria: any((.body // "") | split("\n")[]; test("^##[[:space:]]+acceptance criteria"; "i"))}'
+  --jq '{milestone: (.milestone.title // "none"), status_ready: any(.labels[]; .name == "status:ready"), acceptance_criteria: any((.body // "") | split("\n")[]; test("^###?[[:space:]]+acceptance criteria"; "i"))}'
 ```
 
 For the combined scope, run the check for each issue in the group. If a
@@ -210,8 +211,8 @@ it again.
   so `/flow:plan-milestone` and `/flow:start-milestone` do not scope it
   again. Ask with AskUserQuestion: `Write the acceptance criteria at the plan
   gate` (recommended) or `Stop`. On `Stop`, tell the user: "Add an
-  `## Acceptance criteria` section to the issue body. Then type
-  `/flow:start-issue ISSUE_NUMBER`." On the first option, continue. Step 9
+  `## Acceptance criteria` section (or a `###` heading) to the issue body.
+  Then type `/flow:start-issue ISSUE_NUMBER`." On the first option, continue. Step 9
   writes the criteria in the plan, and posts them to the issue body when
   the user approves the plan.
 

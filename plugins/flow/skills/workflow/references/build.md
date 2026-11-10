@@ -10,7 +10,7 @@ Build works one issue at a time. The plan approval is the human checkpoint. The 
 
 ### Readiness check
 
-Before planning, `/flow:start-issue` checks the issue. The issue needs three marks: a milestone, the `status:ready` label, and an `## Acceptance criteria` section.
+Before planning, `/flow:start-issue` checks the issue. The issue needs three marks: a milestone, the `status:ready` label, and an `## Acceptance criteria` section. The check accepts a `##` or `###` heading.
 
 | Missing | Action |
 | --- | --- |

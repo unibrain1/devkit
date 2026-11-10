@@ -1,0 +1,234 @@
+#!/bin/bash
+#
+# Compares the repo with the every-repo baseline in
+# flow/templates/baseline/, and copies missing baseline files into the repo.
+# A path in the baseline folder is the same path in the repo. The file list
+# comes from the folder, so a new baseline file needs no script change.
+#
+# The script never replaces a file that exists, never writes through a
+# symbolic link (the file or a parent folder), and never writes outside the
+# repo root. It does not change the git index.
+#
+# Usage: flow-baseline --status | --apply <path>...
+#   --status  Print one line for each baseline file, with the repo-relative
+#             path: "missing <path>", "same <path>", or "different <path>".
+#             A symbolic link in the path counts as different. The script
+#             does not follow it.
+#   --apply   Copy each named missing file from the baseline folder, and
+#             make its parent folders. The script checks all paths before
+#             it writes. If one path fails a check, it writes no file.
+#
+# Exit codes:
+#   0  --status: no baseline file is missing. --apply: done.
+#   1  --status: one or more baseline files are missing.
+#      --apply: a named file exists, or a file blocks a parent folder.
+#   2  Usage error, not in a git repo, or the baseline folder is missing,
+#      empty, or cannot be read. --status: a baseline file or a repo file
+#      cannot be read. --apply: no path, an empty path, a path that is not
+#      in the baseline, an absolute path, a path with ".", "..", or "//", a
+#      path named two times, or a symbolic link in the path.
+#   3  --apply: a write step failed after the checks. Other files can be
+#      written already. The error message names them.
+
+set -euo pipefail
+
+prog="$(basename "$0")"
+
+usage() {
+    echo "Usage: ${prog} --status | --apply <path>..." >&2
+    exit 2
+}
+
+mode="${1:-}"
+case "$mode" in
+    --status) [ "$#" -eq 1 ] || usage ;;
+    --apply)
+        if [ "$#" -lt 2 ]; then
+            echo "${prog}: --apply needs one or more baseline paths." >&2
+            usage
+        fi
+        ;;
+    *) usage ;;
+esac
+
+if ! top="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    echo "${prog}: not in a git repository." >&2
+    exit 2
+fi
+
+# The command path can hold a symbolic link to this script. Resolve each
+# link, so the script finds the template folder next to the real script.
+# Old macOS has no "readlink -f", so the loop resolves one link at a time.
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+    src_dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in
+        /*) ;;
+        *) src="${src_dir}/${src}" ;;
+    esac
+done
+plugin_root="$(cd -P "$(dirname "$src")/.." && pwd)"
+baseline="${plugin_root}/templates/baseline"
+
+if [ ! -d "$baseline" ]; then
+    echo "${prog}: baseline folder ${baseline} is missing." >&2
+    exit 2
+fi
+
+# Finder can put a .DS_Store file in a working copy of the plugin. It is not
+# a baseline file.
+if ! files="$(cd "$baseline" && find . -type f ! -name .DS_Store | sed 's|^\./||' | LC_ALL=C sort)"; then
+    echo "${prog}: cannot read ${baseline}." >&2
+    exit 2
+fi
+if [ -z "$files" ]; then
+    echo "${prog}: baseline folder ${baseline} has no files." >&2
+    exit 2
+fi
+
+# has_link <rel-path>: true if the path or a parent folder below the repo
+# root is a symbolic link.
+has_link() {
+    local cur="$top" part rest="$1"
+    while [ -n "$rest" ]; do
+        part="${rest%%/*}"
+        if [ "$part" = "$rest" ]; then
+            rest=""
+        else
+            rest="${rest#*/}"
+        fi
+        cur="${cur}/${part}"
+        [ -L "$cur" ] && return 0
+    done
+    return 1
+}
+
+# parent_blocked <rel-path>: true if a parent of the path exists and is
+# not a folder, so the file cannot be made there.
+parent_blocked() {
+    local dir="$1"
+    while [ "${dir%/*}" != "$dir" ]; do
+        dir="${dir%/*}"
+        if [ -e "${top}/${dir}" ] && [ ! -d "${top}/${dir}" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if [ "$mode" = "--status" ]; then
+    rc=0
+    while IFS= read -r rel; do
+        target="${top}/${rel}"
+        if has_link "$rel" || parent_blocked "$rel"; then
+            echo "different ${rel}"
+        elif [ -e "$target" ]; then
+            cmp_rc=1
+            if [ -f "$target" ]; then
+                cmp_rc=0
+                cmp -s "${baseline}/${rel}" "$target" || cmp_rc=$?
+            fi
+            # cmp exits 2 when it cannot read a file. That is not "different".
+            case "$cmp_rc" in
+                0) echo "same ${rel}" ;;
+                1) echo "different ${rel}" ;;
+                *)
+                    echo "${prog}: cannot compare ${target} with ${baseline}/${rel}." >&2
+                    exit 2
+                    ;;
+            esac
+        else
+            echo "missing ${rel}"
+            rc=1
+        fi
+    done <<EOF
+$files
+EOF
+    exit "$rc"
+fi
+
+shift
+nl='
+'
+# rc: 2 for a bad path, 1 for a file that exists. A bad path wins.
+rc=0
+reject() {
+    echo "${prog}: $1" >&2
+    rc=2
+}
+seen="$nl"
+for rel in "$@"; do
+    case "$rel" in
+        "") reject "an empty path is not allowed."; continue ;;
+        /*) reject "${rel}: an absolute path is not allowed."; continue ;;
+    esac
+    case "/${rel}/" in
+        */../*|*/./*|*//*)
+            reject "${rel}: a path with '.', '..', or '//' is not allowed."
+            continue
+            ;;
+    esac
+    case "${nl}${files}${nl}" in
+        *"${nl}${rel}${nl}"*) ;;
+        *) reject "${rel} is not a baseline file."; continue ;;
+    esac
+    case "$seen" in
+        *"${nl}${rel}${nl}"*) reject "${rel} is named two times."; continue ;;
+    esac
+    seen="${seen}${rel}${nl}"
+    if has_link "$rel"; then
+        reject "${top}/${rel}: the path has a symbolic link. The script does not write through it."
+        continue
+    fi
+    if [ -e "${top}/${rel}" ]; then
+        echo "${prog}: ${top}/${rel} exists. The script does not replace it." >&2
+        [ "$rc" -eq 2 ] || rc=1
+    elif parent_blocked "$rel"; then
+        echo "${prog}: ${top}/${rel}: a file blocks a parent folder." >&2
+        [ "$rc" -eq 2 ] || rc=1
+    fi
+done
+
+if [ "$rc" -ne 0 ]; then
+    echo "${prog}: wrote no file." >&2
+    exit "$rc"
+fi
+
+tmp=""
+trap 'if [ -n "$tmp" ]; then rm -f "$tmp"; fi' EXIT
+
+# Exit 1 means "wrote no file". After the first write that is not true, so
+# a failure here exits 3 and names the files that are written.
+written=""
+write_failed() {
+    echo "${prog}: could not write ${1}. Wrote: ${written:-none}." >&2
+    exit 3
+}
+
+for rel in "$@"; do
+    target="${top}/${rel}"
+    target_dir="$(dirname "$target")"
+    mkdir -p "$target_dir" || write_failed "$rel"
+    # The checks above ran before the write loop. Do them again here, so a
+    # link or a file that appeared after the checks stops the write.
+    if has_link "$rel"; then
+        echo "${prog}: ${target}: the path has a symbolic link. The script does not write through it." >&2
+        write_failed "$rel"
+    fi
+    if [ -e "$target" ]; then
+        echo "${prog}: ${target} exists. The script does not replace it." >&2
+        write_failed "$rel"
+    fi
+    tmp="$(mktemp "${target_dir}/.flow-baseline.XXXXXX")" || write_failed "$rel"
+    cat "${baseline}/${rel}" > "$tmp" || write_failed "$rel"
+    chmod 644 "$tmp" || write_failed "$rel"
+    # mv replaces a file at the target name, and moves into a folder if the
+    # target name is a link to a folder. A hard link fails if the target
+    # name exists. With -n, ln does not follow a link at the target name.
+    ln -n "$tmp" "$target" || write_failed "$rel"
+    rm -f "$tmp"
+    tmp=""
+    written="${written:+${written}, }${rel}"
+    echo "${prog}: wrote ${rel}."
+done

@@ -1,0 +1,36 @@
+# Baseline pre-commit hooks from devkit (docs/baseline.md). Each repo gets
+# the same checks. Run `pre-commit install` one time in each clone to turn
+# the hooks on.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.24.0
+    hooks:
+      - id: markdownlint-cli2
+  # test_quick slot. To turn it on, remove the first "# " mark from each
+  # line from "- repo: local" to the stages line. Then replace the entry
+  # with the test_quick command of this repo.
+  # If test_quick takes more than about 20 seconds, move it to pre-push.
+  # Remove the second "# " mark from the stages line too. Then run:
+  # `pre-commit install --hook-type pre-push`.
+  # - repo: local
+  #   hooks:
+  #     - id: test-quick
+  #       name: test_quick
+  #       entry: REPLACE-WITH-TEST-QUICK-COMMAND
+  #       language: system
+  #       pass_filenames: false
+  #       # stages: [pre-push]
+  # gitleaks scans only the staged changes.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

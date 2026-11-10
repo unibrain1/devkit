@@ -12,6 +12,37 @@ so their callers need no block. See [design section 6](design.html#ci) for
 the shared-CI design and [section 8](design.html#main-match) for the
 main-match rule that every caller must follow.
 
+Every repo gets the `claude-review.yml`, `claude.yml`, and
+`secrets-scan.yml` callers from the baseline. See
+[baseline.md](baseline.md).
+
+## Devkit pin rule
+
+A caller of a devkit reusable workflow picks its ref from this rule:
+
+| Repo | Ref | Example |
+| --- | --- | --- |
+| No outside contributors | `@main` | `uses: unibrain1/devkit/.github/workflows/claude.yml@main` |
+| Has outside contributors | A release tag `@vX.Y.Z`, or the commit SHA of that tag with the tag in a comment | `uses: unibrain1/devkit/.github/workflows/claude.yml@v1.4.0` |
+
+With `@main`, a devkit change runs in the repo at the next CI run, with no
+PR in that repo. That is safe when only Jim opens PRs. In a repo with
+outside contributors, an outside contributor's PR must not run a devkit
+change before a person reviews the change for that repo. So the repo pins
+a release, and one manual PR changes the pin at a milestone boundary. See
+[design section 7](design.html#updates).
+
+`.github/scripts/check-action-pins.sh` accepts these devkit refs:
+
+- `unibrain1/devkit/.github/workflows/<file>.yml@main`
+- `unibrain1/devkit/.github/workflows/<file>.yml@vX.Y.Z`, with all three
+  numbers
+
+A full commit SHA also passes. Another devkit path, a look-alike owner or
+repo, another branch, and a short tag such as `@v1` or `@v1.4` fail. A
+third-party action still needs a full 40-character commit SHA, with the
+version in a comment.
+
 ## `claude-review.yml`
 
 A Claude Code review on a pull request, and on demand from a comment.
@@ -572,8 +603,9 @@ on `Bash( git` with spaces after the `(`. A rule that allows any command,
 
 ## `secrets-scan.yml`
 
-A trufflehog scan of the commits in a pull request or a push. For private
-repos. Public repos use GitHub secret scanning and push protection.
+A trufflehog scan of the commits in a pull request or a push. Every repo
+runs it, from the [baseline](baseline.md). A public repo also turns on
+GitHub secret scanning and push protection in its settings.
 
 | Input | Type | Default | Use |
 | --- | --- | --- | --- |
