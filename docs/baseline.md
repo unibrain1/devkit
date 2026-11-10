@@ -5,9 +5,8 @@ holds the checks that do not depend on the language or the framework. The
 files are in `plugins/flow/templates/baseline/`. A path in that folder is
 the path in the target repo.
 
-Each family template (issues #114, #115, #116, #118) copies the baseline
-files. `/flow:setup` adds the missing files to a repo with no family
-template (Others). Stack checks stay in the family template or in the
+Each family template copies the baseline files. `/flow:setup` adds the
+missing files to a repo that has no family template. Stack checks stay in the family template or in the
 project.
 
 ## Files
@@ -18,7 +17,7 @@ project.
 | `.github/workflows/claude-code-review.yml` | The caller of `claude-review.yml`, with its `permissions:` block. |
 | `.github/workflows/claude.yml` | The caller of `claude.yml`, with its `permissions:` block. |
 | `.github/workflows/secrets-scan.yml` | The caller of `secrets-scan.yml`. The job ID is `secrets-scan`, so the check name is `secrets-scan / trufflehog`. |
-| `.github/dependabot.yml` | Dependabot for the `github-actions` ecosystem, weekly, with the commit prefix `chore(deps):`. |
+| `.github/dependabot.yml` | Dependabot for the `github-actions` ecosystem, weekly, with the commit prefix `chore(deps):`. It ignores `unibrain1/devkit`, because the devkit pin moves only by hand. |
 
 The three callers are the examples in [ci-workflows.md](ci-workflows.md).
 They use `@main`. A repo with outside contributors changes them to a tag.
@@ -57,8 +56,8 @@ Every repo runs `secrets-scan.yml`. trufflehog keeps its default
 caller sets no `extra_args`.
 
 A public repo also turns on secret scanning and push protection in its
-settings. GitHub gives them free to a
-public repo. In a public repo, trufflehog and push protection both run.
+settings. GitHub gives both at no cost to a public repo. In a public repo,
+trufflehog and push protection both run.
 
 ## Needed checks
 

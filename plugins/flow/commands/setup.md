@@ -32,9 +32,10 @@ With `--check`, do Step 1 and Step 2 only. Report the state. Change nothing.
 4. Run `flow-labels --missing`. Keep the list of missing labels.
 5. Run `flow-baseline --status`. Keep the `missing` and `different` lines.
    - Exit 0: no file is missing.
-   - Exit 1: one or more files are missing. This is a normal result.
-   - Exit 2: an error. Show its stderr. Record the baseline as failed.
-     Skip Step 6.
+   - Exit 1: one or more files are missing. This is a normal result. If
+     the output has no `missing` line, treat the exit as an error.
+   - Exit 2, or any other exit code: an error. Show its stderr. Record the
+     baseline as failed. Skip Step 6.
 
 If `$ARGUMENTS` has `--check`, report the five results and stop.
 
@@ -100,8 +101,11 @@ line.
    If not, skip the copy.
 6. If `flow-baseline --apply` exits 1 or 2, show its output. Record the
    baseline as failed. Do not run it again.
-   If it exits 3, show its output. The output lists the files that it
-   wrote. Record a partial write. Do not run it again.
+   If it exits 3, show its output. Read the `Wrote:` list in stderr. If
+   the list is `none`, record the baseline as failed. Otherwise, record a
+   partial write with the files in the list. Do not run it again.
+   Any other exit code is an error. Show the output, and record the
+   baseline as failed.
 7. Show each `different` file as a list. Tell the user to compare each
    one with the baseline file. Do not change a `different` file.
 
@@ -121,7 +125,7 @@ Print a short report:
   these steps:
   1. Run `pre-commit install` in the repo.
   2. Add the repo in the Semgrep GitHub App and in the GitGuardian GitHub
-     App. The admin of each app does this step.
+     App. Jim adds each repo in each app.
   3. Install the Claude GitHub App on the repo.
   4. Add the `CLAUDE_CODE_OAUTH_TOKEN` repo secret. The Claude callers need
      it.

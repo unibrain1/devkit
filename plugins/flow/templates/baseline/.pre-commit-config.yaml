@@ -29,7 +29,7 @@ repos:
   #       language: system
   #       pass_filenames: false
   #       # stages: [pre-push]
-  # gitleaks scans only the staged changes.
+  # gitleaks scans only the staged files.
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
     hooks:

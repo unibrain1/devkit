@@ -1,5 +1,7 @@
 # Baseline Dependabot config from devkit (docs/baseline.md). It bumps the
-# pinned actions one time each week, in one grouped PR.
+# pinned actions one time each week, in one grouped PR. It does not bump
+# the devkit callers: the devkit pin moves only by hand, at a milestone
+# boundary (docs/ci-workflows.md, devkit pin rule).
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -11,3 +13,5 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+    ignore:
+      - dependency-name: unibrain1/devkit

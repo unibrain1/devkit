@@ -346,6 +346,41 @@ else
     fi
 fi
 
+# A read failure after a first write exits 3. The EXIT trap removes the
+# temp file of the failed write.
+if [ "$IS_ROOT" -eq 1 ]; then
+    pass "apply: temp file cleanup: skipped as root"
+else
+    RDPLUGIN="$TMPROOT/rdplugin"
+    cp -R "$PLUGIN" "$RDPLUGIN"
+    chmod 000 "$RDPLUGIN/templates/baseline/.pre-commit-config.yaml"
+    new_repo applytmpclean
+    run "$RDPLUGIN/bin/flow-baseline" --apply .github/dependabot.yml .pre-commit-config.yaml
+    chmod 644 "$RDPLUGIN/templates/baseline/.pre-commit-config.yaml"
+    left="$(find . -name '.flow-baseline.*' | wc -l | tr -d ' ')"
+    if [ "$RC" -eq 3 ] \
+        && printf '%s' "$ERR" | grep -qF "Wrote: .github/dependabot.yml." \
+        && [ "$left" = "0" ] && [ ! -e .pre-commit-config.yaml ]; then
+        pass "apply: read failure after one write -> 3, no temp file left"
+    else
+        fail "apply: read failure after one write -> 3, no temp file left" "exit: $RC" "stderr: [$ERR]" "temp files: $left"
+    fi
+
+    # find fails on a folder that it cannot read. The script must not list
+    # only part of the baseline.
+    NRPLUGIN="$TMPROOT/nrplugin"
+    cp -R "$PLUGIN" "$NRPLUGIN"
+    chmod 000 "$NRPLUGIN/templates/baseline/.github"
+    new_repo statusnoread
+    run "$NRPLUGIN/bin/flow-baseline" --status
+    chmod 755 "$NRPLUGIN/templates/baseline/.github"
+    if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF "cannot read"; then
+        pass "status: baseline folder that cannot be read -> 2"
+    else
+        fail "status: baseline folder that cannot be read -> 2" "exit: $RC" "stdout: [$OUT]" "stderr: [$ERR]"
+    fi
+fi
+
 # --- C8: apply and links -------------------------------------------------
 
 new_repo applyfilelink
@@ -397,6 +432,14 @@ run "$SCRIPT" --apply .pre-commit-config.yaml ../x
 expect_rc "apply of one good and one bad path -> 2" 2
 run "$SCRIPT" --apply .github/dependabot.yml .pre-commit-config.yaml not-in-baseline.txt
 expect_rc "apply of two good paths and one bad path -> 2" 2
+# A newline joins two lines of the baseline file list.
+run "$SCRIPT" --apply "$(printf '.github/dependabot.yml\n.github/workflows/claude-code-review.yml')"
+expect_rc "apply of a path with a newline -> 2" 2
+if [ -z "$(find . -mindepth 1 ! -path './.git' ! -path './.git/*')" ]; then
+    pass "a path with a newline makes no folder"
+else
+    fail "a path with a newline makes no folder" "$(find . -mindepth 1 ! -path './.git' ! -path './.git/*')"
+fi
 if [ -z "$(tree_files)" ] && [ ! -e "$TMPROOT/x" ] && [ ! -e "$TMPROOT/badpaths/x" ]; then
     pass "bad paths: nothing is written"
 else
@@ -473,7 +516,7 @@ fi
 # --- Real baseline folder ------------------------------------------------
 
 new_repo realtpl
-real_count="$(cd "$REAL_BASELINE" 2>/dev/null && find . -type f | wc -l | tr -d ' ')"
+real_count="$(cd "$REAL_BASELINE" 2>/dev/null && find . -type f ! -name .DS_Store | wc -l | tr -d ' ')"
 run "$REAL_SCRIPT" --status
 if [ "$RC" -eq 1 ] && [ "${real_count:-0}" -eq 5 ] \
     && [ "$(printf '%s\n' "$OUT" | grep -c '^missing ')" -eq 5 ]; then

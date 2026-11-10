@@ -1,9 +1,10 @@
 #!/bin/bash
 #
-# Tests for the baseline files in plugins/flow/templates/baseline/ (issue
-# #113): YAML validity, pinned hook revs, caller refs, permissions and
-# triggers equal to docs/ci-workflows.md, the Dependabot config, the action
-# pin check, whitespace, and the docs rules in the acceptance criteria.
+# Tests for the baseline files in plugins/flow/templates/baseline/: YAML
+# validity, pinned hook revs, caller refs, permissions and triggers equal
+# to docs/ci-workflows.md, caller permissions, inputs, and secrets that the
+# reusable workflows accept, the merge-gate check name, the Dependabot
+# config, the action pin check, whitespace, and the rules in the docs.
 #
 # Env overrides, for the break-it checks on scratch copies:
 #   BASELINE_DIR  the baseline folder
@@ -88,7 +89,7 @@ want_files=".github/dependabot.yml
 .github/workflows/claude.yml
 .github/workflows/secrets-scan.yml
 .pre-commit-config.yaml"
-got_files="$(cd "$BASELINE_DIR" 2>/dev/null && find . -type f | sed 's|^\./||' | LC_ALL=C sort)"
+got_files="$(cd "$BASELINE_DIR" 2>/dev/null && find . -type f ! -name .DS_Store | sed 's|^\./||' | LC_ALL=C sort)"
 if [ "$got_files" = "$want_files" ]; then
     pass "baseline has exactly the five files"
 else
@@ -175,6 +176,27 @@ else
     fail "the parsed config has no local repo" "count: $local_repos"
 fi
 
+# perm_gaps <caller-json> <reusable-json>: print each scope that a job of
+# the reusable workflow asks for at a higher level than the caller job
+# grants. GitHub does not start a caller that grants less.
+perm_gaps() {
+    jq -nr --argjson c "$1" --argjson r "$2" '
+        def rank: if . == "write" then 2 elif . == "read" then 1 else 0 end;
+        ([$c.jobs[]][0].permissions // {}) as $have
+        | [$r.permissions, ($r.jobs[] | .permissions)]
+        | map(select(type == "object") | to_entries[]
+              | select((.value | rank) > ($have[.key] // "none" | rank)) | .key)
+        | unique | join(",")'
+}
+if [ -n "$(perm_gaps '{"jobs":{"a":{"permissions":{"contents":"read"}}}}' \
+    '{"jobs":{"b":{"permissions":{"contents":"write"}}}}')" ] \
+    && [ -z "$(perm_gaps '{"jobs":{"a":{"permissions":{"contents":"write"}}}}' \
+    '{"permissions":{"contents":"read"},"jobs":{"b":{}}}')" ]; then
+    pass "control: perm_gaps finds read < write and accepts write >= read"
+else
+    fail "control: perm_gaps finds read < write and accepts write >= read"
+fi
+
 # --- A8-A11: callers ---------------------------------------------------
 docs_json() { # docs_json <name>: JSON of the docs example, or nothing
     local body
@@ -196,6 +218,32 @@ for name in $CALLERS; do
         pass "$name: uses unibrain1/devkit/.github/workflows/$reusable@main"
     else
         fail "$name: uses unibrain1/devkit/.github/workflows/$reusable@main" "uses: $uses"
+    fi
+    # The caller passes only the inputs and secrets that the reusable
+    # workflow declares, and grants each permission that it asks for.
+    if ! RJ="$(y2j "$REAL_REPO/.github/workflows/$reusable")"; then
+        fail "$name: reusable $reusable parses"
+        continue
+    fi
+    extra="$(jq -nr --argjson c "$CJ" --argjson r "$RJ" '
+        [$c.jobs[]][0] as $j
+        | (($j.with // {}) | keys - (($r.on.workflow_call.inputs // {}) | keys))
+          + (($j.secrets // {}) | keys - (($r.on.workflow_call.secrets // {}) | keys))
+        | join(",")')"
+    if [ -z "$extra" ]; then
+        pass "$name: each with: and secrets: key is declared in $reusable"
+    else
+        fail "$name: each with: and secrets: key is declared in $reusable" "not declared: $extra"
+    fi
+    # A caller with no permissions block gives the repo default token, so
+    # only a caller with a block can grant too little.
+    if [ "$(printf '%s' "$CJ" | jq '[.jobs[]][0] | has("permissions")')" = "true" ]; then
+        gaps="$(perm_gaps "$CJ" "$RJ")"
+        if [ -z "$gaps" ]; then
+            pass "$name: grants each permission that $reusable asks for"
+        else
+            fail "$name: grants each permission that $reusable asks for" "missing: $gaps"
+        fi
     fi
     # The permissions lists must not be empty for the two Claude callers.
     if [ "$name" != "secrets-scan.yml" ]; then
@@ -231,6 +279,16 @@ done
 
 # A11: no with: in the secrets caller; reusable default keeps --only-verified
 sj="$(y2j "$WF/secrets-scan.yml")"
+# The merge gate needs the check name "secrets-scan / trufflehog": the
+# caller job id, then the name of the reusable job.
+rj="$(y2j "$REUSABLE_SECRETS")"
+cjobs="$(printf '%s' "$sj" | jq -c '.jobs | keys')"
+rname="$(printf '%s' "$rj" | jq -r 'if .jobs.trufflehog then (.jobs.trufflehog.name // "trufflehog") else "" end')"
+if [ "$cjobs" = '["secrets-scan"]' ] && [ "$rname" = "trufflehog" ]; then
+    pass "check name is secrets-scan / trufflehog"
+else
+    fail "check name is secrets-scan / trufflehog" "caller jobs: $cjobs" "reusable job name: $rname"
+fi
 withs="$(printf '%s' "$sj" | jq '[.jobs[] | has("with")] | map(select(.)) | length')"
 if [ "$withs" = "0" ]; then
     pass "secrets-scan caller has no with:"
@@ -255,11 +313,12 @@ if DB="$(y2j "$DEPENDABOT")"; then
         and (.updates[0]["package-ecosystem"] == "github-actions")
         and (.updates[0].directory == "/")
         and (.updates[0].schedule.interval == "weekly")
-        and (.updates[0]["commit-message"].prefix == "chore(deps)")')"
+        and (.updates[0]["commit-message"].prefix == "chore(deps)")
+        and (.updates[0].ignore == [{"dependency-name": "unibrain1/devkit"}])')"
     if [ "$ok" = "true" ]; then
-        pass "dependabot: v2, one github-actions entry, /, weekly, prefix chore(deps)"
+        pass "dependabot: v2, one github-actions entry, /, weekly, prefix chore(deps), ignores devkit"
     else
-        fail "dependabot: v2, one github-actions entry, /, weekly, prefix chore(deps)" "$(printf '%s' "$DB" | jq -c .)"
+        fail "dependabot: v2, one github-actions entry, /, weekly, prefix chore(deps), ignores devkit" "$(printf '%s' "$DB" | jq -c .)"
     fi
 else
     fail "dependabot parses"
@@ -298,7 +357,7 @@ for f in $ALL_FILES; do
     fi
 done
 
-# --- A15: docs criteria ------------------------------------------------
+# --- A15: docs rules ---------------------------------------------------
 need() { # need <file> <label> <grep-opts> <pattern>
     if [ ! -f "$1" ]; then
         fail "$2" "file missing: $1"

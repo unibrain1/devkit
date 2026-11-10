@@ -36,6 +36,8 @@ that opens sets its ref for all projects.
 ## Tests and lint
 
 - Tests: `bash tests/run.sh`. It runs each `tests/**/test-*.sh` file.
+  The tests need `jq`, and `tests/templates/test-baseline.sh` also needs
+  Ruby with `yaml` and `json`.
 - Lint: the `lint` key in `.claude/project.md`. It runs markdownlint,
   yamllint, actionlint, and shellcheck. CI also checks action pins, JSON,
   the brain skill zips, and `claude plugin validate`.

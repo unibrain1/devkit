@@ -13,7 +13,8 @@
 #   --status  Print one line for each baseline file, with the repo-relative
 #             path: "missing <path>", "same <path>", or "different <path>".
 #             A symbolic link in the path counts as different. The script
-#             does not follow it.
+#             does not follow it. A file that blocks a parent folder also
+#             counts as different.
 #   --apply   Copy each named missing file from the baseline folder, and
 #             make its parent folders. The script checks all paths before
 #             it writes. If one path fails a check, it writes no file.
@@ -25,8 +26,8 @@
 #   2  Usage error, not in a git repo, or the baseline folder is missing,
 #      empty, or cannot be read. --status: a baseline file or a repo file
 #      cannot be read. --apply: no path, an empty path, a path that is not
-#      in the baseline, an absolute path, a path with ".", "..", or "//", a
-#      path named two times, or a symbolic link in the path.
+#      in the baseline, an absolute path, a path with ".", "..", "//", or a
+#      newline, a path named two times, or a symbolic link in the path.
 #   3  --apply: a write step failed after the checks. Other files can be
 #      written already. The error message names them.
 
@@ -162,6 +163,9 @@ for rel in "$@"; do
     case "$rel" in
         "") reject "an empty path is not allowed."; continue ;;
         /*) reject "${rel}: an absolute path is not allowed."; continue ;;
+        # A newline can join two lines of the file list, so the path would
+        # pass the baseline check below.
+        *"$nl"*) reject "a path with a newline is not allowed."; continue ;;
     esac
     case "/${rel}/" in
         */../*|*/./*|*//*)
@@ -209,9 +213,9 @@ write_failed() {
 for rel in "$@"; do
     target="${top}/${rel}"
     target_dir="$(dirname "$target")"
-    mkdir -p "$target_dir" || write_failed "$rel"
-    # The checks above ran before the write loop. Do them again here, so a
-    # link or a file that appeared after the checks stops the write.
+    # The checks above ran before the write loop. Do them again here, before
+    # mkdir, so a link that appeared after the checks stops the write and
+    # mkdir does not follow it.
     if has_link "$rel"; then
         echo "${prog}: ${target}: the path has a symbolic link. The script does not write through it." >&2
         write_failed "$rel"
@@ -220,6 +224,7 @@ for rel in "$@"; do
         echo "${prog}: ${target} exists. The script does not replace it." >&2
         write_failed "$rel"
     fi
+    mkdir -p "$target_dir" || write_failed "$rel"
     tmp="$(mktemp "${target_dir}/.flow-baseline.XXXXXX")" || write_failed "$rel"
     cat "${baseline}/${rel}" > "$tmp" || write_failed "$rel"
     chmod 644 "$tmp" || write_failed "$rel"
@@ -227,8 +232,10 @@ for rel in "$@"; do
     # target name is a link to a folder. A hard link fails if the target
     # name exists. With -n, ln does not follow a link at the target name.
     ln -n "$tmp" "$target" || write_failed "$rel"
-    rm -f "$tmp"
-    tmp=""
+    # The file is written now. A failed rm of the temp file must not exit 1
+    # through set -e, because exit 1 means "wrote no file".
     written="${written:+${written}, }${rel}"
+    rm -f "$tmp" || true
+    tmp=""
     echo "${prog}: wrote ${rel}."
 done
