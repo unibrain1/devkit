@@ -1,5 +1,5 @@
 ---
-description: Set up this repo for the flow commands. Creates .claude/project.md and adds or updates the flow block in CLAUDE.md.
+description: Set up this repo for the flow commands. Creates .claude/project.md, adds or updates the flow block in CLAUDE.md, creates the missing labels, and adds the missing baseline files.
 argument-hint: "[--check]"
 ---
 
@@ -30,8 +30,14 @@ With `--check`, do Step 1 and Step 2 only. Report the state. Change nothing.
 2. If it exists, run `flow-project-check`. Keep its output for the report.
 3. Run `flow-claude-block --status`. Keep the output.
 4. Run `flow-labels --missing`. Keep the list of missing labels.
+5. Run `flow-baseline --status`. Keep the `missing` and `different` lines.
+   - Exit 0: no file is missing.
+   - Exit 1: one or more files are missing. This is a normal result. If
+     the output has no `missing` line, treat the exit as an error.
+   - Exit 2, or any other exit code: an error. Show its stderr. Record the
+     baseline as failed. Skip Step 6.
 
-If `$ARGUMENTS` has `--check`, report the four results and stop.
+If `$ARGUMENTS` has `--check`, report the five results and stop.
 
 ## Step 3: Create `.claude/project.md`
 
@@ -78,7 +84,32 @@ Do this step only if Step 2 found missing labels.
 3. Ask for approval. If the user approves, run `flow-labels --create`.
    If not, skip this step.
 
-## Step 6: Report
+## Step 6: Add the missing baseline files
+
+The baseline is the set of files that every repo gets: the pre-commit
+config, the Claude callers, the secrets-scan caller, and the Dependabot
+config. Do this step only if Step 2 found a `missing` or a `different`
+line.
+
+1. If Step 2 found no `missing` line, go to item 7.
+2. Show each `missing` file as a list.
+3. Tell the user that this step only adds missing files. It never changes
+   a file that exists.
+4. Ask for approval. The user can approve all files, some files, or none.
+5. If the user approves one or more files, run
+   `flow-baseline --apply <path>...` with only the approved paths.
+   If not, skip the copy.
+6. If `flow-baseline --apply` exits 1 or 2, show its output. Record the
+   baseline as failed. Do not run it again.
+   If it exits 3, show its output. Read the `Wrote:` list in stderr. If
+   the list is `none`, record the baseline as failed. Otherwise, record a
+   partial write with the files in the list. Do not run it again.
+   Any other exit code is an error. Show the output, and record the
+   baseline as failed.
+7. Show each `different` file as a list. Tell the user to compare each
+   one with the baseline file. Do not change a `different` file.
+
+## Step 7: Report
 
 Print a short report:
 
@@ -86,6 +117,28 @@ Print a short report:
 - `flow-project-check`: passed, or the errors.
 - CLAUDE.md block: added, updated from rev N, already current, or skipped.
 - Labels: created (with the count), none missing, or skipped.
+- Baseline files: added (with the paths), partial write (with the paths
+  written), none missing, failed (with the error), or skipped. List each
+  `different` file.
+- Manual steps for the baseline. Give the link
+  <https://github.com/unibrain1/devkit/blob/main/docs/baseline.md>. List
+  these steps:
+  1. Run `pre-commit install` in the repo.
+  2. Add the repo in the Semgrep GitHub App and in the GitGuardian GitHub
+     App. Jim adds each repo in each app.
+  3. Install the Claude GitHub App on the repo.
+  4. Add the `CLAUDE_CODE_OAUTH_TOKEN` repo secret. The Claude callers need
+     it.
+  5. If the repo is public, turn on secret scanning and push protection.
+     Set the needed checks in branch protection. Run
+     `flow-repo --visibility` to get the visibility.
+  6. If the repo is private, set `required_checks` in
+     `.claude/project.md`.
+
+  Tell the user that Claude does not review the PR that adds the Claude
+  review caller. The caller is not on `main` yet. See the
+  main-match rule in
+  <https://github.com/unibrain1/devkit/blob/main/docs/design.html#main-match>.
 - Skipped steps: each step that you skipped, with the reason.
 - Next: tell the user to review the changes with `git diff` and to commit
   them.

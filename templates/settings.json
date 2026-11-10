@@ -20,6 +20,7 @@
   },
   "permissions": {
     "allow": [
+      "Bash(flow-baseline --status:*)",
       "Bash(flow-check-blocking-findings:*)",
       "Bash(flow-check-milestone-scope-drift:*)",
       "Bash(flow-check-plan-state:*)",
