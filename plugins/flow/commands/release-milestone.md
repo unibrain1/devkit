@@ -47,14 +47,17 @@ the milestone".
 1. Run `flow-project-check`. If it fails, show its output. Tell the user to
    fix `.claude/project.md` or run `/flow:setup`. Stop.
 2. Read each fact that this command needs with `flow-project-fact <key>`:
-   `plans`, `release_notes`, `release_checks`, `release`, `deploy`.
+   `plans`, `release_notes`, `release_checks`, `required_checks`,
+   `release`, `deploy`.
 3. If `plans` or `release_notes` is absent, stop. Tell the user:
    "`flow-release-milestone` needs the `plans` and `release_notes` keys. Add
    them to `.claude/project.md`."
 4. Run `flow-repo`. Keep the result as `REPO`. Use `$REPO` in each command
    below.
 5. If `release_checks` is absent, add "release_checks: no key in
-   .claude/project.md" to the skipped list. If `deploy` is absent, ask the
+   .claude/project.md" to the skipped list. If `required_checks` is absent,
+   add "required_checks: no key in .claude/project.md" to the skipped list.
+   If `deploy` is absent, ask the
    user for the deploy procedure when Step 7 needs it.
 6. Keep the `release` case. Exit 1 from `flow-project-fact release` means
    the key is absent.
@@ -68,7 +71,8 @@ the milestone".
 ### Step 0a: Initialize TaskList
 
 Create one tracking task per step using TaskCreate: find PR, verify
-preconditions, check version, run release checks, confirm, run
+preconditions, check version, run release checks, check required checks,
+confirm, run
 `flow-release-milestone`, output summary. Set each to `in_progress`
 then `completed`. On failure, leave it `in_progress` and surface the error.
 
@@ -123,7 +127,7 @@ checks in Steps 2–4 cannot run. The script checked them before the merge.
    the result as `<reviewed-sha>`. Step 6 needs it. The PR is merged, so
    the script does not compare it with the PR head. A script in the work
    tree uses it only to copy itself.
-3. Skip Steps 2, 3 and 4.
+3. Skip Steps 2, 3, 4 and 4.5.
 4. In Step 5, show the PR, the version, and the steps that remain: tag the
    merge commit, push the tag, create the release, close the
    milestone. Ask the user to confirm.
@@ -275,7 +279,7 @@ Run these checks before the merge. The merge cannot be undone by running
 this command again.
 
 If the `release_checks` key is absent, add "release_checks: no key in
-.claude/project.md" to the skipped list. Go to Step 5.
+.claude/project.md" to the skipped list. Go to Step 4.5.
 
 Run the value of `release_checks` as a shell command from the repo root, on
 the milestone branch.
@@ -286,6 +290,37 @@ the milestone branch.
   `/flow:finish-milestone <version>`, then `/flow:review-milestone
   <version>`, then type `/flow:release-milestone <version>`. Do not fix it
   here, and do not push by hand.
+
+### Step 4.5: Check the required checks
+
+A repo without branch protection (for example a private repo on GitHub
+Free) has no required status checks. Then the wait in Step 6 has no check
+to wait for. This step checks the names in the `required_checks` key on
+the milestone PR:
+
+```bash
+flow-check-required-checks <pr-number>
+```
+
+- **Exit 0** — each listed check passed. Go to Step 5.
+- **Exit 10** — no `required_checks` key. The skipped list has it already
+  (Step 0). Go to Step 5.
+- **Exit 1** — one or more listed checks did not pass. Each output line
+  names a check and its state: `missing`, `skipping`, `pending`, `fail`, or
+  `cancel`. Stop. Show the output. Do not go to Step 5. If a check is
+  `pending`, tell the user to wait for it, then type
+  `/flow:release-milestone <version>`. For each other state, end with plain
+  text: fix the cause as a commit on the milestone branch through
+  `/flow:finish-milestone <version>`, then `/flow:review-milestone
+  <version>`, then type `/flow:release-milestone <version>`.
+- **Any other exit code** — stop. Show the stderr. Do not go to Step 5.
+  Tell the user that the required checks could not be verified. This is
+  not the same as "the checks passed". Tell them to fix the cause, then
+  type `/flow:release-milestone <version>`.
+
+The script reads the checks of the PR head when it runs. Step 6 pushes a
+new head (the release-notes removal), and its wait reads only the required
+checks of `main`. So this step checks the head from before that push.
 
 ### Step 5: Show summary and ask for confirmation
 
@@ -355,8 +390,9 @@ The script does these steps in this order:
    is pending. On a rerun with `--reviewed-sha`, the reviewed commit is
    also a head from before the push. A required check with no run yet is
    pending. A skipped check counts as passed, and a cancelled check counts
-   as failed. With no required checks, there is no wait. A failed check,
-   or no pass in
+   as failed. A check that the `required_checks` key lists is different:
+   Step 4.5 counts a skipped check as not passed. With no required checks,
+   there is no wait. A failed check, or no pass in
    `--checks-timeout` minutes, stops the run with exit 2 and names the
    check. Nothing merges. Run the script again when the checks pass. The
    rerun does not push a second notes removal.

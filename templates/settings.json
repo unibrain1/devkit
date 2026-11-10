@@ -23,6 +23,7 @@
       "Bash(flow-check-blocking-findings:*)",
       "Bash(flow-check-milestone-scope-drift:*)",
       "Bash(flow-check-plan-state:*)",
+      "Bash(flow-check-required-checks:*)",
       "Bash(flow-check-review-posted:*)",
       "Bash(flow-check-version-newer:*)",
       "Bash(flow-check-wip-markers:*)",

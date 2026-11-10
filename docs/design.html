@@ -340,6 +340,7 @@ flowchart LR
   <tr><td><code>ledger</code></td><td>Optional</td><td>A list of deferred cleanup items. Commands show the items for the files that an issue changes.</td></tr>
   <tr><td><code>private_paths</code></td><td>Optional</td><td>Paths that must never go into a commit. A guard hook and <code>commit-push-pr</code> block them.</td></tr>
   <tr><td><code>milestone_setup</code>, <code>issue_checks</code>, <code>milestone_checks</code>, <code>release_checks</code></td><td>Optional</td><td>A project command that runs at that point in <code>start-milestone</code>, <code>finish-milestone</code>, or <code>release-milestone</code>. <code>issue_checks</code> runs in <code>execute-plan</code> and again in <code>finish-issue</code>. A non-zero exit stops the shared command.</td></tr>
+  <tr><td><code>required_checks</code></td><td>Optional</td><td>CI check names, separated by commas. <code>finish-issue</code> and <code>release-milestone</code> merge only when each listed check passed. A missing or skipped check does not pass. For a repo where GitHub does not require the checks, for example a private repo on GitHub Free.</td></tr>
   <tr><td><code>vault</code></td><td>Optional, v1.1</td><td>The hub note path in the vault. See section 13.</td></tr>
 </table>
 </div>
