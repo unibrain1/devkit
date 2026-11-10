@@ -6,8 +6,8 @@ files are in `plugins/flow/templates/baseline/`. A path in that folder is
 the path in the target repo.
 
 Each family template copies the baseline files. `/flow:setup` adds the
-missing files to a repo that has no family template. Stack checks stay in the family template or in the
-project.
+missing files to a repo that has no family template. Stack checks stay
+in the family template or in the project.
 
 ## Files
 
