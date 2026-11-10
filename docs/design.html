@@ -208,7 +208,7 @@ td code { white-space: nowrap; }
   <p>Draft 5 records Jim's answers to the open decisions. <a href="#decide">Section 14</a> lists them.</p>
   <ul>
     <li>The second brain ships in v1.1, after the pilot. Section 13 and rollout phase 4 say so.</li>
-    <li>trufflehog is the secret scanner for private repos.</li>
+    <li>trufflehog is the secret scanner. Draft 4 used it for private repos. From v1.4.0, every repo runs it. See <a href="baseline.md">the baseline</a>.</li>
     <li>A short CI freeze replaces the catch-up step.</li>
     <li>Sensitive notes stay in <code>UniBrain</code>, under a written rule. A second vault costs money, so it waits until there is a need.</li>
     <li>The milestone limit rule counts <code>milestone/*</code> branches, not open GitHub milestones. See <a href="#plugin">section 4</a>.</li>
@@ -281,6 +281,7 @@ flowchart LR
 │   ├── agents/                 # code-reviewer, senior-architect, ...
 │   ├── skills/                 # workflow (the method), hotfix
 │   ├── templates/              # project.md, the CLAUDE.md block
+│   │   └── baseline/           # Every-repo files: pre-commit, callers, Dependabot
 │   ├── bin/                    # Generic workflow scripts from Registry scripts/
 │   └── hooks/hooks.json        # Guard hooks, and the SessionStart setup check
 ├── plugins/brain/              # /brain, /capture. User scope only. v1.1.
@@ -289,7 +290,7 @@ flowchart LR
 ├── .github/workflows/
 │   ├── claude.yml              # Reusable: @claude mentions
 │   ├── claude-review.yml       # Reusable: PR review, milestone-aware
-│   ├── secrets-scan.yml        # Reusable: private repos
+│   ├── secrets-scan.yml        # Reusable: every repo
 │   ├── node-site.yml           # Reusable: 3 Cloudflare static sites
 │   ├── self-test.yml           # devkit's own CI
 │   └── upstream-sync.yml       # devkit's own: weekly check of upstream plugin pins
@@ -432,12 +433,12 @@ flowchart LR
 <table>
   <tr><th>Reusable workflow</th><th>Source</th><th>Public repos</th><th>Private repos</th></tr>
   <tr><td><code>claude.yml</code> (@claude mentions)</td><td>Registry</td><td><span class="pill on">On</span></td><td><span class="pill on">On</span></td></tr>
-  <tr><td><code>claude-review.yml</code></td><td>Registry, plus MyGunLog #625 and #631</td><td><span class="pill on">On</span></td><td><span class="pill opt">Opt-in</span></td></tr>
-  <tr><td><code>secrets-scan.yml</code></td><td>New, trufflehog</td><td><span class="pill off">Not needed</span></td><td><span class="pill on">On</span></td></tr>
+  <tr><td><code>claude-review.yml</code></td><td>Registry, plus MyGunLog #625 and #631</td><td><span class="pill on">On</span></td><td><span class="pill on">On</span></td></tr>
+  <tr><td><code>secrets-scan.yml</code></td><td>New, trufflehog</td><td><span class="pill on">On</span></td><td><span class="pill on">On</span></td></tr>
   <tr><td><code>node-site.yml</code></td><td>TeamCroc, BurgessMachineWorks, CCS-Website</td><td>n/a</td><td>3 Cloudflare sites</td></tr>
 </table>
 </div>
-<p>"Opt-in" means that a private repo adds the caller file only if it wants the review.</p>
+<p>Every repo gets the <code>claude.yml</code>, <code>claude-review.yml</code>, and <code>secrets-scan.yml</code> callers from the every-repo baseline in <code>plugins/flow/templates/baseline/</code>. In a public repo, trufflehog and GitHub push protection both run. See <a href="baseline.md">baseline.md</a> for the files, the needed checks, and the merge gate rule.</p>
 <p><code>node-site.yml</code> builds and lints a static site: <code>npm ci</code>, <code>npm run build</code>, and markdownlint. An optional input builds Cloudflare Pages Functions. It does not deploy. Cloudflare Pages deploys <code>main</code> through its Git integration.</p>
 
 <h3>Public repos: repo settings, not workflow files</h3>
@@ -447,6 +448,7 @@ flowchart LR
   <li>Secret scanning and push protection</li>
   <li>Dependabot alerts</li>
 </ul>
+<p>These settings add to the baseline callers. They do not replace them. A public repo also runs the <code>secrets-scan.yml</code> caller.</p>
 <p>Registry's own <code>codeql-analysis.yml</code> can stay or change to default setup. Release automation stays in the projects that have it (mock-brevo and Monitoring).</p>
 
 <h3>A caller</h3>
@@ -772,7 +774,7 @@ skip this step. Do not stop the command.</code></pre>
   <tr><td>Second brain release</td><td>v1.1, after the pilot. Rollout phase 4.</td></tr>
   <tr><td>Repo name</td><td><code>unibrain1/devkit</code>. Plugin IDs: <code>flow@devkit</code>, <code>brain@devkit</code>.</td></tr>
   <tr><td>Plugin name</td><td><code>flow</code>. Commands: <code>/flow:start-issue</code> and the others.</td></tr>
-  <tr><td>Secret scanner for private repos</td><td>trufflehog. Two repos use it now, and it needs no license.</td></tr>
+  <tr><td>Secret scanner</td><td>trufflehog. Two repos use it now, and it needs no license. From v1.4.0, every repo runs it, not only private repos.</td></tr>
   <tr><td>Active CI work</td><td>A short freeze in Registry and MyGunLog, from the base SHAs to <code>v0.1.0</code>. Registry #2513 merges first. After <code>v0.1.0</code>, shared changes go to devkit first.</td></tr>
   <tr><td>Vault skills</td><td>A second plugin, <code>brain@devkit</code>, turned on only in <code>~/.claude/settings.json</code>.</td></tr>
   <tr><td>Sensitive notes</td><td>Stay in <code>UniBrain</code> for now, under a written rule. A second vault costs money. Section 13 has the upgrade path.</td></tr>

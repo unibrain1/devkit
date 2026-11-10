@@ -23,6 +23,8 @@ before each run:
 - `flow-claude-block` (writes CLAUDE.md)
 - `flow-verify-ci-review` (can start the review workflow)
 - `flow-labels --create`
+- `flow-baseline --apply` (writes the baseline files). The template allows
+  `flow-baseline --status`, which only reads.
 
 `tests/templates/test-settings-template.sh` fails if one of them goes into
 the allowlist, or if the allowlist names a script that does not exist.
