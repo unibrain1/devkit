@@ -72,6 +72,8 @@ The `release` key sets the release type:
 
 Run the `release_checks` command before the merge, if the key exists.
 
+Run `flow-check-required-checks` on the milestone PR before the merge, if the `required_checks` key exists. Each listed check must pass. A skipped check does not pass.
+
 Deploy with the project's deploy procedure. Get it with `flow-project-fact deploy`. If the key is missing, ask the user.
 
 Update the `release_notes` file in a PR before the release.

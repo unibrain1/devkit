@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Checks that each check in the `required_checks` key passed on a PR.
+#
+# A private repo on GitHub Free has no branch protection, so GitHub does not
+# block a merge when a check fails, is skipped, or did not run. This script
+# lets a project name the checks that must pass before a flow command merges.
+#
+# Usage: flow-check-required-checks <pr-number>
+#
+# Reads from .claude/project.md:
+#   required_checks  Check names, separated by commas, as
+#                    `gh pr checks --json name` prints them. Example:
+#                    `Test & Coverage, secrets-scan / trufflehog`.
+#                    The script removes the spaces around each name. A name
+#                    can contain spaces, `&`, and `/`. It cannot contain a
+#                    comma.
+#
+# The script reads `gh pr checks <pr> --json name,bucket` one time. It does
+# not wait. gh reports the checks of the current PR head.
+#
+# State of a name:
+#   - No entry has the name: "missing".
+#   - Some entry has bucket fail, cancel, or pending, or a bucket that this
+#     script does not know: the name does not pass. The output shows the
+#     first of these, in that order.
+#   - No entry has bucket pass (each entry is skipping): "skipping".
+#   - Else, the name passes.
+# A name can have more than one entry, for example one run from two
+# workflows or events. So the name passes only when at least one entry has
+# bucket pass and no entry has bucket fail, cancel, or pending. A skipping
+# entry next to a pass entry does no harm. This rule is stricter than
+# `flow-release-milestone`, which counts a skipped check as passed.
+#
+# gh pr checks exits 8 when a check is pending, and exits 1 when a check
+# fails. It still prints the JSON in both cases. So the script decides on
+# the output, not on the exit code: a JSON array is a valid answer. When the
+# PR has no checks yet, gh prints "no checks reported" and no JSON. The
+# script then reads an empty list, and each listed name is "missing".
+#
+# Exit codes:
+#   0   Each listed check passed.
+#   1   One or more listed checks did not pass. stdout has one line for each
+#       of them: "<name>: <state>".
+#   2   Usage error, .claude/project.md is missing, or the key has no name
+#       after the script removes the spaces.
+#   3   Cannot verify: flow-repo failed, or gh gave no valid JSON. This is
+#       NOT the same as "the checks passed".
+#   10  No `required_checks` key in .claude/project.md. Step skipped.
+
+set -uo pipefail
+
+prog="$(basename "$0")"
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: ${prog} <pr-number>" >&2
+    exit 2
+fi
+case "$1" in
+    ''|*[!0123456789]*)
+        echo "Usage: ${prog} <pr-number> (got '$1', expected a numeric PR number)" >&2
+        exit 2
+        ;;
+esac
+PR_NUM="$1"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+fact_status=0
+RAW="$("${SCRIPT_DIR}/flow-project-fact" required_checks)" || fact_status=$?
+if [ "$fact_status" -eq 1 ]; then
+    echo "${prog}: no 'required_checks' key in .claude/project.md. Step skipped." >&2
+    exit 10
+elif [ "$fact_status" -ne 0 ]; then
+    exit 2
+fi
+
+# One name on each line, with no space at the start or the end, and no
+# empty names. awk, not sed, because BSD and GNU sed differ on newlines.
+NAMES="$(printf '%s\n' "$RAW" | LC_ALL=C awk -v RS=',' '{
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+    if ($0 != "") print
+}')"
+if [ -z "$NAMES" ]; then
+    echo "${prog}: the 'required_checks' key in .claude/project.md has no check name. Give one or more names, separated by commas." >&2
+    exit 2
+fi
+
+# flow-repo prints its own error.
+if ! REPO="$("${SCRIPT_DIR}/flow-repo")"; then
+    echo "${prog}: cannot verify the checks of PR #${PR_NUM}. This is NOT the same as 'the checks passed'." >&2
+    exit 3
+fi
+
+ERR_FILE="$(mktemp)" || exit 3
+trap 'rm -f "$ERR_FILE"' EXIT
+
+GH_OUT="$(gh pr checks "$PR_NUM" --repo "$REPO" --json name,bucket 2> "$ERR_FILE")"
+GH_STATUS=$?
+GH_ERR="$(cat "$ERR_FILE")"
+
+if printf '%s' "$GH_OUT" | jq -e 'type == "array"' > /dev/null 2>&1; then
+    # A name with a tab or a newline cannot match a key value, so @tsv
+    # escapes do no harm.
+    if ! CHECKS="$(printf '%s' "$GH_OUT" | jq -r '.[] | [(.name // ""), (.bucket // "")] | @tsv')"; then
+        echo "${prog}: cannot read the check list of PR #${PR_NUM}. Cannot verify the checks." >&2
+        exit 3
+    fi
+else
+    case "$GH_ERR" in
+        *"no checks reported"*) CHECKS="" ;;
+        *)
+            echo "${prog}: gh gave no check list for PR #${PR_NUM} (exit ${GH_STATUS}). gh said: ${GH_ERR:-nothing}" >&2
+            echo "${prog}: cannot verify the checks of PR #${PR_NUM}. This is NOT the same as 'the checks passed'." >&2
+            exit 3
+            ;;
+    esac
+fi
+
+BAD=0
+while IFS= read -r NAME; do
+    # ENVIRON, not -v: awk -v changes backslashes in a name.
+    STATE="$(printf '%s\n' "$CHECKS" | N="$NAME" LC_ALL=C awk -F '\t' '
+        $1 == ENVIRON["N"] {
+            seen = 1
+            if ($2 == "pass") { passed = 1 }
+            else if ($2 == "fail") { fail = 1 }
+            else if ($2 == "cancel") { cancel = 1 }
+            else if ($2 == "pending") { pending = 1 }
+            else if ($2 != "skipping" && other == "") { other = ($2 == "" ? "unknown" : $2) }
+        }
+        END {
+            if (!seen) print "missing"
+            else if (fail) print "fail"
+            else if (cancel) print "cancel"
+            else if (pending) print "pending"
+            else if (other != "") print other
+            else if (!passed) print "skipping"
+            else print "pass"
+        }')"
+    if [ "$STATE" != "pass" ]; then
+        echo "${NAME}: ${STATE}"
+        BAD=1
+    fi
+done <<EOF
+${NAMES}
+EOF
+
+exit "$BAD"

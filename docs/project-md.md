@@ -51,6 +51,7 @@ other exceptions. Else git does not see the file.
 | `issue_checks` | Optional | A command | Skip the step | A command that `execute-plan` runs after the code changes, and `review-pr` and `finish-issue` run before the merge. It gets the changed file names on stdin, one name on each line. |
 | `milestone_checks` | Optional | A command | Skip the step | A command that `finish-milestone` runs before the milestone PR. |
 | `release_checks` | Optional | A command | Skip the step | A command that `release-milestone` runs before the merge. |
+| `required_checks` | Optional | A list of check names, separated by commas | Skip the step | The CI checks that must pass before `finish-issue` and `release-milestone` merge a PR. Write each name as `gh pr checks --json name` prints it, for example `Test & Coverage, secrets-scan / trufflehog`. Spaces around a name have no effect. A name can contain spaces, `&`, and `/`, but not a comma. A check that is missing, skipped, pending, failed, or cancelled stops the merge. Use this key when GitHub does not require the checks, for example in a private repo on GitHub Free. `flow-check-required-checks` reads it. |
 | `vault` | Optional, v1.1 | A path | No effect. No command reads it yet | The hub note path in the Baalda vault. |
 
 ## Missing keys

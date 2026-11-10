@@ -27,6 +27,7 @@ Read `.claude/project.md` before any step. Read one value with `flow-project-fac
 | `ledger` | Cleanup ledger file. |
 | `private_paths` | Paths that never enter a commit. |
 | `issue_checks`, `milestone_checks`, `release_checks`, `milestone_setup` | Project commands at fixed steps. A non-zero exit stops the command. |
+| `required_checks` | CI check names, separated by commas. Each must pass before `finish-issue` and `release-milestone` merge. |
 
 ## Principles
 

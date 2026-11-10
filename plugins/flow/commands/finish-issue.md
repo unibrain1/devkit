@@ -19,6 +19,8 @@ model: sonnet
      .claude/project.md" to the skipped list.
    - `plans` — if it is absent, add "plan file removal: no `plans` key in
      .claude/project.md" to the skipped list.
+   - `required_checks` — if it is absent, add "required_checks: no key in
+     .claude/project.md" to the skipped list.
 3. Run `flow-repo`. Keep the result as `<repo>` in the `gh` commands below.
 
 Keep output brief — terse status lines, no preamble, no restating of steps.
@@ -215,15 +217,18 @@ keep waiting.
 includes the CI review check, if the repo has one. A check that the repo
 does not require still counts: `gh pr checks` shows its status, and a red
 check stops the command in Step 4.
+Step 4.1 also checks the names in the `required_checks` key. A listed
+check that `gh pr checks` does not show, or shows as skipped, stops the
+merge there.
 
 ### Step 4: Handle check results
 
-Do Steps 4 to 5 in order: 4, 4.5, 4.6, 4.7, 4.8, 5. Each step ends with
+Do Steps 4 to 5 in order: 4, 4.1, 4.5, 4.6, 4.7, 4.8, 5. Each step ends with
 "Go to Step N" or "Stop". Never skip a step. Step 5 (the merge) runs only
 after Step 4.8 records the user's `Merge` answer.
 
 **If all checks pass** — record the commit that the checks passed on. Then
-go to Step 4.5.
+go to Step 4.1.
 
 ```bash
 gh pr view <pr-number> --repo <repo> --json headRefOid --jq .headRefOid
@@ -246,6 +251,30 @@ Keep the output as `<reviewed-sha>`. Step 5 merges only this commit.
   - A suggested fix or next step
 - **Stop here.** Do not merge. Tell the user to fix the issue (or run
   `/flow:address-pr-comments`), push the fix, then type
+  `/flow:finish-issue <issue-number>` again.
+
+### Step 4.1: Check the required checks
+
+Do this step in milestone mode and in hotfix mode. A repo without branch
+protection (for example a private repo on GitHub Free) lets a PR merge when
+a check did not run. Step 3 sees only the checks that `gh pr checks` lists.
+This step checks the names in the `required_checks` key.
+
+```bash
+flow-check-required-checks <pr-number>
+```
+
+- **Exit 0** — each listed check passed. Go to Step 4.5.
+- **Exit 10** — no `required_checks` key. The skipped list has it already
+  (Step 0). Go to Step 4.5.
+- **Exit 1** — one or more listed checks did not pass. Each output line
+  names a check and its state: `missing`, `skipping`, `pending`, `fail`, or
+  `cancel`. Stop. Show the output. Do not merge. Tell the user to make each
+  check pass on the PR head. Then tell them to type
+  `/flow:finish-issue <issue-number>` again.
+- **Any other exit code** — stop. Show the stderr. Do not merge. Tell the
+  user that the required checks could not be verified. This is not the same
+  as "the checks passed". Tell them to fix the cause, then type
   `/flow:finish-issue <issue-number>` again.
 
 ### Step 4.5: Check out the PR branch and run the issue checks
@@ -353,7 +382,9 @@ doc fix that usually does not land. Do these steps:
 3. Wait for CI on the new push. Use the Step 3 commands.
 4. If a check fails, do the "If any check fails" list in Step 4. Stop
    there. Do not merge.
-5. When all checks pass, go to Step 4.7.
+5. When all checks pass, run `flow-check-required-checks <pr-number>`
+   again. Use the exit codes of Step 4.1, but exit 0 and exit 10 go to
+   Step 4.7.
 
 ### Step 4.7: Check the risk flag
 
