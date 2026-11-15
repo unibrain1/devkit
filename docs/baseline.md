@@ -5,9 +5,12 @@ holds the checks that do not depend on the language or the framework. The
 files are in `plugins/flow/templates/baseline/`. A path in that folder is
 the path in the target repo.
 
-Each family template copies the baseline files. `/flow:setup` adds the
-missing files to a repo that has no family template. Stack checks stay
-in the family template or in the project.
+A family template layers on the baseline. A target repo gets the
+baseline files first, then the family files. A family file at a baseline
+path replaces the baseline file and keeps its content. See
+[families.md](families.md). `/flow:setup` adds the missing baseline files
+to a repo that has no family template. Stack checks stay in the family
+template or in the project.
 
 ## Files
 
