@@ -627,12 +627,13 @@ jobs:
 
 ## `node-site.yml`
 
-Builds and lints a Node static site on Cloudflare Pages. It does not
-deploy. Cloudflare Pages deploys `main` through its Git integration.
+Builds and lints a Node static site on Cloudflare Pages or another host.
+It does not deploy. Cloudflare Pages deploys `main` through its Git
+integration. Another host deploys through its own push hook.
 
 | Job ID | Does |
 | --- | --- |
-| `build` | `npm ci`, then `npm run <build_script>`. |
+| `build` | `npm ci`, then `npm run <build_script>`. The `Lint site` step then runs `npm run <lint_script>` when `lint_script` is not empty. |
 | `lint` | markdownlint on `markdown_globs`. |
 | `functions` | Compiles the Pages Functions in `functions/`. Runs only when `pages_functions` is true. |
 
@@ -640,6 +641,7 @@ deploy. Cloudflare Pages deploys `main` through its Git integration.
 | --- | --- | --- | --- |
 | `node_version_file` | string | `.nvmrc` | The file that holds the Node version. |
 | `build_script` | string | `build` | The npm script that builds the site. |
+| `lint_script` | string | `""` | The npm script that lints the site. Empty skips the `Lint site` step. The name must match `^[A-Za-z0-9_][A-Za-z0-9:_.-]*$`, or the step fails. A name that starts with `-` is an npm option, so the check stops it. |
 | `markdown_globs` | string | `**/*.md`, `#node_modules`, `#_site` | markdownlint-cli2 globs, one on each line. |
 | `pages_functions` | boolean | `false` | Also compile the Pages Functions. |
 
@@ -660,6 +662,25 @@ jobs:
     uses: unibrain1/devkit/.github/workflows/node-site.yml@main
     with:
       pages_functions: true
+```
+
+A site on another host sets `lint_script` and no `pages_functions`:
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  site:
+    uses: unibrain1/devkit/.github/workflows/node-site.yml@main
+    with:
+      lint_script: lint
 ```
 
 ## Required check names

@@ -1,0 +1,20 @@
+{
+  "name": "{{package_name}}",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "eleventy",
+    "serve": "eleventy --serve",
+    "clean": "rm -rf _site",
+    "lint": "npm run lint:md && npm run lint:css && npm run lint:php",
+    "lint:md": "markdownlint-cli2",
+    "lint:css": "stylelint --allow-empty-input \"**/*.css\"",
+    "lint:php": "find . -name '*.php' -not -path './node_modules/*' -not -path './vendor/*' -not -path './_site/*' -exec sh -c 's=0; for f do php -l \"$f\" || s=1; done; exit $s' sh {} +"
+  },
+  "devDependencies": {
+    "@11ty/eleventy": "^3.1.8",
+    "markdownlint-cli2": "^0.24.1",
+    "stylelint": "^16.26.1",
+    "stylelint-config-standard": "^39.0.1"
+  }
+}

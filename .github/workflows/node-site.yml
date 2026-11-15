@@ -1,6 +1,7 @@
-# Reusable CI for the Node static sites on Cloudflare Pages (design section
-# 6). It builds and lints. It does not deploy: Cloudflare Pages deploys main
-# through its Git integration.
+# Reusable CI for the Node static sites on Cloudflare Pages or another host
+# (design section 6). It builds and lints. It does not deploy. Cloudflare
+# Pages deploys main through its Git integration. Another host deploys
+# through its own push hook.
 #
 # Keep the job ids stable. A caller's check shows as <caller job> / <job>,
 # and a rename breaks any required check that names it.
@@ -19,6 +20,11 @@ on:
         type: string
         required: false
         default: "build"
+      lint_script:
+        description: "npm script that lints the site. The job runs `npm run <lint_script>`. Empty skips the step."
+        type: string
+        required: false
+        default: ""
       markdown_globs:
         description: "markdownlint-cli2 globs, one on each line. A line that starts with # excludes a path."
         type: string
@@ -58,6 +64,21 @@ jobs:
         env:
           BUILD_SCRIPT: ${{ inputs.build_script }}
         run: npm run "$BUILD_SCRIPT"
+
+      # The name reaches the shell only through env. The check stops a value
+      # that is not a plain npm script name. A value that starts with - is an
+      # npm option, and npm then runs no script. The error does not print the
+      # value, because a newline in it can start a workflow command.
+      - name: Lint site
+        if: inputs.lint_script != ''
+        env:
+          LINT_SCRIPT: ${{ inputs.lint_script }}
+        run: |
+          if ! [[ "$LINT_SCRIPT" =~ ^[A-Za-z0-9_][A-Za-z0-9:_.-]*$ ]]; then
+            echo "::error::lint_script is not a valid npm script name. Use letters, digits, and : _ . - only. Do not start with : . or -."
+            exit 1
+          fi
+          npm run "$LINT_SCRIPT"
 
   lint:
     name: Lint (Markdown)
