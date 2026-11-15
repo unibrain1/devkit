@@ -1,0 +1,18 @@
+# Site CI from devkit (docs/families.md). node-site.yml builds the site and
+# lints the Markdown. It does not deploy: Cloudflare Pages deploys main
+# through its Git integration. Edit a caller only at a milestone boundary
+# (docs/design.html, section 8, "Rules that follow").
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  site:
+    uses: unibrain1/devkit/.github/workflows/node-site.yml@main
+    # A site with Pages Functions in functions/ also compiles them:
+    # with:
+    #   pages_functions: true

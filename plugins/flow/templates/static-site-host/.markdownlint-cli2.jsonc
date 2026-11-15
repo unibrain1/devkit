@@ -1,0 +1,10 @@
+// markdownlint-cli2 settings. `npm run lint` and the CI lint job read them.
+{
+  "config": {
+    "default": true,
+    // Prose wraps at about 80 columns, but tables and long links cannot.
+    "MD013": false
+  },
+  "globs": ["**/*.md"],
+  "ignores": ["node_modules/**", "_site/**"]
+}
