@@ -1,7 +1,7 @@
 # Reusable CI for the Node static sites on Cloudflare Pages or another host
 # (design section 6). It builds and lints. It does not deploy. Cloudflare
 # Pages deploys main through its Git integration. Another host deploys
-# through its own push hook.
+# through a GitHub webhook.
 #
 # Keep the job ids stable. A caller's check shows as <caller job> / <job>,
 # and a rename breaks any required check that names it.

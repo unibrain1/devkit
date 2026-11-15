@@ -441,7 +441,7 @@ flowchart LR
 </table>
 </div>
 <p>Every repo gets the <code>claude.yml</code>, <code>claude-review.yml</code>, and <code>secrets-scan.yml</code> callers from the every-repo baseline in <code>plugins/flow/templates/baseline/</code>. In a public repo, trufflehog and GitHub push protection both run. See <a href="baseline.md">baseline.md</a> for the files, the needed checks, and the merge gate rule.</p>
-<p><code>node-site.yml</code> builds and lints a static site on Cloudflare Pages or another host: <code>npm ci</code>, <code>npm run build</code>, and markdownlint. The optional <code>lint_script</code> input runs one more npm lint script, for example the CSS and PHP lint of a host site. An optional input builds Cloudflare Pages Functions. It does not deploy. Cloudflare Pages deploys <code>main</code> through its Git integration. Another host deploys <code>main</code> through its own push hook.</p>
+<p><code>node-site.yml</code> builds and lints a static site on Cloudflare Pages or another host: <code>npm ci</code>, <code>npm run build</code>, and markdownlint. The optional <code>lint_script</code> input runs one more npm lint script, for example the CSS and PHP lint of a host site. An optional input builds Cloudflare Pages Functions. It does not deploy. Cloudflare Pages deploys <code>main</code> through its Git integration. Another host deploys <code>main</code> through a GitHub webhook.</p>
 
 <h3>Public repos: repo settings, not workflow files</h3>
 <p>GitHub gives these free to public repos. You turn them on in each repo's settings, so they need no workflow file and no maintenance:</p>

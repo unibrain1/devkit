@@ -12,7 +12,9 @@
 #   - behavior: the run: block runs with a stub npm. A good name runs
 #     "npm run <name>". A bad name exits 1 with the error, and npm is not called.
 #     The error does not print the value. A name that starts with - . or :, and
-#     a name with a newline, are bad names.
+#     a name with a newline, are bad names. A failing npm fails the step with
+#     the same exit code.
+#   - continue: the step and the build job have no continue-on-error
 #   - doc: docs/ci-workflows.md has a lint_script row in the node-site inputs
 #
 # Break-it controls: each check also runs against a broken scratch copy of the
@@ -63,6 +65,7 @@ puts JSON.generate(
   "job_ids" => jobs.keys,
   "step_names" => names,
   "step_count" => names.count("Lint site"),
+  "job_continue" => (jobs["build"] || {}).key?("continue-on-error"),
   "step" => step
 )
 RUBY
@@ -129,6 +132,17 @@ check_step_env() {
     return 0
 }
 
+# check_no_continue <yml>: a lint failure must fail the job.
+check_no_continue() {
+    local f
+    f="$(facts "$1")" || { echo "YAML does not parse"; return 1; }
+    [ "$(echo "$f" | jq -r '.step | has("continue-on-error")')" = "false" ] \
+        || { echo "Lint site step has continue-on-error"; return 1; }
+    [ "$(echo "$f" | jq -r '.job_continue')" = "false" ] \
+        || { echo "build job has continue-on-error"; return 1; }
+    return 0
+}
+
 # check_behavior <yml>: runs the extracted run: block with a stub npm.
 check_behavior() {
     local f script bindir calls out rc name
@@ -142,7 +156,7 @@ check_behavior() {
     cat > "$bindir/npm" <<STUB
 #!/bin/bash
 echo "\$*" >> "$calls"
-exit 0
+exit "\${NPM_EXIT:-0}"
 STUB
     chmod +x "$bindir/npm"
 
@@ -154,6 +168,13 @@ STUB
         [ "$(cat "$calls")" = "run $name" ] \
             || { echo "good name '$name': npm got '$(cat "$calls")'"; return 1; }
     done
+
+    # A lint failure must reach the runner, or the Build check stays green.
+    rm -f "$calls"
+    out="$(cd "$TMPROOT" && PATH="$bindir:$PATH" NPM_EXIT=3 LINT_SCRIPT=lint bash -e "$script" 2>&1)"; rc=$?
+    [ "$rc" -eq 3 ] || { echo "npm failure: step exit $rc, wanted 3: $out"; return 1; }
+    [ "$(cat "$calls" 2>/dev/null)" = "run lint" ] \
+        || { echo "npm failure: npm got '$(cat "$calls" 2>/dev/null)'"; return 1; }
 
     # The error must not print the value: a newline in it can start a workflow
     # command. The last six names use only allowed characters but start with
@@ -195,6 +216,7 @@ run_real "step: Lint site is after Install dependencies and Build site" check_st
 run_real "step: if: skips an empty lint_script" check_step_if "$NODE_SITE_YML"
 run_real "env: value comes through env only, no expression in run:" check_step_env "$NODE_SITE_YML"
 run_real "behavior: good names run npm run <name>, bad names exit 1" check_behavior "$NODE_SITE_YML"
+run_real "continue: no continue-on-error on the step or the build job" check_no_continue "$NODE_SITE_YML"
 run_real "doc: ci-workflows.md has a lint_script row" check_doc "$CI_DOC"
 
 # control <label> <function> <file> <reason>: the check must fail on the broken
@@ -279,6 +301,17 @@ mutate_sed "error prints the value" check_behavior "error prints the value" \
     -e 's/::error::lint_script is not a valid npm script name\./&: $LINT_SCRIPT/'
 mutate_sed "wrong npm script" check_behavior "npm got" \
     -e 's/^          npm run "\$LINT_SCRIPT"$/          npm run lint/'
+mutate_sed "lint failure ignored with || true" check_behavior "npm failure" \
+    -e 's/^          npm run "\$LINT_SCRIPT"$/          npm run "$LINT_SCRIPT" || true/'
+mutate_sed "step continues on error" check_no_continue "Lint site step has continue-on-error" \
+    -e "s/^        if: inputs.lint_script != ''\$/&\\
+        continue-on-error: true/"
+mutate_ruby "job continues on error" check_no_continue "build job has continue-on-error" '
+  t = File.read(ARGV[0])
+  t2 = t.sub(/^  build:\n/, "  build:\n    continue-on-error: true\n")
+  abort "build job not found" if t2 == t
+  File.write(ARGV[1], t2)
+'
 mutate_sed "rename the step" check_step_position "needs exactly one Lint site step" \
     -e 's/- name: Lint site$/- name: Lint the site/'
 

@@ -122,6 +122,38 @@ SUPERSET='def sup($t; $f):
 sup($t; $f)'
 
 # --- the checks --------------------------------------------------------
+# check_lint_php <package.json>: runs the lint:php script with a stub php
+# that fails on a file named bad.php. A bad file must fail the script. A
+# bad file in node_modules/, vendor/, or _site/ must not.
+check_lint_php() {
+    local script work bin rc got=""
+    script="$(jq -r '.scripts["lint:php"] // ""' "$1")"
+    work="$TMPROOT/lint-php"
+    bin="$work/bin"
+    rm -rf "$work"; mkdir -p "$bin"
+    printf '#!/bin/sh\ncase "$2" in *bad.php) exit 255 ;; esac\nexit 0\n' > "$bin/php"
+    chmod +x "$bin/php"
+    # lint_php_case <name> <want: fail or pass> <file> ...
+    lint_php_case() {
+        local name="$1" want="$2" f
+        shift 2
+        mkdir -p "$work/$name"
+        for f in "$@"; do mkdir -p "$work/$name/$(dirname "$f")"; : > "$work/$name/$f"; done
+        (cd "$work/$name" && PATH="$bin:$PATH" sh -c "$script" >/dev/null 2>&1); rc=$?
+        if [ "$want" = fail ] && [ "$rc" -eq 0 ]; then got="$got [$name: exit 0]"; fi
+        if [ "$want" = pass ] && [ "$rc" -ne 0 ]; then got="$got [$name: exit $rc]"; fi
+    }
+    lint_php_case bad fail a/good.php a/bad.php
+    lint_php_case good pass a/good.php b/c/good.php
+    lint_php_case none pass README.md
+    lint_php_case skipped pass good.php node_modules/x/bad.php vendor/bad.php _site/bad.php
+    if [ -z "$got" ]; then
+        pass "host: lint:php fails on a bad file and skips node_modules, vendor, and _site"
+    else
+        fail "host: lint:php fails on a bad file and skips node_modules, vendor, and _site" "$got"
+    fi
+}
+
 # check_family <kind> <dir>: kind is cloudflare or host.
 check_family() {
     local kind="$1" dir="$2" want allowed got f rel base_rel files base_files
@@ -412,6 +444,7 @@ EOF
         else
             fail "host: package.json lint runs lint:css (stylelint) and lint:php (php -l for each file)" "$got"
         fi
+        check_lint_php "$dir/package.json"
     fi
     if [ -e "$dir/package-lock.json" ]; then
         fail "$kind: no package-lock.json in the folder"
@@ -673,6 +706,10 @@ if [ "${FAMILY_A_NO_CONTROLS:-}" != "1" ]; then
         'sub "$HO/package.json" "s/ \&\& npm run lint:php//"'
     control package-lint-php-list "host: package.json lint runs lint:css (stylelint) and lint:php (php -l for each file)" \
         'setscript "$HO/package.json" lint:php "find . -name \"*.php\" -exec php -l {} +"'
+    control package-lint-php-status "host: lint:php fails on a bad file and skips node_modules, vendor, and _site" \
+        'sub "$HO/package.json" "s/ \\|\\| s=1//"'
+    control package-lint-php-vendor "host: lint:php fails on a bad file and skips node_modules, vendor, and _site" \
+        'sub "$HO/package.json" "s#-not -path .\\./vendor/[*]. ##"'
     control package-lint-css "host: package.json lint runs lint:css (stylelint) and lint:php (php -l for each file)" \
         'setscript "$HO/package.json" lint:css "echo css"'
     control package-lock "cloudflare: no package-lock.json in the folder" \

@@ -629,7 +629,7 @@ jobs:
 
 Builds and lints a Node static site on Cloudflare Pages or another host.
 It does not deploy. Cloudflare Pages deploys `main` through its Git
-integration. Another host deploys through its own push hook.
+integration. Another host deploys through a GitHub webhook.
 
 | Job ID | Does |
 | --- | --- |
