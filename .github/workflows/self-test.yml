@@ -63,7 +63,8 @@ jobs:
         run: |
           shellcheck --version | head -n 2
           shellcheck plugins/flow/bin/flow-* plugins/flow/bin/lib/*.sh \
-            plugins/flow/hooks/*.sh tests/*.sh tests/*/*.sh .github/scripts/*.sh
+            plugins/flow/hooks/*.sh plugins/flow/templates/*/.claude/hooks/*.sh \
+            tests/*.sh tests/*/*.sh .github/scripts/*.sh
 
       - name: yamllint
         run: |

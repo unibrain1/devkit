@@ -283,7 +283,9 @@ flowchart LR
 │   ├── templates/              # project.md, the CLAUDE.md block
 │   │   ├── baseline/           # Every-repo files: pre-commit, callers, Dependabot
 │   │   ├── static-site-cloudflare/ # Family A: layered on baseline/. See docs/families.md
-│   │   └── static-site-host/   # Family A: layered on baseline/
+│   │   ├── static-site-host/   # Family A: layered on baseline/
+│   │   ├── web-app/            # Family W: layered on baseline/. Stack commands are placeholders
+│   │   └── web-app-hosts/      # Family W: Deployment text for each host. Not copied
 │   ├── bin/                    # Generic workflow scripts from Registry scripts/
 │   └── hooks/hooks.json        # Guard hooks, and the SessionStart setup check
 ├── plugins/brain/              # /brain, /capture. User scope only. v1.1.
