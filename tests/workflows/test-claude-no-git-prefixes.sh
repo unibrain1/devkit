@@ -8,6 +8,10 @@
 # before the shell removed the quotes. The test cannot see the rules that
 # the action adds in tag mode, or a caller's extra_allowed_tools.
 #
+# It also tests that each claude_args has a --permission-mode flag. Without
+# it, claude-code-action v1.0.273 and later start the session in auto mode,
+# and --allowedTools is then not a strict list.
+#
 # WORKFLOW_DIR points the test at a copy of .github/workflows.
 #
 # Usage: bash tests/workflows/test-claude-no-git-prefixes.sh
@@ -37,13 +41,14 @@ bad_steps() {
             if (in_step && !has_args) print file ":" start " no claude_args"
             if (in_step && git_line) print file ":" git_line " git rule in claude_args"
             if (in_step && any_line) print file ":" any_line " any-command Bash rule in claude_args"
+            if (in_step && has_args && !perm_line) print file ":" start " no --permission-mode in claude_args"
             in_step = 0; in_args = 0
         }
         in_step && /^ *- / && indent($0) <= step_indent { close_step() }
         in_args && /[^ ]/ && indent($0) <= args_indent { in_args = 0 }
         /uses: anthropics\/claude-code-action@/ {
             close_step()
-            in_step = 1; has_args = 0; git_line = 0; any_line = 0; start = NR
+            in_step = 1; has_args = 0; git_line = 0; any_line = 0; perm_line = 0; start = NR
             # "- uses:" starts the step itself. "uses:" under "- name:" is
             # 2 columns deeper than the "- ".
             step_indent = /^ *- / ? indent($0) : indent($0) - 2
@@ -55,6 +60,7 @@ bad_steps() {
             in_args = 1; has_args = 1; args_indent = indent($0)
         }
         in_args && /Bash\( *git[- :*)]/ && !git_line { git_line = NR }
+        in_args && /^ *--permission-mode (default|acceptEdits)$/ { perm_line = NR }
         in_args && (/Bash\( *\*/ || /(^|[",'"'"' ])Bash([",'"'"' ]|$)/) && !any_line { any_line = NR }
         END { close_step() }
     ' "$1"
@@ -160,6 +166,21 @@ if bad_steps "$TMPROOT/no-args.yml" | grep -q 'no claude_args'; then
     pass "a step with no claude_args fails the check"
 else
     fail "a step with no claude_args fails the check"
+fi
+
+# A step with no --permission-mode, or with auto mode, must fail the check.
+grep -v -e '--permission-mode' "$WORKFLOW_DIR/claude.yml" > "$TMPROOT/no-perm.yml"
+if bad_steps "$TMPROOT/no-perm.yml" | grep -q 'no --permission-mode'; then
+    pass "a step with no --permission-mode fails the check"
+else
+    fail "a step with no --permission-mode fails the check"
+fi
+sed 's/--permission-mode acceptEdits/--permission-mode auto/' \
+    "$WORKFLOW_DIR/claude.yml" > "$TMPROOT/auto.yml"
+if bad_steps "$TMPROOT/auto.yml" | grep -q 'no --permission-mode'; then
+    pass "--permission-mode auto fails the check"
+else
+    fail "--permission-mode auto fails the check"
 fi
 
 harness_report

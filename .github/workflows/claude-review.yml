@@ -454,7 +454,7 @@ jobs:
 
       - name: Run Claude Issue-Level Review
         id: claude-review
-        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
+        uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1.0.275
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Do NOT set track_progress — it forces "tag mode" (waits for an
@@ -465,7 +465,10 @@ jobs:
           # docs/ci-workflows.md, "No git read commands for Claude".
           # Read, Grep and Glob are path-scoped (issue #47). The reason is in
           # docs/ci-workflows.md, "File reach of the review".
+          # --permission-mode default keeps --allowedTools a strict list.
+          # The reason is in docs/ci-workflows.md, "Permission mode".
           claude_args: >-
+            --permission-mode default
             --allowedTools
             "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --add-dir ${{ runner.temp }}/pr-context
@@ -1224,7 +1227,7 @@ jobs:
 
       - name: Run Claude Milestone-Level Review
         id: claude-review
-        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
+        uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1.0.275
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Do NOT set track_progress — see pr-to-milestone-review above.
@@ -1232,7 +1235,10 @@ jobs:
           # docs/ci-workflows.md, "No git read commands for Claude".
           # Read, Grep and Glob are path-scoped (issue #47). The reason is in
           # docs/ci-workflows.md, "File reach of the review".
+          # --permission-mode default keeps --allowedTools a strict list.
+          # The reason is in docs/ci-workflows.md, "Permission mode".
           claude_args: >-
+            --permission-mode default
             --allowedTools
             "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --add-dir ${{ runner.temp }}/pr-context
@@ -2013,14 +2019,17 @@ jobs:
 
       - name: Run Claude Deep Review
         id: claude-review
-        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
+        uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1.0.275
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # --allowedTools has no git prefix (issue #29). The reason is in
           # docs/ci-workflows.md, "No git read commands for Claude".
           # Read, Grep and Glob are path-scoped (issue #47). The reason is in
           # docs/ci-workflows.md, "File reach of the review".
+          # --permission-mode default keeps --allowedTools a strict list.
+          # The reason is in docs/ci-workflows.md, "Permission mode".
           claude_args: >-
+            --permission-mode default
             --allowedTools
             "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --add-dir ${{ runner.temp }}/pr-context
