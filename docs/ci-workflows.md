@@ -534,6 +534,28 @@ not restore `package.json` or other repo scripts. A tool in
 `extra_allowed_tools` that runs repo code would then run the fork's code
 with the secrets. An `@claude` mention on an issue is not affected.
 
+## Permission mode
+
+Each `claude-code-action` step sets `--permission-mode` in its
+`claude_args`:
+
+| Step | Mode |
+| --- | --- |
+| The 3 review jobs in `claude-review.yml` | `default` |
+| The `@claude` step in `claude.yml` | `acceptEdits` |
+
+From v1.0.273, `claude-code-action` starts a session in auto mode when no
+mode is set. In auto mode, a safety review decides each tool call that no
+allow rule covers. A call that `--allowedTools` does not list can then run.
+The tool limits on this page (no git rule, path-scoped `Read`, `Grep`, and
+`Glob`) need a strict list. These modes are the defaults from before
+v1.0.273, so each step keeps its earlier behavior.
+
+`tests/workflows/test-claude-no-git-prefixes.sh` fails when a step has no
+`--permission-mode default` or `--permission-mode acceptEdits` line.
+`tests/workflows/test-review-comment-trust.sh` fails when a review job
+does not have exactly one `--permission-mode default` line.
+
 ## No git read commands for Claude
 
 The `--allowedTools` value in the `claude_args` of each `claude-code-action`

@@ -98,14 +98,17 @@ read_filter() {
 #     run after the fetch step fails.
 #   - The Claude step has a with: key other than claude_code_oauth_token,
 #     claude_args, and prompt. Or a claude_args line is not one of these:
+#       - a "--permission-mode default" line
 #       - a "--allowedTools" line
 #       - its value line, equal to WANT_TOOLS
 #       - a "--add-dir" line, equal to WANT_ADDDIR
 #       - a "--model ${{ inputs.<name> }}" line
 #       - a "--effort ${{ inputs.<name> }}" line
 #       - a "--json-schema '<schema>'" line
-#     It must have exactly one --allowedTools line and exactly one --add-dir
-#     line.
+#     It must have exactly one --permission-mode default line, one
+#     --allowedTools line, and one --add-dir line. Without the
+#     --permission-mode line, claude-code-action v1.0.273 and later start
+#     the session in auto mode, and --allowedTools is then not a strict list.
 # A step ends at the next step ("      - ") or the next job. With no Claude
 # step at all, it prints a problem, because a loop over no steps checks
 # nothing.
@@ -167,7 +170,8 @@ check_file() {
             if (ntools != 1) print file ":" c " Claude step has " ntools + 0 " --allowedTools lines, not 1"
             if (tools != want) print file ":" c " --allowedTools is not the allowed list: " tools
             if (nadd != 1) print file ":" c " Claude step has " nadd + 0 " --add-dir lines, not 1"
-            c = 0; tools = ""; ntools = 0; nadd = 0; block = ""
+            if (nperm != 1) print file ":" c " Claude step has " nperm + 0 " --permission-mode default lines, not 1"
+            c = 0; tools = ""; ntools = 0; nadd = 0; nperm = 0; block = ""
         }
         function close_step() { close_fetch(); close_claude() }
         /^ *TRUSTED_COMMENTS_JQ:/ { keys++; if (!inenv || !/^  TRUSTED_COMMENTS_JQ:/) badkey = NR }
@@ -206,6 +210,7 @@ check_file() {
             if (after_tools) { tools = line; after_tools = 0 }
             else if (line == "--allowedTools") { after_tools = 1; ntools++ }
             else if (line == wantdir) nadd++
+            else if (line == "--permission-mode default") nperm++
             else if (line ~ /^--(model|effort) \$\{\{ inputs\.[a-z_]+ \}\}$/) { }
             else if (line ~ /^--json-schema \x27[^\x27]*\x27$/) { }
             else print file ":" NR " claude_args line is not on the allowed list: " line
@@ -303,6 +308,11 @@ emit_job() {
     [ "$2" = claude-continue ] && echo '        continue-on-error: true'
     echo '        with:'
     echo '          claude_args: >-'
+    case "$2" in
+        no-perm-mode) ;;
+        perm-mode-auto) echo '            --permission-mode auto' ;;
+        *) echo '            --permission-mode default' ;;
+    esac
     if [ "$2" = two-tools ]; then
         echo '            --allowedTools'
         echo '            "Bash(gh:*)"'
@@ -380,7 +390,8 @@ for variant in no-fetch commented-fetch fetch-if fetch-continue fetch-or-true \
     dash-tools input-tools settings-input bypass skip-perms settings-arg \
     model-plus schema-plus claude-if claude-continue bare-read bare-grep bare-glob \
     no-add-dir add-dir-wrong no-role-person no-earlier-review no-safe-guard \
-    old-bot-weight weight-before-list trusted-comment; do
+    old-bot-weight weight-before-list trusted-comment no-perm-mode \
+    perm-mode-auto; do
     fixture "$TMPROOT/$variant.yml" "$variant"
     expect "a fixture with a $variant job fails" "$TMPROOT/$variant.yml" fail
 done
