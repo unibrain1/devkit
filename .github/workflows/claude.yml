@@ -118,7 +118,10 @@ jobs:
             actions: read
           # --allowedTools has no git prefix (issue #29). The reason is in
           # docs/ci-workflows.md, "No git read commands for Claude".
+          # --permission-mode acceptEdits keeps --allowedTools a strict
+          # list. The reason is in docs/ci-workflows.md, "Permission mode".
           claude_args: >-
+            --permission-mode acceptEdits
             --model ${{ inputs.model }}
             --allowedTools
             "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh issue comment:*),Bash(gh issue view:*),Read,Grep,Glob${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"

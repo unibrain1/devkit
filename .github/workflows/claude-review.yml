@@ -465,7 +465,10 @@ jobs:
           # docs/ci-workflows.md, "No git read commands for Claude".
           # Read, Grep and Glob are path-scoped (issue #47). The reason is in
           # docs/ci-workflows.md, "File reach of the review".
+          # --permission-mode default keeps --allowedTools a strict list.
+          # The reason is in docs/ci-workflows.md, "Permission mode".
           claude_args: >-
+            --permission-mode default
             --allowedTools
             "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --add-dir ${{ runner.temp }}/pr-context
@@ -1232,7 +1235,10 @@ jobs:
           # docs/ci-workflows.md, "No git read commands for Claude".
           # Read, Grep and Glob are path-scoped (issue #47). The reason is in
           # docs/ci-workflows.md, "File reach of the review".
+          # --permission-mode default keeps --allowedTools a strict list.
+          # The reason is in docs/ci-workflows.md, "Permission mode".
           claude_args: >-
+            --permission-mode default
             --allowedTools
             "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --add-dir ${{ runner.temp }}/pr-context
@@ -2020,7 +2026,10 @@ jobs:
           # docs/ci-workflows.md, "No git read commands for Claude".
           # Read, Grep and Glob are path-scoped (issue #47). The reason is in
           # docs/ci-workflows.md, "File reach of the review".
+          # --permission-mode default keeps --allowedTools a strict list.
+          # The reason is in docs/ci-workflows.md, "Permission mode".
           claude_args: >-
+            --permission-mode default
             --allowedTools
             "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Read(./**),Read(/${{ runner.temp }}/pr-context/**),Grep(./**),Grep(/${{ runner.temp }}/pr-context/**),Glob(./**),Glob(/${{ runner.temp }}/pr-context/**)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
             --add-dir ${{ runner.temp }}/pr-context
