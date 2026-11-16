@@ -454,7 +454,7 @@ jobs:
 
       - name: Run Claude Issue-Level Review
         id: claude-review
-        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
+        uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1.0.275
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Do NOT set track_progress — it forces "tag mode" (waits for an
@@ -1224,7 +1224,7 @@ jobs:
 
       - name: Run Claude Milestone-Level Review
         id: claude-review
-        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
+        uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1.0.275
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Do NOT set track_progress — see pr-to-milestone-review above.
@@ -2013,7 +2013,7 @@ jobs:
 
       - name: Run Claude Deep Review
         id: claude-review
-        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
+        uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1.0.275
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # --allowedTools has no git prefix (issue #29). The reason is in
