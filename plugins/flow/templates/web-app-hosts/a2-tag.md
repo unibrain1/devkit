@@ -7,7 +7,11 @@ To deploy release `vX.Y.Z`:
 
 ```sh
 git push <deploy-remote> vX.Y.Z
-git push <deploy-remote> 'vX.Y.Z^{commit}:main'
+git push <deploy-remote> 'vX.Y.Z^{commit}:refs/heads/main'
 ```
+
+The second push names `refs/heads/main` in full. A commit is not a
+branch, so git cannot find the full name of `main` on a remote that does
+not have it yet.
 
 Do not push to the deploy remote without a person's approval.

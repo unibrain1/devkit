@@ -18,7 +18,7 @@ app. Add the rules of this app to each section.
 
 - Read each secret from the environment. Do not write a secret in the
   code.
-- Do not read or change an `.env` file. The `.claude/hooks/block-env.sh`
+- Do not read or change an `.env` or `.dev.vars` file. The `.claude/hooks/block-env.sh`
   hook blocks it.
 
 ## Docs

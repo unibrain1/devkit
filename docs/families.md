@@ -97,17 +97,19 @@ fills it from the setup answers.
 | File | What it holds |
 | --- | --- |
 | `.github/workflows/ci.yml` | The `App` job. It runs on each PR and on each push to `main` and `milestone/**`. It checks out the repo, then runs `{{lint}}` and `{{test}}`. Commented examples show the Node and the PHP setup steps, with pinned SHAs. |
-| `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `typecheck` hook runs `{{typecheck}}` and the `test-quick` hook runs `{{test_quick}}`, at each commit. |
+| `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `typecheck` hook runs `{{typecheck}}` and the `test-quick` hook runs `{{test_quick}}`, at each commit. Each hook runs its command through `bash -c`, because pre-commit runs `entry` with no shell. |
 | `.claude/project.md` | `test`, `test_quick`, `lint` (`{{typecheck}} && {{lint}}`), `verify`, `plans`, `deploy`, `milestone_setup`, and `release_checks`. |
 | `.claude/settings.json` | `templates/settings.json`, plus the PreToolUse hook on `Read\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep` that runs `"$CLAUDE_PROJECT_DIR"/.claude/hooks/block-env.sh`. |
 | `.claude/hooks/block-env.sh` | The `.env` block hook. See [The `.env` block hook](#the-env-block-hook). |
 | `.claude/rules/app-review.md` | A stub with the sections App and tests, Database, Secrets, and Docs. |
 | `CLAUDE.md` | A skeleton: Project Overview, Deployment (`{{deployment}}`), Versioning, Key Conventions, Never Do, and the flow block. |
-| `.gitignore` | `.env`, `.env.*` (but not `.env.example` and `.env.sample`), and `docs/plans/`. |
+| `.gitignore` | `.env`, `.env.*` (but not `.env.example` and `.env.sample`), `.dev.vars`, `.dev.vars.*` (but not `.dev.vars.example`), and `docs/plans/`. |
 
 The type check runs at each commit (the `typecheck` hook) and in the
-`lint` key. CI runs `{{lint}}`. If the stack has a type check, put it in
-the CI lint command too.
+`lint` key. The `{{lint}}` value is the lint command only, because the
+`lint` key adds the type check. CI has no type check step: for a stack
+with a type check, `/flow:new-project` writes the type check command,
+then `&&`, then the lint command, in the `{{lint}}` step of `ci.yml`.
 
 ### Host
 
@@ -155,11 +157,13 @@ VERSION form for another stack. The repo then tracks the `VERSION` file.
 
 ### The `.env` block hook
 
-A web app keeps its database and API credentials in `.env` files. The
-hook runs before each Read, Edit, MultiEdit, Write, NotebookEdit, and Grep
-call. It blocks a file named `.env` or `.env.<name>`, in any folder and in
-any letter case. A case-insensitive file system, such as the macOS
-default, opens `.env` for `.ENV`. The hook allows a name that ends in
+A web app keeps its database and API credentials in `.env` files.
+Wrangler (Cloudflare) keeps local secrets in `.dev.vars`. The hook runs
+before each Read, Edit, MultiEdit, Write, NotebookEdit, and Grep call. It
+blocks a file named `.env`, `.env.<name>`, `.dev.vars`, or
+`.dev.vars.<name>`, in any folder and in any letter case. A
+case-insensitive file system, such as the macOS default, opens `.env` for
+`.ENV`. The hook allows a name that ends in
 `.example` or `.sample`.
 
 The hook does not stop these:
@@ -189,7 +193,8 @@ does not reach a repo that has a copy: change each copy by hand.
 A template file can hold a placeholder in the form `{{key}}`. Markdown and
 JSON files can hold placeholders. In `web-app`, a YAML file can also hold
 a placeholder, but only as a full quoted value, for example
-`run: "{{lint}}"`. The file then still parses. Family A YAML and JS files
+`run: "{{lint}}"` or the list item `- "{{typecheck}}"`. The file then
+still parses. Family A YAML and JS files
 hold none. These are the only placeholders:
 
 | Placeholder | Value | Files |
@@ -203,7 +208,7 @@ hold none. These are the only placeholders:
 | `{{test}}` | The command that runs all the tests. | `web-app` `project.md`, `ci.yml`, `CLAUDE.md` |
 | `{{test_quick}}` | The command that runs the fast tests. | `web-app` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
 | `{{typecheck}}` | The type check command. | `web-app` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
-| `{{lint}}` | The lint command, with no type check. | `web-app` `project.md`, `ci.yml`, `CLAUDE.md` |
+| `{{lint}}` | The lint command, with no type check. In `ci.yml`, see [`web-app`](#web-app). | `web-app` `project.md`, `ci.yml`, `CLAUDE.md` |
 | `{{verify}}` | The full check before a release. | `web-app` `project.md`, `CLAUDE.md` |
 | `{{milestone_setup}}` | The `milestone_setup` command of one version form. | `web-app` `project.md` |
 | `{{release_checks}}` | The `release_checks` command of one version form. | `web-app` `project.md` |
@@ -219,7 +224,9 @@ package versions change.
 
 For `web-app`, `/flow:new-project` must also do these steps:
 
-1. Ask the stack commands and fill each command placeholder.
+1. Ask the stack commands and fill each command placeholder. For a stack
+   with a type check, fill the `{{lint}}` step of `ci.yml` with the type
+   check command, then `&&`, then the lint command.
 2. In a YAML file, write each command as a valid double-quoted value:
    put `\` before each `"` and `\`. Refuse a command that holds `${{`. A
    GitHub expression in a `run:` value can inject code.

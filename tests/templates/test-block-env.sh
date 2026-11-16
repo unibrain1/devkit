@@ -3,10 +3,12 @@
 # Tests for the .env block hook of the web-app template:
 # plugins/flow/templates/web-app/.claude/hooks/block-env.sh.
 #
-# The hook reads the PreToolUse JSON on stdin and reads .tool_input.file_path.
-# It must exit 2, with "BLOCK:" on stderr, for a file named .env or .env.<name>
-# in any folder. It must exit 0, with no stderr, for a name that ends in
-# .example or .sample, for each other file, and for input with no file path.
+# The hook reads the PreToolUse JSON on stdin and reads .tool_input.file_path,
+# .notebook_path (NotebookEdit), or .path (Grep). It must exit 2, with
+# "BLOCK:" on stderr, for a file named .env, .env.<name>, .dev.vars, or
+# .dev.vars.<name> in any folder. It must exit 0, with no stderr, for a
+# name that ends in .example or .sample, for each other file, and for input
+# with no file path.
 # It must exit 2 when the input is empty or not JSON, and when jq is not on
 # PATH. It matches the name in any letter case.
 #
@@ -92,6 +94,8 @@ expect_block "blocks Write of app/.env.production" "$(hook_json Write app/.env.p
 expect_block "blocks Read of /srv/app/.env" "$(hook_json Read /srv/app/.env)"
 expect_block "blocks Read of .ENV" "$(hook_json Read .ENV)"
 expect_block "blocks Edit of config/.Env.local" "$(hook_json Edit config/.Env.local)"
+expect_block "blocks Read of .dev.vars" "$(hook_json Read .dev.vars)"
+expect_block "blocks Edit of app/.DEV.VARS.staging" "$(hook_json Edit app/.DEV.VARS.staging)"
 expect_block "blocks Grep with path .env" '{"tool_name":"Grep","tool_input":{"pattern":".","path":".env"}}'
 expect_block "blocks NotebookEdit of a/.env" '{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"a/.env"}}'
 expect_block "blocks input that is not JSON" "this is not json"
@@ -102,6 +106,7 @@ expect_block "blocks blank input" "   "
 expect_allow "allows .env.example" "$(hook_json Read .env.example)"
 expect_allow "allows config/.env.sample" "$(hook_json Edit config/.env.sample)"
 expect_allow "allows .ENV.Example" "$(hook_json Read .ENV.Example)"
+expect_allow "allows .dev.vars.example" "$(hook_json Read .dev.vars.example)"
 expect_allow "allows Grep with path src" '{"tool_name":"Grep","tool_input":{"pattern":".","path":"src"}}'
 expect_allow "allows README.md" "$(hook_json Read README.md)"
 expect_allow "allows env.ts" "$(hook_json Write env.ts)"
@@ -148,11 +153,15 @@ control() {
 
 if [ "${BLOCK_ENV_NO_CONTROLS:-}" != "1" ]; then
     control no-env-star "blocks Edit of .env.local" \
-        's/^([[:space:]]*\.env) \| \.env\.\*\)/\1)/'
+        's/^([[:space:]]*\.env) \| \.env\.\* \|/\1 |/'
+    control no-dev-vars "blocks Read of .dev.vars" \
+        's/ \| \.dev\.vars \| \.dev\.vars\.\*\)/)/'
+    control no-dev-vars-star "blocks Edit of app/.DEV.VARS.staging" \
+        's/ \| \.dev\.vars\.\*\)/)/'
     control no-example-line "allows .env.example" \
         '/^[[:space:]]*\*\.example \| \*\.sample\) exit 0 ;;$/d'
     control env-prefix-glob "allows .envrc" \
-        's/^([[:space:]]*)\.env \| \.env\.\*\)/\1.env*)/'
+        's/^([[:space:]]*)\.env \| \.env\.\* \|/\1.env* |/'
     control full-path-match "blocks Read of /srv/app/.env" \
         's/^case "\$\{file##\*\/\}" in$/case "$file" in/'
     control no-nocasematch "blocks Read of .ENV" \

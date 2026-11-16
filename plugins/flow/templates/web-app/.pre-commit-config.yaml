@@ -39,15 +39,23 @@ repos:
   # Do not turn it on: this block has the test-quick hook. If test_quick
   # takes more than about 20 seconds, add "stages: [pre-push]" to the
   # test-quick hook. Then run `pre-commit install --hook-type pre-push`.
+  # Each hook runs its command through bash -c. pre-commit runs entry with
+  # no shell, so "a && b" would run a with the words "&&" and "b".
   - repo: local
     hooks:
       - id: typecheck
         name: typecheck
-        entry: "{{typecheck}}"
+        entry: bash
+        args:
+          - "-c"
+          - "{{typecheck}}"
         language: system
         pass_filenames: false
       - id: test-quick
         name: test_quick
-        entry: "{{test_quick}}"
+        entry: bash
+        args:
+          - "-c"
+          - "{{test_quick}}"
         language: system
         pass_filenames: false

@@ -3,10 +3,12 @@
 # PreToolUse hook (Read, Edit, MultiEdit, Write, NotebookEdit, Grep) from
 # the devkit web-app template (docs/families.md, Family W). It stops Claude
 # from reading or changing an .env file, because a web app keeps its
-# database and API credentials there.
+# database and API credentials there. Wrangler (Cloudflare) keeps local
+# secrets in .dev.vars.
 #
-# Blocks: a file named .env or .env.<anything>, in any folder, in any
-# letter case. A case-insensitive file system (macOS) opens .env for .ENV.
+# Blocks: a file named .env, .env.<anything>, .dev.vars, or
+# .dev.vars.<anything>, in any folder, in any letter case. A
+# case-insensitive file system (macOS) opens .env for .ENV.
 # Allows: a name that ends in .example or .sample, and each other file.
 # Limits: it does not stop a Bash command such as `cat .env`, or a Grep
 # over a folder with an .env glob. It does not resolve symlinks.
@@ -35,8 +37,8 @@ fi
 shopt -s nocasematch
 case "${file##*/}" in
     *.example | *.sample) exit 0 ;;
-    .env | .env.*)
-        echo "BLOCK: do not read or change .env files. They hold secrets." >&2
+    .env | .env.* | .dev.vars | .dev.vars.*)
+        echo "BLOCK: do not read or change .env or .dev.vars files. They hold secrets." >&2
         exit 2
         ;;
 esac

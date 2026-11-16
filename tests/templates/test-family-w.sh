@@ -10,8 +10,8 @@
 # devkit pin rule, flow-project-check and the keys of project.md, the version
 # forms in docs/families.md (run in a scratch git repo), settings.json
 # against templates/settings.json and the .env hook entry, CLAUDE.md and the
-# host files, placeholders, project facts, .gitignore, whitespace, and the
-# CodeQL and Semgrep manual step.
+# host files, placeholders, project facts, the .gitignore effect (git
+# check-ignore), whitespace, and the CodeQL and Semgrep manual step.
 #
 # Override check: it is semantic, as in test-family-a.sh. Every repo entry of
 # the baseline pre-commit file must be present, equal, in the parsed
@@ -336,7 +336,7 @@ EOF
         [.repos[]? | select(.repo == "local") | .hooks[]?] as $h
         | [ ["typecheck", "{{typecheck}}"], ["test-quick", "{{test_quick}}"] ][]
         | . as [$id, $entry]
-        | select(([$h[] | select(.id == $id and .entry == $entry
+        | select(([$h[] | select(.id == $id and .entry == "bash" and .args == ["-c", $entry]
                     and .language == "system" and .pass_filenames == false)] | length) != 1)
         | $id' 2>&1 | tr '\n' ' ')"
     if [ -z "$got" ]; then
@@ -353,7 +353,7 @@ EOF
             *) continue ;;
         esac
         f="$(strip_gha "$WEB_APP/$rel" | grep -F '{{' \
-            | grep -vE '^[[:space:]-]*[A-Za-z0-9_-]+:[[:space:]]+"\{\{[a-z_]+\}\}"[[:space:]]*$')"
+            | grep -vE '^[[:space:]]*(-[[:space:]]+)?([A-Za-z0-9_-]+:[[:space:]]+)?"\{\{[a-z_]+\}\}"[[:space:]]*$')"
         [ -z "$f" ] || got="$got [$rel: $(printf '%s' "$f" | tr '\n' '|')]"
     done <<EOF
 $files
@@ -545,7 +545,7 @@ EOF
     got=""
     grep -qF 'A2' "$WEB_HOSTS/a2-tag.md" 2>/dev/null || got="$got [A2]"
     grep -qE '^git push [^ ]+ vX\.Y\.Z$' "$WEB_HOSTS/a2-tag.md" 2>/dev/null || got="$got [tag push]"
-    grep -qE '^git push .*:main' "$WEB_HOSTS/a2-tag.md" 2>/dev/null || got="$got [push to :main]"
+    grep -qE '^git push .*:refs/heads/main'"'"'?$' "$WEB_HOSTS/a2-tag.md" 2>/dev/null || got="$got [push to :refs/heads/main]"
     if [ -z "$got" ]; then
         pass "web-app-hosts: a2-tag.md names A2, the tag push, and the push to main"
     else
@@ -577,14 +577,29 @@ EOF
     else
         fail "web-app and web-app-hosts: no project name in a template file" "found:$got"
     fi
+    # git check-ignore tests the effect of the rules, so a reorder or a later
+    # "!" rule that commits a secret fails too. The empty core.excludesFile
+    # and the scratch XDG_CONFIG_HOME keep the user's global ignore file out.
     got=""
-    for rel in '.env' '.env.*' '!.env.example' '!.env.sample' 'docs/plans/'; do
-        grep -qFx -- "$rel" "$WEB_APP/.gitignore" 2>/dev/null || got="$got [$rel]"
-    done
-    if [ -z "$got" ]; then
-        pass "web-app: .gitignore has .env, .env.*, !.env.example, !.env.sample, and docs/plans/"
+    repo="$TMPROOT/gitignore-$$"
+    scratch_git "$repo"
+    if [ -f "$WEB_APP/.gitignore" ] && cp "$WEB_APP/.gitignore" "$repo/.gitignore"; then
+        for rel in .env .env.local app/.env.production .dev.vars .dev.vars.staging docs/plans/issue-1.md; do
+            (cd "$repo" && HOME="$repo/home" XDG_CONFIG_HOME="$repo/home" GIT_CONFIG_NOSYSTEM=1 git -c core.excludesFile= check-ignore -q -- "$rel") \
+                || got="$got [not ignored: $rel]"
+        done
+        for rel in .env.example config/.env.sample .dev.vars.example src/app.ts; do
+            (cd "$repo" && HOME="$repo/home" XDG_CONFIG_HOME="$repo/home" GIT_CONFIG_NOSYSTEM=1 git -c core.excludesFile= check-ignore -q -- "$rel") \
+                && got="$got [ignored: $rel]"
+        done
     else
-        fail "web-app: .gitignore has .env, .env.*, !.env.example, !.env.sample, and docs/plans/" "missing:$got"
+        got=" [.gitignore missing]"
+    fi
+    rm -rf "$repo"
+    if [ -z "$got" ]; then
+        pass "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files"
+    else
+        fail "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" "$got"
     fi
     check_whitespace web-app "$WEB_APP" "$files"
     check_whitespace web-app-hosts "$WEB_HOSTS" "$host_files"
@@ -700,7 +715,9 @@ if [ "${FAMILY_W_NO_CONTROLS:-}" != "1" ]; then
     control override-drops-hook "web-app: pre-commit override holds the baseline content" \
         'sub "$WA/.pre-commit-config.yaml" "/^      - id: check-json$/d"'
     control local-typecheck-entry "web-app: pre-commit has the local typecheck and test-quick hooks" \
-        'sub "$WA/.pre-commit-config.yaml" "s/entry: \"\{\{typecheck\}\}\"/entry: \"{{lint}}\"/"'
+        'sub "$WA/.pre-commit-config.yaml" "s/- \"\{\{typecheck\}\}\"/- \"{{lint}}\"/"'
+    control local-no-shell "web-app: pre-commit has the local typecheck and test-quick hooks" \
+        'sub "$WA/.pre-commit-config.yaml" "/^          - \"-c\"$/d"'
     control local-test-quick-pass-filenames "web-app: pre-commit has the local typecheck and test-quick hooks" \
         'sub "$WA/.pre-commit-config.yaml" "\$ s/pass_filenames: false/pass_filenames: true/"'
     control local-language "web-app: pre-commit has the local typecheck and test-quick hooks" \
@@ -803,7 +820,9 @@ if [ "${FAMILY_W_NO_CONTROLS:-}" != "1" ]; then
     control host-a2-no-tag-push "web-app-hosts: a2-tag.md names A2, the tag push, and the push to main" \
         'sub "$WH/a2-tag.md" "/^git push [^ ]+ vX\.Y\.Z$/d"'
     control host-a2-no-main-push "web-app-hosts: a2-tag.md names A2, the tag push, and the push to main" \
-        'sub "$WH/a2-tag.md" "/:main/d"'
+        'sub "$WH/a2-tag.md" "/:refs\/heads\/main/d"'
+    control host-a2-short-main "web-app-hosts: a2-tag.md names A2, the tag push, and the push to main" \
+        'sub "$WH/a2-tag.md" "s#:refs/heads/main#:main#"'
     # 11. placeholders, project facts, .gitignore, whitespace
     control placeholder-unlisted-doc "web-app: each placeholder is listed in docs/families.md" \
         'sub "$D" "s/\{\{verify\}\}/{{full_check}}/"'
@@ -813,14 +832,24 @@ if [ "${FAMILY_W_NO_CONTROLS:-}" != "1" ]; then
         'printf "MyGunLog\n" >> "$WA/CLAUDE.md"'
     control project-fact-host-file "web-app and web-app-hosts: no project name in a template file" \
         'printf "See the Registry repo.\n" >> "$WH/a2-tag.md"'
-    control gitignore-env "web-app: .gitignore has .env, .env.*, !.env.example, !.env.sample, and docs/plans/" \
+    control gitignore-env "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" \
         'sub "$WA/.gitignore" "/^\.env$/d"'
-    control gitignore-example "web-app: .gitignore has .env, .env.*, !.env.example, !.env.sample, and docs/plans/" \
+    control gitignore-example "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" \
         'sub "$WA/.gitignore" "/^!\.env\.example$/d"'
-    control gitignore-sample "web-app: .gitignore has .env, .env.*, !.env.example, !.env.sample, and docs/plans/" \
+    control gitignore-sample "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" \
         'sub "$WA/.gitignore" "/^!\.env\.sample$/d"'
-    control gitignore-plans "web-app: .gitignore has .env, .env.*, !.env.example, !.env.sample, and docs/plans/" \
+    control gitignore-plans "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" \
         'sub "$WA/.gitignore" "/docs\/plans/d"'
+    control gitignore-dev-vars "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" \
+        'sub "$WA/.gitignore" "/^\.dev\.vars$/d"'
+    control gitignore-dev-vars-star "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" \
+        'sub "$WA/.gitignore" "/^\.dev\.vars\.\*$/d"'
+    control gitignore-dev-vars-example "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" \
+        'sub "$WA/.gitignore" "/^!\.dev\.vars\.example$/d"'
+    control gitignore-negation-first "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" \
+        'printf "!.env.example\n!.env.sample\n.env\n.env.*\n.dev.vars\ndocs/plans/\n" > "$WA/.gitignore"'
+    control gitignore-unignore-env "web-app: .gitignore ignores .env, .dev.vars, their .<name> files, and docs/plans/, not the example files" \
+        'printf "!.env\n" >> "$WA/.gitignore"'
     control whitespace-trailing "web-app: clean whitespace" \
         'printf "trailing \n" >> "$WA/.claude/rules/app-review.md"'
     control whitespace-no-newline "web-app-hosts: clean whitespace" \

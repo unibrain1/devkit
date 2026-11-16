@@ -32,14 +32,15 @@ agree.
 
 ## Key Conventions
 
-- Keep secrets in `.env` files. Git ignores them. Commit only
-  `.env.example`.
+- Keep secrets in `.env` files, or in `.dev.vars` for Wrangler. Git
+  ignores them. Commit only the
+  example files, such as `.env.example`.
 - Write plan files in `docs/plans/`. Git ignores that folder.
 - Run `pre-commit install` one time in each clone.
 
 ## Never Do
 
-- Do not read, change, or commit an `.env` file.
+- Do not read, change, or commit an `.env` or `.dev.vars` file.
 - Do not change the production database by hand.
 - Do not push to `main` directly. Use a PR.
 
