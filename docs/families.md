@@ -25,6 +25,7 @@ Only these overrides are allowed:
 | `static-site-cloudflare` | `.github/dependabot.yml` | The `npm` entry. |
 | `static-site-host` | `.github/dependabot.yml` | The `npm` entry and the `composer` entry. |
 | `static-site-host` | `.pre-commit-config.yaml` | A `repo: local` hook that runs `npm run lint`. |
+| `web-app` | `.pre-commit-config.yaml` | A `repo: local` block with the `typecheck` and `test-quick` hooks. |
 
 ## Family A: static sites
 
@@ -83,25 +84,161 @@ the script fails. In CI, `php -l`
 uses the PHP on the `ubuntu-24.04` runner image. The workflow does not
 install PHP.
 
+## Family W: web apps
+
+Family W is the web apps with a database and a version, for example a
+TypeScript app on Cloudflare Pages and Supabase, or a PHP and MySQL app on
+A2 Hosting. The stacks differ, so the `web-app` template holds no stack
+file. Each stack command is a placeholder. `/flow:new-project` (#117)
+fills it from the setup answers.
+
+### `web-app`
+
+| File | What it holds |
+| --- | --- |
+| `.github/workflows/ci.yml` | The `App` job. It runs on each PR and on each push to `main` and `milestone/**`. It checks out the repo, then runs `{{lint}}` and `{{test}}`. Commented examples show the Node and the PHP setup steps, with pinned SHAs. |
+| `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `typecheck` hook runs `{{typecheck}}` and the `test-quick` hook runs `{{test_quick}}`, at each commit. |
+| `.claude/project.md` | `test`, `test_quick`, `lint` (`{{typecheck}} && {{lint}}`), `verify`, `plans`, `deploy`, `milestone_setup`, and `release_checks`. |
+| `.claude/settings.json` | `templates/settings.json`, plus the PreToolUse hook on `Read\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep` that runs `"$CLAUDE_PROJECT_DIR"/.claude/hooks/block-env.sh`. |
+| `.claude/hooks/block-env.sh` | The `.env` block hook. See [The `.env` block hook](#the-env-block-hook). |
+| `.claude/rules/app-review.md` | A stub with the sections App and tests, Database, Secrets, and Docs. |
+| `CLAUDE.md` | A skeleton: Project Overview, Deployment (`{{deployment}}`), Versioning, Key Conventions, Never Do, and the flow block. |
+| `.gitignore` | `.env`, `.env.*` (but not `.env.example` and `.env.sample`), and `docs/plans/`. |
+
+The type check runs at each commit (the `typecheck` hook) and in the
+`lint` key. CI runs `{{lint}}`. If the stack has a type check, put it in
+the CI lint command too.
+
+### Host
+
+The host is a setup answer. The text for the Deployment section of
+`CLAUDE.md` is in `plugins/flow/templates/web-app-hosts/`. That folder is
+not copied to the repo. `/flow:new-project` must put the file of the
+chosen host in place of `{{deployment}}`.
+
+| Host | File | Deploy |
+| --- | --- | --- |
+| Cloudflare Pages | `cloudflare-pages.md` | Cloudflare Pages deploys `main` through its Git integration. |
+| A2 Hosting | `a2-tag.md` | Two pushes to the deploy remote on the host: the release tag, then the tagged commit to `main`. |
+
+### Devkit pin
+
+The devkit pin is a setup answer. Each devkit caller in the baseline uses
+`@main`. The `web-app` template adds no devkit caller. For a repo with
+outside contributors, replace
+`@main` on each `uses: unibrain1/devkit/` line with the full commit SHA of a
+release tag and the tag in a comment:
+
+```yaml
+uses: unibrain1/devkit/.github/workflows/claude-review.yml@<full SHA> # vX.Y.Z
+```
+
+See the [devkit pin rule](ci-workflows.md#devkit-pin-rule).
+
+### Version
+
+The milestone branch `milestone/vX.Y.Z` names the version. The
+`milestone_setup` key writes it into the app, and the `release_checks` key
+stops a release when the two do not agree. `/flow:new-project` must put
+the commands of one form in place of `{{milestone_setup}}` and
+`{{release_checks}}`:
+
+<!-- version-forms: tests/templates/test-family-w.sh runs these commands -->
+
+| Form | `milestone_setup` | `release_checks` |
+| --- | --- | --- |
+| npm | `npm version "$(git branch --show-current \| sed 's#^milestone/v##')" --no-git-tag-version --allow-same-version` | `test "milestone/v$(jq -r .version package.json)" = "$(git branch --show-current)" \|\| { echo "package.json version does not match the milestone branch" >&2; exit 1; }` |
+| VERSION file | `git branch --show-current \| sed 's#^milestone/v##' > VERSION` | `test "milestone/v$(cat VERSION)" = "$(git branch --show-current)" \|\| { echo "VERSION does not match the milestone branch" >&2; exit 1; }` |
+
+Use the npm form when `package.json` holds the app version. Use the
+VERSION form for another stack. The repo then tracks the `VERSION` file.
+
+### The `.env` block hook
+
+A web app keeps its database and API credentials in `.env` files. The
+hook runs before each Read, Edit, MultiEdit, Write, NotebookEdit, and Grep
+call. It blocks a file named `.env` or `.env.<name>`, in any folder and in
+any letter case. A case-insensitive file system, such as the macOS
+default, opens `.env` for `.ENV`. The hook allows a name that ends in
+`.example` or `.sample`.
+
+The hook does not stop these:
+
+- A Bash command, such as `cat .env`.
+- A Grep with no `path`, or with a folder `path`. It can find lines in an
+  `.env` file in that folder.
+- A symlink to an `.env` file.
+
+The hook blocks the call when it cannot do its check:
+
+- `jq` is not installed.
+- The hook input is empty or is not JSON.
+- The hook file cannot run. The settings command adds
+  `|| { echo "BLOCK: ..." >&2; exit 2; }`, because Claude Code blocks a
+  call only on exit 2.
+
+The settings run the hook through `$CLAUDE_PROJECT_DIR`, so the hook also
+runs when the session works in a subfolder. Each Family W repo has a
+database, so the hook is always on.
+
+Each repo gets its own copy of the hook. A later fix to the hook in devkit
+does not reach a repo that has a copy: change each copy by hand.
+
 ## Placeholders
 
-A template file can hold a placeholder in the form `{{key}}`. Only
-Markdown and JSON files hold placeholders. YAML and JS files hold none, so
-each one parses and lints with no change. These are the only placeholders:
+A template file can hold a placeholder in the form `{{key}}`. Markdown and
+JSON files can hold placeholders. In `web-app`, a YAML file can also hold
+a placeholder, but only as a full quoted value, for example
+`run: "{{lint}}"`. The file then still parses. Family A YAML and JS files
+hold none. These are the only placeholders:
 
 | Placeholder | Value | Files |
 | --- | --- | --- |
-| `{{site_name}}` | The site name, for people to read. | `CLAUDE.md` |
-| `{{site_description}}` | One sentence about the site. | `CLAUDE.md` |
-| `{{package_name}}` | The npm package name: lowercase, with no spaces. | `package.json` |
+| `{{site_name}}` | The site name, for people to read. | Family A `CLAUDE.md` |
+| `{{site_description}}` | One sentence about the site. | Family A `CLAUDE.md` |
+| `{{package_name}}` | The npm package name: lowercase, with no spaces. | Family A `package.json` |
+| `{{app_name}}` | The app name, for people to read. | `web-app` `CLAUDE.md` |
+| `{{app_description}}` | One sentence about the app. | `web-app` `CLAUDE.md` |
+| `{{deployment}}` | The text of one host file in `web-app-hosts/`. | `web-app` `CLAUDE.md` |
+| `{{test}}` | The command that runs all the tests. | `web-app` `project.md`, `ci.yml`, `CLAUDE.md` |
+| `{{test_quick}}` | The command that runs the fast tests. | `web-app` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
+| `{{typecheck}}` | The type check command. | `web-app` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
+| `{{lint}}` | The lint command, with no type check. | `web-app` `project.md`, `ci.yml`, `CLAUDE.md` |
+| `{{verify}}` | The full check before a release. | `web-app` `project.md`, `CLAUDE.md` |
+| `{{milestone_setup}}` | The `milestone_setup` command of one version form. | `web-app` `project.md` |
+| `{{release_checks}}` | The `release_checks` command of one version form. | `web-app` `project.md` |
 
 ## What `/flow:new-project` must do
 
-`/flow:new-project` (#117) makes a repo from a family template. After it
-copies the files and replaces the placeholders, it must run `npm install`.
+`/flow:new-project` (#117) makes a repo from a family template. For a
+Family A template, after it copies the files and replaces the
+placeholders, it must run `npm install`.
 `npm install` makes `package-lock.json`. Commit that file. Without it,
 `npm ci` in CI fails. The templates hold no lock file, because the
 package versions change.
+
+For `web-app`, `/flow:new-project` must also do these steps:
+
+1. Ask the stack commands and fill each command placeholder.
+2. In a YAML file, write each command as a valid double-quoted value:
+   put `\` before each `"` and `\`. Refuse a command that holds `${{`. A
+   GitHub expression in a `run:` value can inject code.
+3. If the stack has no type check, remove the `typecheck` hook from
+   `.pre-commit-config.yaml` and the `{{typecheck}} &&` prefix from the
+   `lint` key. Remove the `{{typecheck}}` row from the command table in
+   `CLAUDE.md`.
+4. Put the chosen host file in place of `{{deployment}}`.
+5. Put one version form in place of `{{milestone_setup}}` and
+   `{{release_checks}}`.
+6. Add the Dependabot entry of the stack (`npm` or `composer`) to
+   `.github/dependabot.yml`.
+7. Add an allow rule to `.claude/settings.json` for each stack command,
+   as Family A allows `npm run build` and `npm run lint`.
+8. For a repo with outside contributors, change the devkit pin (see
+   [Devkit pin](#devkit-pin)).
+9. Check that no placeholder from the [Placeholders](#placeholders) table
+   is left in the repo. A GitHub expression, `${{ ... }}`, is not a
+   placeholder: keep it.
 
 ## Manual steps
 
@@ -139,3 +276,21 @@ For both templates:
    example `site / Build` and `site / Lint (Markdown)`.
 2. In a private repo, add the CI checks to the `required_checks` key in
    `.claude/project.md`. See [project-md.md](project-md.md).
+
+For `web-app`:
+
+1. Add the setup steps of the stack to the `App` job in
+   `.github/workflows/ci.yml`. Use the commented examples.
+2. Add the stack folders (for example `node_modules/` or `vendor/`) to
+   `.gitignore`.
+3. Install `jq` on each machine that runs Claude Code. The `.env` block
+   hook needs it.
+4. In a public repo, turn on CodeQL default setup (Settings, then Code
+   security). It runs next to the Semgrep app. Add the `App` check to
+   branch protection on `main`.
+5. In a private repo, add `App` to the `required_checks` key in
+   `.claude/project.md`.
+6. Do the host steps. For Cloudflare Pages, connect the Pages project to
+   the repo, with `main` as the production branch. For A2 Hosting, add
+   the deploy remote and check that its post-receive hook deploys the
+   pushed commit.
