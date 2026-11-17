@@ -3,8 +3,9 @@
 # the image to GHCR on a push to main or on a release tag. A pull request
 # builds the image but does not push it.
 #
-# Keep the job ids stable. A caller's check shows as <caller job> / <job>,
-# and a rename breaks any required check that names it.
+# Keep the job names (name:) stable. A caller's check shows as
+# <caller job> / <job name>, and a rename breaks any required check that
+# names it.
 name: container-image
 
 on:
@@ -137,6 +138,6 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           # Only a run that pushes writes the cache. A PR run does not write
-          # the cache, so it cannot push the cache of main out of the cache
-          # limit.
+          # the cache. Its entries would fill the cache quota and evict the
+          # cache of main.
           cache-to: ${{ steps.tags.outputs.push == 'true' && 'type=gha,mode=max' || '' }}

@@ -583,7 +583,7 @@ EOF
     got="$(awk '/^For `container-ghcr`:$/{p=1; next} p && (/^For / || /^## /){exit} p{print}' "$FAMILIES_DOC" 2>/dev/null | tr '\n' ' ')"
     rel=""
     for f in 'Dockerfile' 'Install Docker' 'pre-commit install' 'GHCR package' 'visibility' \
-        'link the package to the repo' '`latest`' 'container-imageyml' \
+        'link the package to the repo' '`latest`' 'ci-workflows.md#host-pull-tag' \
         '`image / Lint (Dockerfile)`' '`image / Build`' '`App`' 'required_checks'; do
         printf '%s' "$got" | grep -qF -- "$f" || rel="$rel [$f]"
     done

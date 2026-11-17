@@ -34,25 +34,27 @@ repos:
     rev: v8.30.1
     hooks:
       - id: gitleaks
-  # Family B (docs/families.md): the hadolint hook lints each Dockerfile
-  # at each commit. It runs hadolint in a Docker container, so each machine
-  # that commits needs Docker. The entry pins the image by tag and digest.
-  # The upstream hadolint-docker hook names the image with no tag, so its
-  # rev does not pin the image. Dependabot does not update this entry.
-  # Change the tag and the digest by hand.
-  # The test-quick hook runs the fast tests at each commit. The commented
-  # test_quick slot above is the baseline copy. Do not turn it on. If
-  # test_quick takes more than about 20 seconds, add "stages: [pre-push]"
-  # to the test-quick hook. Then run `pre-commit install --hook-type
-  # pre-push`. pre-commit runs entry with no shell, so the hook runs its
-  # command through bash -c. Then "a && b" works.
+  # Family B hooks (docs/families.md).
   - repo: local
     hooks:
+      # The hadolint hook lints each Dockerfile at each commit. It runs
+      # hadolint in a Docker container, so each machine that commits needs
+      # Docker. The entry pins the image by tag and digest. The upstream
+      # hadolint-docker hook names the image with no tag, so its rev does
+      # not pin the image. Dependabot does not update this entry. Change the
+      # tag and the digest by hand.
       - id: hadolint
         name: hadolint
         language: docker_image
         entry: ghcr.io/hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d hadolint
         types: [dockerfile]
+      # The test-quick hook runs the fast tests at each commit. The
+      # commented test_quick slot above is the baseline copy. Do not turn it
+      # on. If test_quick takes more than about 20 seconds, add
+      # "stages: [pre-push]" to this hook. Then run
+      # `pre-commit install --hook-type pre-push`. pre-commit runs entry
+      # with no shell, so the hook runs its command through bash -c. Then
+      # "a && b" works.
       - id: test-quick
         name: test_quick
         entry: bash

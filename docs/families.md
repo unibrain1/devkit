@@ -237,9 +237,8 @@ A template file can hold a placeholder in the form `{{key}}`. Markdown and
 JSON files can hold placeholders. In `web-app` and `container-ghcr`, a
 YAML file can also hold a placeholder, but only as a full quoted value,
 for example `run: "{{lint}}"` or the list item `- "{{typecheck}}"`. The
-file then
-still parses. Family A YAML and JS files
-hold none. These are the only placeholders:
+file then still parses. Family A YAML and JS files hold none. These are
+the only placeholders:
 
 | Placeholder | Value | Files |
 | --- | --- | --- |
@@ -379,7 +378,7 @@ For `container-ghcr`:
    the package visibility, and link the package to the repo.
 5. Before the first release, change the pull tag on the host to `latest`
    or to a version tag. See
-   [ci-workflows.md](ci-workflows.md#container-imageyml).
+   [ci-workflows.md](ci-workflows.md#host-pull-tag).
 6. In a public repo, add the checks `image / Lint (Dockerfile)`,
    `image / Build`, and `App` to branch protection on `main`.
 7. In a private repo, add the same checks to the `required_checks` key in

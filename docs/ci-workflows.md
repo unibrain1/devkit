@@ -770,8 +770,9 @@ the rule of the `Tags` step, for example `v01.2.3`, fails the run on
 purpose.
 
 One run goes at a time in each `concurrency` group. A newer pending run
-replaces an older pending run. Each branch and each PR has its own group. All tag runs
-share the group `release`, so two tag runs cannot race for `latest`. Thus
+replaces an older pending run. Each branch and each PR has its own group.
+All tag runs share the group `release`, so two tag runs cannot race for
+`latest`. Thus
 an older run cannot move `edge` or `latest` after a newer run. The block
 cancels a run in progress only on a PR, so no push stops part-way.
 

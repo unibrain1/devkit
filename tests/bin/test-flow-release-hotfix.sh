@@ -464,6 +464,9 @@ fi
 echo '[{"title":"v1.4.1"}]' > "$STATE/milestones.json"
 : > "$STATE/calls"
 expect_stop "open milestone 'v1.4.1' -> exit 1, no tag" 1 "has the version v1.4.1"
+echo '[{"title":"v1.4.1 Something"}]' > "$STATE/milestones.json"
+: > "$STATE/calls"
+expect_stop "open milestone 'v1.4.1 Something' -> exit 1, no tag" 1 "the open milestone 'v1.4.1 Something' has the version v1.4.1"
 
 # --- The milestones call fails -> exit 1 -----------------------------------
 setup_case milestonefail
@@ -543,6 +546,63 @@ if [ "$STATUS" -eq 1 ] && printf '%s' "$OUT" | grep -qF "git merge-base failed (
     pass "git merge-base error -> exit 1, error message, not 'not on origin/main'"
 else
     fail "git merge-base error -> exit 1" "exit: $STATUS (want 1)" "output: [$OUT]"
+fi
+
+# --- The merge commit does not contain the last tag -> exit 1 -------------
+# A wrong PR number, or a later hotfix tagged first.
+setup_case olderpr
+add_release v1.4.0
+merge_hotfix
+LATER_SHA="$(add_commit "later hotfix")"
+git -C "$WORK" tag -a v1.4.1 "$LATER_SHA" -m "Hotfix v1.4.1" && git -C "$WORK" push -q origin refs/tags/v1.4.1
+expect_stop "merge commit older than the last tag v1.4.1 -> exit 1, no v1.4.2" 1 "does not contain the last tag v1.4.1"
+
+# --- A local-only tag at another commit -> exit 1 --------------------------
+setup_case localother
+add_release v1.4.0
+git -C "$WORK" tag -a v1.4.1 "$(side_commit)" -m x
+merge_hotfix
+expect_stop "local-only tag v1.4.1 at another commit -> exit 1" 1 "local tag v1.4.1 is at"
+if [ -z "$(origin_tag_commit v1.4.1)" ]; then
+    pass "local-only tag v1.4.1 at another commit -> not pushed"
+else
+    fail "local-only tag v1.4.1 at another commit -> not pushed"
+fi
+
+# --- flow-repo fails -> exit 1 before any gh call --------------------------
+setup_case repofail
+add_release v1.4.0
+merge_hotfix
+BINCOPY="$TMPROOT/bincopy"
+cp -R "$REAL_REPO/plugins/flow/bin" "$BINCOPY"
+printf '#!/bin/bash\necho "flow-repo: simulated failure (stub)" >&2\nexit 1\n' > "$BINCOPY/flow-repo"
+chmod +x "$BINCOPY/flow-repo"
+OUT="$(cd "$WORK" && PATH="$STUBDIR:$PATH" STUB_STATE="$STATE" STUB_LOG="$STATE/calls" \
+    STUB_PR_JSON="$STATE/pr.json" "$BINCOPY/flow-release-hotfix" "$PR" 2>&1)"
+STATUS=$?
+if [ "$STATUS" -eq 1 ] && ! grep -q '^pr view' "$STATE/calls" \
+    && [ -z "$(git -C "$ORIGIN" tag --list v1.4.1)" ]; then
+    pass "flow-repo fails -> exit 1, no pr view, no tag"
+else
+    fail "flow-repo fails -> exit 1" "exit: $STATUS (want 1)" "calls: [$(cat "$STATE/calls")]" "output: [$OUT]"
+fi
+
+# --- /bin/bash (3.2 on macOS): a first run prints no failure message -------
+# bash 3.2 runs the ERR trap inside a command substitution. "release not
+# found" on a first run must not print the trap message.
+if [ -x /bin/bash ]; then
+    setup_case systembash
+    add_release v1.4.0
+    merge_hotfix
+    OUT="$(cd "$WORK" && PATH="$STUBDIR:$PATH" STUB_STATE="$STATE" STUB_LOG="$STATE/calls" \
+        STUB_PR_JSON="$STATE/pr.json" /bin/bash "$SCRIPT" "$PR" 2>&1)"
+    STATUS=$?
+    WHY="$(check_released v1.4.1 --latest)"
+    if [ "$STATUS" -eq 0 ] && [ -z "$WHY" ] && ! printf '%s' "$OUT" | grep -qF 'a command failed'; then
+        pass "/bin/bash first run -> released, no failure message"
+    else
+        fail "/bin/bash first run -> released, no failure message" "exit: $STATUS (want 0)" "check: $WHY" "output: [$OUT]"
+    fi
 fi
 
 # --- Bad arguments -> exit 2 before any gh call ----------------------------

@@ -20,7 +20,7 @@
 #   3. The last tag is the highest vX.Y.Z tag on origin whose commit is on
 #      origin/main. A tag that is only local does not count. A tag with a
 #      fourth number (v1.2.3.1) or a prerelease part (v1.2.3-rc1) does not
-#      count.
+#      count. The merge commit must contain the last tag.
 #   4. The next tag is vX.Y.(Z+1). flow-check-version-newer checks it.
 #   5. The next version must be free for the hotfix:
 #      - A milestone/<next tag> branch on origin stops the run.
@@ -53,6 +53,7 @@
 #   1 = a check stopped the run. The causes:
 #       - the PR is not merged into main, or its merge commit is unknown.
 #       - the merge commit is not on origin/main.
+#       - the merge commit does not contain the last tag.
 #       - a vX.Y.Z tag that is not a hotfix tag is on the merge commit.
 #       - the next tag is not newer than the last tag.
 #       - milestone/<next tag> exists on origin.
@@ -201,16 +202,34 @@ else
   ORIGIN_REFS="$(git ls-remote --tags --refs origin 'refs/tags/v*')"
   ORIGIN_TAGS="$(printf '%s\n' "$ORIGIN_REFS" | awk '{ sub("^refs/tags/", "", $2); print $2 }' | release_tags)"
   LAST=""
+  LAST_OBJECT=""
   for tag in $ORIGIN_TAGS; do
     TAG_OBJECT="$(printf '%s\n' "$ORIGIN_REFS" | awk -v r="refs/tags/${tag}" '$2 == r { print $1 }')"
     if is_on_main "${TAG_OBJECT}^{commit}"; then
       LAST="$tag"
+      LAST_OBJECT="$TAG_OBJECT"
     fi
   done
   if [ -z "$LAST" ]; then
     echo "${NAME}: origin/main has no vX.Y.Z tag. A hotfix tag adds one to the patch number of the last release tag. Stop." >&2
     exit 2
   fi
+  # A wrong PR number, or two hotfixes tagged out of order, can give a merge
+  # commit older than the last tag. Its tag would move latest back to older
+  # code.
+  LAST_STATUS=0
+  git merge-base --is-ancestor "${LAST_OBJECT}^{commit}" "$MERGE_SHA" || LAST_STATUS=$?
+  case "$LAST_STATUS" in
+    0) ;;
+    1)
+      echo "${NAME}: the merge commit ${MERGE_SHA} of PR #${PR_NUMBER} does not contain the last tag ${LAST}. A tag on it would move latest back to older code. Stop. Check the PR number." >&2
+      exit 1
+      ;;
+    *)
+      echo "${NAME}: git merge-base failed (status ${LAST_STATUS}) for ${LAST} and ${MERGE_SHA}. Stop." >&2
+      exit 1
+      ;;
+  esac
   IFS=. read -r MAJOR MINOR PATCH <<EOF
 ${LAST#v}
 EOF
@@ -256,7 +275,10 @@ fi
 # error (for example an auth error) stops the run before the tag push.
 RELEASE_EXISTS=1
 VIEW_STATUS=0
-VIEW_OUT="$(gh release view "$NEXT" --repo "$REPO" --json isDraft --jq .isDraft 2>&1)" || VIEW_STATUS=$?
+# bash 3.2 runs the ERR trap inside $(...) even with || outside, so the
+# substitution resets it. Without the reset, "release not found" prints a
+# false failure message.
+VIEW_OUT="$(trap - ERR; gh release view "$NEXT" --repo "$REPO" --json isDraft --jq .isDraft 2>&1)" || VIEW_STATUS=$?
 if [ "$VIEW_STATUS" -ne 0 ]; then
   if printf '%s' "$VIEW_OUT" | grep -q 'release not found'; then
     RELEASE_EXISTS=0
