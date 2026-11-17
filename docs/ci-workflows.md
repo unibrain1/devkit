@@ -705,6 +705,100 @@ jobs:
       lint_script: lint
 ```
 
+## `container-image.yml`
+
+Lints the Dockerfile of a repo that builds a container image, then builds
+the image for each platform. On a push to `main` or a release tag, the job
+pushes the image to GHCR. A pull request builds the image, but the job does
+not push it.
+
+| Job ID | Does |
+| --- | --- |
+| `hadolint` | hadolint on `dockerfile`. The check name is `<caller job> / Lint (Dockerfile)`. |
+| `build` | Runs after `hadolint`. The `Tags` step finds the push flag and the tags from the event and the ref. Buildx then builds `platforms`, with the GitHub Actions cache. The check name is `<caller job> / Build`. |
+
+| Input | Type | Default | Use |
+| --- | --- | --- | --- |
+| `image` | string | `""` | The image name, with no tag. Empty gives `ghcr.io/<owner>/<repo>`. The job writes the name in lowercase. |
+| `context` | string | `.` | The build context folder. |
+| `dockerfile` | string | `Dockerfile` | The path to the Dockerfile, from the repo root. |
+| `platforms` | string | `linux/amd64,linux/arm64` | The target platforms, with a comma between each two. |
+
+No secret. The job logs in to GHCR with `GITHUB_TOKEN`. The `build` job
+asks for `packages: write`, so the caller job must grant `contents: read`
+and `packages: write`. Without the block, the run does not start.
+
+The `Tags` step reads the event and the ref through `env` only:
+
+| Event | Push | Tags |
+| --- | --- | --- |
+| `pull_request` | No | None |
+| `push` to `main` | Yes | `edge`, `sha-<first 7 of the SHA>` |
+| `push` of tag `vX.Y.Z` | Yes | `X.Y.Z`, `X.Y`, `latest` |
+| Other event or ref | No | None. The job fails. |
+
+A release tag has three numbers and no leading zero. The step stops the
+job on each other tag, for example `v1.2.3-rc.1`, `v1.2`, `v1.2.3.4`, or
+`v01.2.3`. It also stops the job on a branch other than `main`, on a
+`workflow_dispatch` run, and on a ref with a line break. The job then
+pushes no image.
+
+```yaml
+# .github/workflows/container-image.yml
+name: Container image
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+concurrency:
+  group: ${{ github.workflow }}-${{ startsWith(github.ref, 'refs/tags/') && 'release' || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  image:
+    permissions:
+      contents: read
+      packages: write
+    uses: unibrain1/devkit/.github/workflows/container-image.yml@main
+```
+
+The tag filter `v[0-9]+.[0-9]+.[0-9]+` must match the full tag name, so
+`v1.2.3-rc1` does not start a run. A tag that passes the filter but not
+the rule of the `Tags` step, for example `v01.2.3`, fails the run on
+purpose.
+
+One run goes at a time in each `concurrency` group. A newer pending run
+replaces an older pending run. Each branch and each PR has its own group. All tag runs
+share the group `release`, so two tag runs cannot race for `latest`. Thus
+an older run cannot move `edge` or `latest` after a newer run. The block
+cancels a run in progress only on a PR, so no push stops part-way.
+
+A pending run that a newer run replaces does not push. For a tag, the
+image then has no `X.Y.Z` tag for the older version. Do not run the
+canceled tag run again after the newer tag run. It moves `latest` back to
+the older image.
+
+### Host pull tag
+
+The host must pull `latest` or a version tag (`X.Y.Z` or `X.Y`). It must
+never pull `edge`, `sha-*`, or `:main`. `edge` and `sha-*` hold code from
+`main` that is not released yet.
+
+A repo changes its host pull tag first. Then it moves to
+`container-image.yml`. Otherwise production stays on the old image, with
+no error, because nothing pushes `:main` any more. Example:
+
+- Monitoring changes its host pull tag from `:main` to `:latest`.
+
+A hotfix also gets a release tag. `flow-release-hotfix` pushes the next
+patch tag (`vX.Y.(Z+1)`), so `latest` moves to the hotfix image.
+
+The workflow runs on the tag push, not on the GitHub release. With
+`release: draft` in `.claude/project.md`, the tag push alone moves
+`latest`. A draft release does not hold back the image.
+
 ## Required check names
 
 Before the merge, `flow-release-milestone` waits until each required

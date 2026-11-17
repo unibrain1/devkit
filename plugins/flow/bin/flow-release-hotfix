@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+# Tags a merged hotfix PR with the next patch version and creates its GitHub
+# release. A hotfix gets the tag vX.Y.(Z+1), where vX.Y.Z is the newest
+# release tag on main. In a container repo, the vX.Y.Z tag moves the image
+# tag `latest`. The flow:hotfix skill runs this script after
+# /flow:finish-issue merges the hotfix PR into main.
+#
+# Usage: flow-release-hotfix [--dry-run] <pr-number>
+#
+# <pr-number>: the hotfix PR number (digits only, no leading '#'). The PR
+#   must be merged into main.
+#
+# --dry-run: print each command that changes a tag or a release, and run
+#   none of them. The checks still run. They read the PR, fetch main and the
+#   tags from origin, and read the branches and tags on origin.
+#
+# Steps:
+#   1. The PR must be MERGED, with base main. Read its merge commit.
+#   2. Fetch main and the tags. The merge commit must be on origin/main.
+#   3. The last tag is the highest vX.Y.Z tag on origin whose commit is on
+#      origin/main. A tag that is only local does not count. A tag with a
+#      fourth number (v1.2.3.1) or a prerelease part (v1.2.3-rc1) does not
+#      count.
+#   4. The next tag is vX.Y.(Z+1). flow-check-version-newer checks it.
+#   5. The next version must be free for the hotfix:
+#      - A milestone/<next tag> branch on origin stops the run.
+#      - An open GitHub milestone with the next version stops the run. Its
+#        title is the version alone, or the version followed by a space or
+#        ':' (for example `v1.4.1: Repo families`). /flow:plan-milestone
+#        makes the milestone before /flow:start-milestone makes the branch.
+#   6. Read the GitHub release state. Then make the annotated tag
+#      "Hotfix <tag>" on the merge commit, and push it.
+#   7. Create the GitHub release with notes that GitHub makes.
+#
+# Resume: run the script again with the same PR number after it stops.
+#   - When an annotated tag vX.Y.Z with the subject "Hotfix vX.Y.Z" is on
+#     the merge commit, an earlier run made it. The script uses that tag and
+#     does not count a new one. It skips the step 5 checks.
+#   - A vX.Y.Z tag on the merge commit with a different message (for
+#     example a milestone release tag) stops the run. The PR is not a
+#     hotfix merge.
+#   - Step 6 skips when the tag is on origin at the merge commit. A tag that
+#     is only local, at the merge commit, gets a push.
+#   - Step 7 skips when the GitHub release exists.
+#
+# Reads from .claude/project.md:
+#   release  Optional. `publish` (the default when the key is absent): the
+#            release is published and marked Latest. `draft`: the release is
+#            a draft.
+#
+# Exit codes:
+#   0 = the tag and the release exist (or --dry-run printed the plan)
+#   1 = a check stopped the run. The causes:
+#       - the PR is not merged into main, or its merge commit is unknown.
+#       - the merge commit is not on origin/main.
+#       - a vX.Y.Z tag that is not a hotfix tag is on the merge commit.
+#       - the next tag is not newer than the last tag.
+#       - milestone/<next tag> exists on origin.
+#       - an open GitHub milestone has the next version.
+#       - a draft release for the next tag exists, and the release key is
+#         publish.
+#       - `gh release view` prints a draft state other than true or false.
+#       - the next tag exists at another commit, on origin or local.
+#       - flow-repo failed.
+#       - a git or gh command failed (for example `gh release view` with an
+#         error other than "release not found").
+#       Fix the cause and run the script again.
+#   2 = usage error, no vX.Y.Z tag on main, no .claude/project.md, or a
+#       `release` value other than publish or draft. Nothing changed.
+
+set -Eeuo pipefail
+
+NAME="flow-release-hotfix"
+USAGE="Usage: ${NAME} [--dry-run] <pr-number>"
+
+DRY_RUN=0
+if [ "${1:-}" = "--dry-run" ]; then
+  DRY_RUN=1
+  shift
+fi
+if [ "$#" -ne 1 ]; then
+  echo "$USAGE" >&2
+  exit 2
+fi
+PR_NUMBER="$1"
+case "$PR_NUMBER" in
+  ''|*[!0-9]*)
+    echo "${NAME}: <pr-number> must be digits only (got '${PR_NUMBER}')." >&2
+    echo "$USAGE" >&2
+    exit 2
+    ;;
+esac
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# The release key must be good before anything changes.
+RELEASE_STATUS=0
+RELEASE_VALUE="$("${SCRIPT_DIR}/flow-project-fact" release)" || RELEASE_STATUS=$?
+if [ "$RELEASE_STATUS" -eq 1 ]; then
+  RELEASE_VALUE="publish"
+elif [ "$RELEASE_STATUS" -ne 0 ]; then
+  exit 2
+fi
+case "$RELEASE_VALUE" in
+  publish) RELEASE_FLAG="--latest" ;;
+  draft) RELEASE_FLAG="--draft" ;;
+  *)
+    echo "${NAME}: release key is '${RELEASE_VALUE}'. Allowed values: publish, draft." >&2
+    exit 2
+    ;;
+esac
+
+# flow-repo prints its own error.
+if ! REPO="$("${SCRIPT_DIR}/flow-repo")"; then
+  exit 1
+fi
+
+trap 'echo "${NAME}: a command failed at line ${LINENO}. Fix the cause, then run the script again. It skips the steps that already completed." >&2; exit 1' ERR
+
+run() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '[dry-run] %s\n' "$*"
+  else
+    "$@"
+  fi
+}
+
+# --- Step 1: the PR must be merged into main ---
+if ! PR_INFO="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state,baseRefName,mergeCommit \
+  --jq '.state, .baseRefName, (.mergeCommit.oid // "")')"; then
+  echo "${NAME}: cannot read PR #${PR_NUMBER}." >&2
+  exit 1
+fi
+PR_STATE="$(printf '%s\n' "$PR_INFO" | sed -n 1p)"
+PR_BASE="$(printf '%s\n' "$PR_INFO" | sed -n 2p)"
+MERGE_SHA="$(printf '%s\n' "$PR_INFO" | sed -n 3p)"
+if [ "$PR_STATE" != "MERGED" ] || [ "$PR_BASE" != "main" ]; then
+  echo "${NAME}: PR #${PR_NUMBER} is ${PR_STATE:-unknown} with base ${PR_BASE:-unknown}. It must be MERGED with base main. Stop." >&2
+  exit 1
+fi
+if ! printf '%s' "$MERGE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+  echo "${NAME}: cannot read the merge commit of PR #${PR_NUMBER} (got '${MERGE_SHA}'). Stop." >&2
+  exit 1
+fi
+
+# is_on_main <commit-ish>
+# Returns 0 when origin/main contains the commit, and 1 when it does not.
+# Any other git status is an error, and the script stops.
+is_on_main() {
+  local status=0
+  git merge-base --is-ancestor "$1" origin/main || status=$?
+  case "$status" in
+    0|1) return "$status" ;;
+    *)
+      echo "${NAME}: git merge-base failed (status ${status}) for $1 and origin/main. Stop." >&2
+      exit 1
+      ;;
+  esac
+}
+
+# release_tags
+# Reads tag names on stdin. Prints the vX.Y.Z names, lowest version first.
+# No leading zero, so the number in each part is decimal.
+release_tags() {
+  { grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || true; } \
+    | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | sed 's/^/v/'
+}
+
+# --- Step 2: the merge commit must be on origin/main ---
+git fetch -q origin main --tags
+if ! is_on_main "$MERGE_SHA"; then
+  echo "${NAME}: the merge commit ${MERGE_SHA} of PR #${PR_NUMBER} is not on origin/main. Stop." >&2
+  exit 1
+fi
+
+# --- Steps 3-5: find the next tag ---
+# Only this script makes an annotated tag with the subject "Hotfix <tag>".
+# Another vX.Y.Z tag on the merge commit (for example a milestone release
+# tag) means that the PR is not a hotfix merge.
+NEXT=""
+OTHER_TAG=""
+MERGE_TAGS="$(git tag --list 'v*' --points-at "$MERGE_SHA" | release_tags)"
+for tag in $MERGE_TAGS; do
+  if [ "$(git cat-file -t "refs/tags/${tag}")" = "tag" ] \
+    && [ "$(git for-each-ref --format='%(contents:subject)' "refs/tags/${tag}")" = "Hotfix ${tag}" ]; then
+    NEXT="$tag"
+  else
+    OTHER_TAG="$tag"
+  fi
+done
+if [ -n "$NEXT" ]; then
+  echo "Tag ${NEXT} is on the merge commit. An earlier run made it."
+elif [ -n "$OTHER_TAG" ]; then
+  echo "${NAME}: release tag ${OTHER_TAG} is already on the merge commit ${MERGE_SHA}, and it is not a hotfix tag. PR #${PR_NUMBER} is not a hotfix merge. Stop. Check the PR number." >&2
+  exit 1
+else
+  # Only tags on origin count, at their commit on origin. fetch --tags does
+  # not delete a local tag that is gone from origin, so a local tag can be
+  # stale. The fetch brought the objects of the tags on origin.
+  # Assignments, not a for list, so that an ls-remote error stops the run.
+  ORIGIN_REFS="$(git ls-remote --tags --refs origin 'refs/tags/v*')"
+  ORIGIN_TAGS="$(printf '%s\n' "$ORIGIN_REFS" | awk '{ sub("^refs/tags/", "", $2); print $2 }' | release_tags)"
+  LAST=""
+  for tag in $ORIGIN_TAGS; do
+    TAG_OBJECT="$(printf '%s\n' "$ORIGIN_REFS" | awk -v r="refs/tags/${tag}" '$2 == r { print $1 }')"
+    if is_on_main "${TAG_OBJECT}^{commit}"; then
+      LAST="$tag"
+    fi
+  done
+  if [ -z "$LAST" ]; then
+    echo "${NAME}: origin/main has no vX.Y.Z tag. A hotfix tag adds one to the patch number of the last release tag. Stop." >&2
+    exit 2
+  fi
+  IFS=. read -r MAJOR MINOR PATCH <<EOF
+${LAST#v}
+EOF
+  NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+  if ! "${SCRIPT_DIR}/flow-check-version-newer" "$NEXT" "$LAST" >/dev/null; then
+    echo "${NAME}: ${NEXT} is not newer than ${LAST}. Stop." >&2
+    exit 1
+  fi
+  echo "Last tag: ${LAST}. Hotfix tag: ${NEXT}."
+
+  BRANCH_STATUS=0
+  git ls-remote --exit-code --heads origin "refs/heads/milestone/${NEXT}" >/dev/null || BRANCH_STATUS=$?
+  case "$BRANCH_STATUS" in
+    2) ;;
+    0)
+      echo "${NAME}: milestone/${NEXT} exists on origin. The open milestone has the version ${NEXT}. Stop. Change the milestone version, then run the script again." >&2
+      exit 1
+      ;;
+    *)
+      echo "${NAME}: cannot read the branches on origin. Stop." >&2
+      exit 1
+      ;;
+  esac
+
+  if ! MILESTONE_TITLES="$(gh api "repos/${REPO}/milestones?state=open&per_page=100" --jq '.[].title')"; then
+    echo "${NAME}: cannot read the open milestones of ${REPO}. Stop." >&2
+    exit 1
+  fi
+  while IFS= read -r title; do
+    case "$title" in
+      "$NEXT"|"$NEXT "*|"$NEXT:"*)
+        echo "${NAME}: the open milestone '${title}' has the version ${NEXT}. Stop. Change the milestone version, then run the script again." >&2
+        exit 1
+        ;;
+    esac
+  done <<EOF
+${MILESTONE_TITLES}
+EOF
+fi
+
+# --- Step 6: read the release state before any change ---
+# Only "release not found" means that the release is absent. Any other gh
+# error (for example an auth error) stops the run before the tag push.
+RELEASE_EXISTS=1
+VIEW_STATUS=0
+VIEW_OUT="$(gh release view "$NEXT" --repo "$REPO" --json isDraft --jq .isDraft 2>&1)" || VIEW_STATUS=$?
+if [ "$VIEW_STATUS" -ne 0 ]; then
+  if printf '%s' "$VIEW_OUT" | grep -q 'release not found'; then
+    RELEASE_EXISTS=0
+  else
+    echo "${NAME}: cannot read release ${NEXT}: ${VIEW_OUT}" >&2
+    echo "${NAME}: stop. No tag or release changed." >&2
+    exit 1
+  fi
+elif [ "$VIEW_OUT" != "true" ] && [ "$VIEW_OUT" != "false" ]; then
+  echo "${NAME}: cannot read the draft state of release ${NEXT}: ${VIEW_OUT}" >&2
+  echo "${NAME}: stop. No tag or release changed." >&2
+  exit 1
+elif [ "$VIEW_OUT" = "true" ] && [ "$RELEASE_FLAG" = "--latest" ]; then
+  # A skip here would report a published release that is still a draft.
+  echo "${NAME}: release ${NEXT} exists as a draft, and the release key is publish. Stop." >&2
+  echo "${NAME}: publish the draft or delete it, then run the script again. No tag or release changed." >&2
+  exit 1
+fi
+
+# --- Step 6 (continued): tag the merge commit and push the tag ---
+# The ^{} line is the commit of an annotated tag. A lightweight tag has only
+# the plain line.
+REMOTE_TAGS="$(git ls-remote --tags origin "refs/tags/${NEXT}" "refs/tags/${NEXT}^{}")"
+REMOTE_SHA="$(printf '%s\n' "$REMOTE_TAGS" | awk -v t="refs/tags/${NEXT}^{}" '$2 == t { print $1 }')"
+if [ -z "$REMOTE_SHA" ]; then
+  REMOTE_SHA="$(printf '%s\n' "$REMOTE_TAGS" | awk -v t="refs/tags/${NEXT}" '$2 == t { print $1 }')"
+fi
+if [ -n "$REMOTE_SHA" ]; then
+  if [ "$REMOTE_SHA" != "$MERGE_SHA" ]; then
+    echo "${NAME}: tag ${NEXT} exists on origin at ${REMOTE_SHA}, not at the merge commit ${MERGE_SHA}. Stop and investigate." >&2
+    exit 1
+  fi
+  echo "Tag ${NEXT} is on origin at the merge commit. Skip."
+else
+  if git rev-parse -q --verify "refs/tags/${NEXT}" >/dev/null; then
+    LOCAL_SHA="$(git rev-parse "${NEXT}^{commit}")"
+    if [ "$LOCAL_SHA" != "$MERGE_SHA" ]; then
+      echo "${NAME}: local tag ${NEXT} is at ${LOCAL_SHA}, not at the merge commit ${MERGE_SHA}. Stop and investigate." >&2
+      exit 1
+    fi
+    echo "Tag ${NEXT} is local only. Push it."
+  else
+    run git tag -a "$NEXT" "$MERGE_SHA" -m "Hotfix ${NEXT}"
+  fi
+  run git push origin "refs/tags/${NEXT}"
+fi
+
+# --- Step 7: create the GitHub release ---
+if [ "$RELEASE_EXISTS" -eq 1 ]; then
+  echo "Release ${NEXT} exists. Skip."
+else
+  run gh release create "$NEXT" --repo "$REPO" --verify-tag --generate-notes --title "$NEXT" "$RELEASE_FLAG"
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "Dry run: no tag and no release changed."
+else
+  echo "Hotfix ${NEXT} is tagged and released."
+fi

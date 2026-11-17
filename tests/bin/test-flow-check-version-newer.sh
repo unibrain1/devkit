@@ -1,8 +1,9 @@
 #!/bin/bash
 #
 # Tests for flow-check-version-newer: numeric comparison of a
-# candidate version with the last release tag, including the optional
-# fourth number of a patch release from main (v2.30.4.1). The candidate
+# candidate version with the last release tag: the three-part hotfix tag
+# (v1.4.1 after v1.4.0), and the optional fourth number of older tags
+# (v2.30.4.1). The candidate
 # must start with 'v'. The last tag may lack it.
 #
 # HERMETIC: each expect case passes the last tag as the second argument,
@@ -52,7 +53,14 @@ expect 1 v2.30.4 v2.30.4
 expect 1 v2.30.3 v2.30.4
 expect 1 v2.9.0 v2.10.0
 
-# Four-part patch-release tags: v2.30.5 > v2.30.4.1 > v2.30.4.
+# Hotfix tags from flow-release-hotfix: three parts, patch number plus one.
+expect 0 v1.4.1 v1.4.0
+expect 0 v1.10.1 v1.10.0
+expect 0 v1.10.1 v1.9.0
+expect 1 v1.4.1 v1.4.1
+expect 1 v1.4.1 v1.5.0
+
+# Older four-part tags still parse: v2.30.5 > v2.30.4.1 > v2.30.4.
 expect 0 v2.30.5 v2.30.4.1
 expect 0 v2.30.4.1 v2.30.4
 expect 0 v2.30.4.2 v2.30.4.1

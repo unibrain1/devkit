@@ -24,7 +24,7 @@ The user types the command. A command starts the next command only under the han
 | PR clean | `/flow:finish-issue <N>` (the issue number, not the PR number) | Yes |
 | `/flow:finish-issue` stopped (CI red, risk flag, failed step) | Fix the cause, then `/flow:finish-issue <N>`. If the PR already merged, it continues at the close step. | No |
 | User answered `Stop` at the merge confirmation | `/flow:finish-issue <N>` when ready to merge. Nothing merged. | No |
-| Hotfix merged | The patch release (`deploy` key). Then the command that `/flow:finish-issue` names. See `interrupts.md`. | Yes |
+| Hotfix merged | `flow-release-hotfix <PR>` (tag and GitHub release). Then deploy (`deploy` key). Then merge `main` into the open milestone branch. Then the command that `/flow:finish-issue` names. See `interrupts.md`. | Yes |
 | Issue merged, open issues remain | `/flow:start-issue <next>` | Yes |
 | Issue merged, every open issue blocked | Remove `status:blocked` from an issue whose blocker closed, then `/flow:start-issue <N>`. If the blocked issues can wait, `/flow:finish-milestone <version>`. | Yes |
 | Issue merged, no open issues remain | `/flow:finish-milestone <version>` | Yes |

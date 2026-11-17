@@ -1,0 +1,142 @@
+# Reusable CI for the repos that build a container image (Family B). It
+# lints the Dockerfile, then builds the image for each platform. It pushes
+# the image to GHCR on a push to main or on a release tag. A pull request
+# builds the image but does not push it.
+#
+# Keep the job ids stable. A caller's check shows as <caller job> / <job>,
+# and a rename breaks any required check that names it.
+name: container-image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Image name without a tag. Empty gives ghcr.io/<owner>/<repo>. The job writes the name in lowercase."
+        type: string
+        required: false
+        default: ""
+      context:
+        description: "Build context folder."
+        type: string
+        required: false
+        default: "."
+      dockerfile:
+        description: "Path to the Dockerfile, from the repo root."
+        type: string
+        required: false
+        default: "Dockerfile"
+      platforms:
+        description: "Target platforms, with a comma between each two."
+        type: string
+        required: false
+        default: "linux/amd64,linux/arm64"
+
+permissions:
+  contents: read
+
+jobs:
+  hadolint:
+    name: Lint (Dockerfile)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: ${{ inputs.dockerfile }}
+
+  build:
+    name: Build
+    needs: hadolint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The values reach the shell only through env. The step accepts only
+      # the events and refs in the tag table of docs/ci-workflows.md. Each
+      # other event or ref stops the job, so no image gets a wrong tag. The
+      # errors do not print the values, because a newline in a value can
+      # start a workflow command.
+      - name: Tags
+        id: tags
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          IMAGE: ${{ inputs.image }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          stop() {
+            echo "::error::$1"
+            exit 1
+          }
+          image="${IMAGE:-ghcr.io/$REPOSITORY}"
+          image="$(printf '%s' "$image" | tr '[:upper:]' '[:lower:]')"
+          if ! [[ "$image" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]; then
+            stop "The image name is not valid. Use letters, digits, and . _ / - only. Do not add a tag."
+          fi
+          num='(0|[1-9][0-9]*)'
+          if [ "$EVENT" = "pull_request" ]; then
+            push=false
+            tags=""
+          elif [ "$EVENT" != "push" ]; then
+            stop "The event is not pull_request or push. The job writes no tags."
+          elif ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            stop "The commit SHA is not valid. The job writes no tags."
+          elif [ "$REF" = "refs/heads/main" ]; then
+            push=true
+            tags="$image:edge"$'\n'"$image:sha-${SHA:0:7}"
+          elif [[ "$REF" =~ ^refs/tags/v$num\.$num\.$num$ ]]; then
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            patch="${BASH_REMATCH[3]}"
+            push=true
+            tags="$image:$major.$minor.$patch"$'\n'"$image:$major.$minor"$'\n'"$image:latest"
+          else
+            stop "The ref is not main or a vX.Y.Z release tag. The job writes no tags."
+          fi
+          {
+            echo "push=$push"
+            echo "tags<<TAGS_EOF"
+            if [ -n "$tags" ]; then
+              printf '%s\n' "$tags"
+            fi
+            echo "TAGS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        if: steps.tags.outputs.push == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ steps.tags.outputs.push == 'true' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          # Only a run that pushes writes the cache. A PR run does not write
+          # the cache, so it cannot push the cache of main out of the cache
+          # limit.
+          cache-to: ${{ steps.tags.outputs.push == 'true' && 'type=gha,mode=max' || '' }}

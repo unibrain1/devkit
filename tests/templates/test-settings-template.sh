@@ -26,7 +26,7 @@ fi
 
 # Scripts that push, merge, write files, or start workflows. A person must
 # approve each run, so they never go in the starter allowlist.
-WRITE_SCRIPTS="flow-baseline flow-claude-block flow-commit-push-pr flow-release-milestone flow-verify-ci-review"
+WRITE_SCRIPTS="flow-baseline flow-claude-block flow-commit-push-pr flow-release-hotfix flow-release-milestone flow-verify-ci-review"
 
 # A write script that has a read mode can have one rule for that mode
 # only. The rule ends in ":*" after the mode, so the write mode stays out.

@@ -19,7 +19,7 @@ migrates. After that, the project owns its copy (design section 5).
 These scripts push, merge, write files, or start workflows. Claude asks
 before each run:
 
-- `flow-commit-push-pr`, `flow-release-milestone`
+- `flow-commit-push-pr`, `flow-release-milestone`, `flow-release-hotfix`
 - `flow-claude-block` (writes CLAUDE.md)
 - `flow-verify-ci-review` (can start the review workflow)
 - `flow-labels --create`

@@ -10,9 +10,11 @@
 #   "release tags" ruleset protects only refs/tags/v*. An empty or missing
 #   candidate is a parse failure (exit 2), not "not newer" (exit 1).
 #
-# Both versions may have an optional fourth number. A patch release from
-# main adds one to the newest tag, e.g. v2.30.4 -> v2.30.4.1. A missing
-# fourth number counts as 0, so v2.30.5 > v2.30.4.1 > v2.30.4.
+# A hotfix tag adds one to the patch number of the newest tag, e.g.
+# v2.30.4 -> v2.30.5. flow-release-hotfix makes it and calls this script.
+# Both versions may have an optional fourth number, because older tags in
+# some repos have one (v2.30.4.1). No flow command makes a four-part tag
+# now. A missing fourth number counts as 0, so v2.30.5 > v2.30.4.1 > v2.30.4.
 #
 # <last-tag>: optional. A last tag with no 'v' is accepted. The default
 #   is `git describe --tags --abbrev=0` in the current repo. Pass it
