@@ -44,7 +44,7 @@ other exceptions. Else git does not see the file.
 | `standards` | Optional | A list of paths, separated by spaces | Skip the step | Coding standards files that the agents read. |
 | `plans` | Optional | A path | `start-issue`, `execute-plan`, `finish-milestone`, `review-milestone`, and `release-milestone` stop. Other commands skip the plan step | The folder for plan files. It must be git-ignored. It holds `issues/` (issue plans) and `releases/` (release notes copies, retrospectives, review markers). |
 | `release_notes` | Optional | A path pattern with `{version}` | `release-milestone` stops. Other commands skip the step | The path pattern for release notes. `{version}` is the milestone version. |
-| `release` | Optional | One of `publish` or `draft` | Publish | How `release-milestone` creates the GitHub release. `publish` makes a published release and marks it Latest. `draft` makes a draft release, and the deploy procedure publishes it. Any other value stops the script with exit 2 before the merge. |
+| `release` | Optional | One of `publish` or `draft` | Publish | How `release-milestone` and `flow-release-hotfix` create the GitHub release. `publish` makes a published release and marks it Latest. `draft` makes a draft release, and the deploy procedure publishes it. Any other value stops the script with exit 2 before the merge or the tag. |
 | `ledger` | Optional | A path | Skip the step | The list of deferred cleanup items. |
 | `private_paths` | Optional | A list of paths, separated by spaces | Skip the check | Paths that must never go into a commit. |
 | `milestone_setup` | Optional | A command | Skip the step | A command that `start-milestone` runs after it makes the branch. |
@@ -68,8 +68,9 @@ other exceptions. Else git does not see the file.
   | Work that cannot run without it | The script stops with exit 2 and names the key. Example: `release_notes` and `plans` in `flow-release-milestone`. |
 
 - The `release` key is different. If it is absent, `flow-release-milestone`
-  does not skip a step. It sets a behavior: it publishes the release.
-  A value that is not `publish` or `draft` exits 2, before the merge.
+  and `flow-release-hotfix` do not skip a step. It sets a behavior: they
+  publish the release. A value that is not `publish` or `draft` exits 2,
+  before the merge or the tag.
 - A check command (`*_checks`, `milestone_setup`) that exits non-zero stops
   the shared command.
 

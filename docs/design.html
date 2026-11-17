@@ -116,7 +116,7 @@ td code { white-space: nowrap; }
 <header class="doc">
   <div class="eyebrow">Design doc · Draft 6 · Lean version</div>
   <h1>Devkit: one source for Claude workflows and CI</h1>
-  <p class="lede">One public repo holds one Claude plugin and four reusable CI workflows. Private repos use the latest version. Registry pins a tag because it has outside contributors.</p>
+  <p class="lede">One public repo holds one Claude plugin and five reusable CI workflows. Private repos use the latest version. Registry pins a tag because it has outside contributors.</p>
   <div class="meta">
     <span><b>Owner</b> Jim Boone</span>
     <span><b>Date</b> 2026-10-26</span>
@@ -137,7 +137,7 @@ td code { white-space: nowrap; }
     <tr><td>Distribution</td><td>Claude Code plugin marketplace, in a public repo</td></tr>
     <tr><td>Repo layout</td><td>One repo for the plugin and the reusable CI</td></tr>
     <tr><td>Plugins</td><td><code>flow</code> for all repos. <code>brain</code> for your user settings only, in v1.1. Stack items stay in their projects.</td></tr>
-    <tr><td>Shared CI</td><td>Four reusable workflows. Stack CI stays in each project. The secret scanner is trufflehog.</td></tr>
+    <tr><td>Shared CI</td><td>Five reusable workflows. Stack CI stays in each project. The secret scanner is trufflehog.</td></tr>
     <tr><td>CI work during the build</td><td>A short freeze in Registry and MyGunLog, from the base SHAs to <code>v0.1.0</code>. See <a href="#rollout">section 10</a>.</td></tr>
     <tr><td>Updates</td><td>Private repos use <code>main</code>. Registry pins a tag.</td></tr>
     <tr><td>Project facts</td><td>A small reference file, <code>.claude/project.md</code>. Commands read it when they run. CLAUDE.md does not load it.</td></tr>
@@ -253,7 +253,7 @@ td code { white-space: nowrap; }
 flowchart LR
   subgraph DK["unibrain1/devkit (public)"]
     P["plugins/flow<br/>commands, agents, skills, scripts"]
-    W[".github/workflows<br/>4 reusable workflows"]
+    W[".github/workflows<br/>5 reusable workflows"]
   end
   subgraph PRIV["Private repos"]
     S1["settings.json<br/>ref: main"]
@@ -285,6 +285,7 @@ flowchart LR
 │   │   ├── static-site-cloudflare/ # Family A: layered on baseline/. See docs/families.md
 │   │   ├── static-site-host/   # Family A: layered on baseline/
 │   │   ├── web-app/            # Family W: layered on baseline/. Stack commands are placeholders
+│   │   ├── container-ghcr/     # Family B: layered on baseline/. Image to GHCR
 │   │   └── web-app-hosts/      # Family W: Deployment text for each host. Not copied
 │   ├── bin/                    # Generic workflow scripts from Registry scripts/
 │   └── hooks/hooks.json        # Guard hooks, and the SessionStart setup check
@@ -296,6 +297,7 @@ flowchart LR
 │   ├── claude-review.yml       # Reusable: PR review, milestone-aware
 │   ├── secrets-scan.yml        # Reusable: every repo
 │   ├── node-site.yml           # Reusable: Node static sites, Cloudflare or another host
+│   ├── container-image.yml     # Reusable: multi-arch image to GHCR, Family B
 │   ├── self-test.yml           # devkit's own CI
 │   └── upstream-sync.yml       # devkit's own: weekly check of upstream plugin pins
 ├── templates/
@@ -440,10 +442,12 @@ flowchart LR
   <tr><td><code>claude-review.yml</code></td><td>Registry, plus MyGunLog #625 and #631</td><td><span class="pill on">On</span></td><td><span class="pill on">On</span></td></tr>
   <tr><td><code>secrets-scan.yml</code></td><td>New, trufflehog</td><td><span class="pill on">On</span></td><td><span class="pill on">On</span></td></tr>
   <tr><td><code>node-site.yml</code></td><td>TeamCroc, BurgessMachineWorks, CCS-Website</td><td>n/a</td><td>3 Cloudflare sites</td></tr>
+  <tr><td><code>container-image.yml</code></td><td>New, Family B</td><td>n/a</td><td>Container apps on HomeLab</td></tr>
 </table>
 </div>
 <p>Every repo gets the <code>claude.yml</code>, <code>claude-review.yml</code>, and <code>secrets-scan.yml</code> callers from the every-repo baseline in <code>plugins/flow/templates/baseline/</code>. In a public repo, trufflehog and GitHub push protection both run. See <a href="baseline.md">baseline.md</a> for the files, the needed checks, and the merge gate rule.</p>
 <p><code>node-site.yml</code> builds and lints a static site on Cloudflare Pages or another host: <code>npm ci</code>, <code>npm run build</code>, and markdownlint. The optional <code>lint_script</code> input runs one more npm lint script, for example the CSS and PHP lint of a host site. An optional input builds Cloudflare Pages Functions. It does not deploy. Cloudflare Pages deploys <code>main</code> through its Git integration. Another host deploys <code>main</code> through a GitHub webhook.</p>
+<p><code>container-image.yml</code> lints the Dockerfile with hadolint, then builds a multi-arch image. A PR pushes nothing. A push to <code>main</code> pushes <code>edge</code> and <code>sha-&lt;sha&gt;</code> to GHCR. A <code>vX.Y.Z</code> tag pushes <code>X.Y.Z</code>, <code>X.Y</code>, and <code>latest</code>. The host pulls <code>latest</code> or a version. See <a href="ci-workflows.md#container-imageyml">ci-workflows.md</a>.</p>
 
 <h3>Public repos: repo settings, not workflow files</h3>
 <p>GitHub gives these free to public repos. You turn them on in each repo's settings, so they need no workflow file and no maintenance:</p>

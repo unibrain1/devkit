@@ -1,0 +1,37 @@
+# App CI from devkit (docs/families.md, Family B). It runs the lint and the
+# tests of the app on each PR and on each push to main and to a milestone
+# branch. It does not build the image: container-image.yml does that. The
+# Lint and Test steps get the commands of the stack when the repo is made.
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main, "milestone/**"]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  app:
+    name: App
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Add the setup steps of the stack here. Node example:
+      # - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      #   with:
+      #     node-version-file: .nvmrc
+      #     cache: npm
+      # - run: npm ci
+      # PHP example:
+      # - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+      #   with:
+      #     php-version: "8.4"
+      # - run: composer install --no-interaction --no-progress
+      - name: Lint
+        run: "{{lint}}"
+      - name: Test
+        run: "{{test}}"

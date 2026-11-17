@@ -26,6 +26,8 @@ Only these overrides are allowed:
 | `static-site-host` | `.github/dependabot.yml` | The `npm` entry and the `composer` entry. |
 | `static-site-host` | `.pre-commit-config.yaml` | A `repo: local` hook that runs `npm run lint`. |
 | `web-app` | `.pre-commit-config.yaml` | A `repo: local` block with the `typecheck` and `test-quick` hooks. |
+| `container-ghcr` | `.github/dependabot.yml` | The `docker` entry and the stack entry (`"{{stack_ecosystem}}"`). |
+| `container-ghcr` | `.pre-commit-config.yaml` | A `repo: local` block with the `hadolint` and `test-quick` hooks. |
 
 ## Family A: static sites
 
@@ -188,30 +190,72 @@ database, so the hook is always on.
 Each repo gets its own copy of the hook. A later fix to the hook in devkit
 does not reach a repo that has a copy: change each copy by hand.
 
+## Family B: container images
+
+Family B is the repos that build a container image and push it to the
+GitHub Container Registry (GHCR). A host pulls the image and runs it. The
+stacks differ, so the `container-ghcr` template holds no stack file and
+no Dockerfile. Each stack command is a placeholder. `/flow:new-project`
+(#117) fills it from the setup answers.
+
+CI calls the reusable `container-image.yml`. See
+[ci-workflows.md](ci-workflows.md#container-imageyml). It lints the
+Dockerfile with hadolint and builds the image. A PR only builds the image.
+A push to `main` pushes the tags `edge` and `sha-<7 hex>`. A tag `vX.Y.Z`
+pushes `X.Y.Z`, `X.Y`, and `latest`. The host pulls `latest` or a version
+tag, never `edge`, a `sha-` tag, or `main`.
+
+### `container-ghcr`
+
+| File | What it holds |
+| --- | --- |
+| `.github/workflows/container-image.yml` | The `container-image.yml@main` caller. It runs on each PR, on each push to `main`, and on each `v[0-9]+.[0-9]+.[0-9]+` tag. All tag runs share one concurrency group. The job `image` has `contents: read` and `packages: write`. The job ID `image` gives the check names `image / Lint (Dockerfile)` and `image / Build`. A comment shows the `with:` inputs. |
+| `.github/workflows/ci.yml` | The `App` job, as in `web-app`. It runs on each PR and on each push to `main` and `milestone/**`. It runs `{{lint}}` and `{{test}}`. Commented examples show the Node and the PHP setup steps, with pinned SHAs. |
+| `.github/dependabot.yml` | Override. The baseline `github-actions` entry, then a weekly `docker` entry and a weekly stack entry. Both use `directory: /`. If the Dockerfile is in a subfolder, change the `docker` directory. |
+| `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `hadolint` hook runs the image `ghcr.io/hadolint/hadolint` at a pinned tag and digest. The `test-quick` hook runs `{{test_quick}}` through `bash -c` at each commit. |
+| `.claude/project.md` | `test`, `test_quick`, `lint`, `plans`, and `deploy`. |
+| `.claude/settings.json` | The same as `templates/settings.json`. |
+| `.claude/rules/image-review.md` | A stub with the sections Image and Dockerfile, App and tests, Secrets, and Docs. |
+| `CLAUDE.md` | A skeleton: Project Overview, Deployment (the image tags), Key Conventions, Never Do, and the flow block. |
+| `.gitignore` | `.env`, `.env.*` (but not `.env.example`), and `docs/plans/`. |
+| `.dockerignore` | `.git`, `.github`, `.claude`, `docs/plans/`, and `.env` and `.env.*` in each folder. The image does not need `.env.example`, so no rule keeps it. |
+
+The `hadolint` hook runs hadolint in a Docker container at each commit.
+Each machine that commits needs Docker. The upstream `hadolint-docker`
+hook names the image with no tag, so its `rev` does not pin the image.
+Thus the template uses a local hook with the tag and the digest in
+`entry`. Dependabot does not update the entry. Change it by hand. CI does
+not need the hook: the `image / Lint (Dockerfile)` job lints the
+Dockerfile.
+
+A hotfix also gets a patch tag, for example `v1.2.4`. The tag moves
+`latest` to the fix, so the host gets it.
+
 ## Placeholders
 
 A template file can hold a placeholder in the form `{{key}}`. Markdown and
-JSON files can hold placeholders. In `web-app`, a YAML file can also hold
-a placeholder, but only as a full quoted value, for example
-`run: "{{lint}}"` or the list item `- "{{typecheck}}"`. The file then
-still parses. Family A YAML and JS files
-hold none. These are the only placeholders:
+JSON files can hold placeholders. In `web-app` and `container-ghcr`, a
+YAML file can also hold a placeholder, but only as a full quoted value,
+for example `run: "{{lint}}"` or the list item `- "{{typecheck}}"`. The
+file then still parses. Family A YAML and JS files hold none. These are
+the only placeholders:
 
 | Placeholder | Value | Files |
 | --- | --- | --- |
 | `{{site_name}}` | The site name, for people to read. | Family A `CLAUDE.md` |
 | `{{site_description}}` | One sentence about the site. | Family A `CLAUDE.md` |
 | `{{package_name}}` | The npm package name: lowercase, with no spaces. | Family A `package.json` |
-| `{{app_name}}` | The app name, for people to read. | `web-app` `CLAUDE.md` |
-| `{{app_description}}` | One sentence about the app. | `web-app` `CLAUDE.md` |
+| `{{app_name}}` | The app name, for people to read. | `web-app` and `container-ghcr` `CLAUDE.md` |
+| `{{app_description}}` | One sentence about the app. | `web-app` and `container-ghcr` `CLAUDE.md` |
 | `{{deployment}}` | The text of one host file in `web-app-hosts/`. | `web-app` `CLAUDE.md` |
-| `{{test}}` | The command that runs all the tests. | `web-app` `project.md`, `ci.yml`, `CLAUDE.md` |
-| `{{test_quick}}` | The command that runs the fast tests. | `web-app` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
+| `{{test}}` | The command that runs all the tests. | `web-app` and `container-ghcr` `project.md`, `ci.yml`, `CLAUDE.md` |
+| `{{test_quick}}` | The command that runs the fast tests. | `web-app` and `container-ghcr` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
 | `{{typecheck}}` | The type check command. | `web-app` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
-| `{{lint}}` | The lint command, with no type check. In `ci.yml`, see [`web-app`](#web-app). | `web-app` `project.md`, `ci.yml`, `CLAUDE.md` |
+| `{{lint}}` | The lint command, with no type check. In `ci.yml`, see [`web-app`](#web-app). | `web-app` and `container-ghcr` `project.md`, `ci.yml`, `CLAUDE.md` |
 | `{{verify}}` | The full check before a release. | `web-app` `project.md`, `CLAUDE.md` |
 | `{{milestone_setup}}` | The `milestone_setup` command of one version form. | `web-app` `project.md` |
 | `{{release_checks}}` | The `release_checks` command of one version form. | `web-app` `project.md` |
+| `{{stack_ecosystem}}` | The Dependabot ecosystem of the stack, for example `npm`, `pip`, or `gomod`. | `container-ghcr` `.github/dependabot.yml` |
 
 ## What `/flow:new-project` must do
 
@@ -244,6 +288,24 @@ For `web-app`, `/flow:new-project` must also do these steps:
 8. For a repo with outside contributors, change the devkit pin (see
    [Devkit pin](#devkit-pin)).
 9. Check that no placeholder from the [Placeholders](#placeholders) table
+   is left in the repo. A GitHub expression, `${{ ... }}`, is not a
+   placeholder: keep it.
+
+For `container-ghcr`, `/flow:new-project` must do these steps:
+
+1. Ask the stack commands and the Dependabot ecosystem of the stack. Fill
+   each placeholder.
+2. In a YAML file, write each value as a valid double-quoted value: put
+   `\` before each `"` and `\`. Refuse a value that holds `${{`. A
+   GitHub expression in a `run:` value can inject code.
+3. If the stack has no fast tests, remove the `test-quick` hook from
+   `.pre-commit-config.yaml`, the `test_quick` key from
+   `.claude/project.md`, and the `{{test_quick}}` row from the command
+   table in `CLAUDE.md`.
+4. For a repo with outside contributors, change the devkit pin (see
+   [Devkit pin](#devkit-pin)). In `container-ghcr`, the
+   `container-image.yml` caller is also a devkit caller.
+5. Check that no placeholder from the [Placeholders](#placeholders) table
    is left in the repo. A GitHub expression, `${{ ... }}`, is not a
    placeholder: keep it.
 
@@ -301,3 +363,23 @@ For `web-app`:
    the repo, with `main` as the production branch. For A2 Hosting, add
    the deploy remote and check that its post-receive hook deploys the
    pushed commit.
+
+For `container-ghcr`:
+
+1. Add a Dockerfile at the root of the repo. Or set the `dockerfile` and
+   `context` inputs in `.github/workflows/container-image.yml`, and
+   change the `docker` directory in `.github/dependabot.yml`.
+2. Install Docker on each machine that commits. The `hadolint` hook
+   needs Docker at each commit. Then run `pre-commit install` in each
+   clone.
+3. Add the setup steps of the stack to the `App` job in
+   `.github/workflows/ci.yml`. Use the commented examples.
+4. After the first push to `main`, open the GHCR package of the image. Set
+   the package visibility, and link the package to the repo.
+5. Before the first release, change the pull tag on the host to `latest`
+   or to a version tag. See
+   [ci-workflows.md](ci-workflows.md#host-pull-tag).
+6. In a public repo, add the checks `image / Lint (Dockerfile)`,
+   `image / Build`, and `App` to branch protection on `main`.
+7. In a private repo, add the same checks to the `required_checks` key in
+   `.claude/project.md`.

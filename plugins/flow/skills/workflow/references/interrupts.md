@@ -5,7 +5,7 @@
 Only one thing interrupts a milestone: production is broken, data is at risk, or a security exposure exists. That work is a hotfix.
 
 - A hotfix branches from `main`.
-- It ships as a patch release, outside the milestone.
+- It ships as a patch release, outside the milestone. Its tag is the newest `vX.Y.Z` tag on `main`, plus one patch number (for example `v1.4.0` to `v1.4.1`).
 - It does not join the milestone or change its scope.
 - For the step-by-step procedure, load the `hotfix` skill (`flow:hotfix`).
 
@@ -42,10 +42,11 @@ Do not use `/flow:found` when no issue is in progress. It is for finds made duri
 
 ### After the hotfix merges
 
-1. Run the patch release with the project's deploy procedure. Get it with `flow-project-fact deploy`.
-2. Merge `main` into the open milestone branch. The patch release ends with this merge.
-3. Run `/clear`.
-4. Type the command that `/flow:finish-issue` names. The command depends on the paused issue, if the hotfix issue has a `Paused for hotfix:` line:
+1. Tag the patch release: `flow-release-hotfix <PR>`. It tags the merge commit and creates the GitHub release. In a container repo, the tag moves the image tag `latest`.
+2. Deploy the patch release with the project's deploy procedure. Get it with `flow-project-fact deploy`.
+3. Merge `main` into the open milestone branch, if one exists. The patch release ends with this merge.
+4. Run `/clear`.
+5. Type the command that `/flow:finish-issue` names. The command depends on the paused issue, if the hotfix issue has a `Paused for hotfix:` line:
    - The paused issue has an open PR: `/flow:address-pr-comments <paused-PR>`. The implementation finished. Do not run `/flow:start-issue` again.
    - The paused issue has no open PR: `/flow:start-issue <paused-N>`. It resumes the plan at its approval step, or tells the user to run `/flow:execute-plan`.
    - No `Paused for hotfix:` line: `/flow:start-issue <next>`.
