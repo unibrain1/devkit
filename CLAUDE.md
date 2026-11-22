@@ -15,7 +15,7 @@ change in each of those repos. The design is in
 | `plugins/flow/skills/` | `workflow` (the full method) and `hotfix` |
 | `plugins/flow/bin/` | The `flow-*` scripts. On the command path in a session |
 | `plugins/flow/hooks/` | `guard-private-paths.sh` and the SessionStart `setup-check.sh` |
-| `plugins/flow/templates/` | `project.md`, the CLAUDE.md block, and `labels.tsv`, for `/flow:setup`. `baseline/` holds the every-repo files. See [docs/baseline.md](docs/baseline.md). `static-site-cloudflare/` and `static-site-host/` hold the Family A files, `web-app/` the Family W files, and `container-ghcr/` the Family B files, layered on the baseline. `web-app-hosts/` holds the Family W host text. See [docs/families.md](docs/families.md) |
+| `plugins/flow/templates/` | `project.md`, the CLAUDE.md block, and `labels.tsv`, for `/flow:setup`. `baseline/` holds the every-repo files. See [docs/baseline.md](docs/baseline.md). `static-site-cloudflare/` and `static-site-host/` hold the Family A files, `web-app/` the Family W files, `container-ghcr/` the Family B files, and `ios-app/` the Family I files, layered on the baseline. `web-app-hosts/` holds the Family W host text. See [docs/families.md](docs/families.md) |
 | `plugins/brain/skills/` | Skills for the Claude apps. Not a plugin until v1.1 |
 | `.github/workflows/` | Reusable CI (`claude-review.yml`, `claude.yml`, `secrets-scan.yml`, `node-site.yml`, `container-image.yml`, `upstream-sync.yml`) and devkit's own CI. See [docs/ci-workflows.md](docs/ci-workflows.md) |
 | `templates/` | `settings.json` for a project repo |

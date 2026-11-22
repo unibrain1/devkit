@@ -28,6 +28,12 @@ Only these overrides are allowed:
 | `web-app` | `.pre-commit-config.yaml` | A `repo: local` block with the `typecheck` and `test-quick` hooks. |
 | `container-ghcr` | `.github/dependabot.yml` | The `docker` entry and the stack entry (`"{{stack_ecosystem}}"`). |
 | `container-ghcr` | `.pre-commit-config.yaml` | A `repo: local` block with the `hadolint` and `test-quick` hooks. |
+| `ios-app` | `.github/dependabot.yml` | The `swift` entry. |
+| `ios-app` | `.pre-commit-config.yaml` | A `repo: local` block with the `swiftlint` and `xcodebuild-test` hooks, then the top-level key `default_install_hook_types`. |
+
+An override adds no top-level key, with one exception: the `ios-app`
+`.pre-commit-config.yaml` adds `default_install_hook_types`. Then
+`pre-commit install` also installs the pre-push hook.
 
 ## Family A: static sites
 
@@ -231,24 +237,62 @@ Dockerfile.
 A hotfix also gets a patch tag, for example `v1.2.4`. The tag moves
 `latest` to the fix, so the host gets it.
 
+## Family I: iOS apps
+
+Family I is the iOS apps that Xcode builds. The tests run in the iOS
+Simulator on the Mac. GitHub CI has no macOS job for the app, so the
+template adds no workflow. The baseline callers still run. The app reaches
+a device through an Xcode sideload.
+
+### `ios-app`
+
+| File | What it holds |
+| --- | --- |
+| `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `swiftlint` hook runs `swiftlint lint --strict --force-exclude` on the staged Swift files at each commit. The `xcodebuild-test` hook runs `{{test}}` through `bash -c` at each push, with `always_run: true`. Then the top-level key `default_install_hook_types: [pre-commit, pre-push]`. |
+| `.github/dependabot.yml` | Override. The baseline `github-actions` entry, then a weekly `swift` entry with `directory: /`. |
+| `.claude/project.md` | `test`, `lint` (`swiftlint lint --strict`), `plans`, and `deploy`. |
+| `.claude/settings.json` | `templates/settings.json`, plus allow `swiftlint lint` and `xcodebuild test`, and deny `Read` and `Edit` in `DerivedData/`, `build/`, and `.build/`. |
+| `.claude/rules/ios-review.md` | A stub with the sections App and tests, SwiftLint, Signing and secrets, and Docs. |
+| `CLAUDE.md` | A skeleton: Project Overview, Setup (`brew install swiftlint pre-commit`), Deployment (the Xcode sideload), Key Conventions, Never Do, and the flow block. |
+| `.swiftlint.yml` | The SwiftLint settings. It excludes `DerivedData`, `build`, and `.build`. |
+| `.gitignore` | Xcode output and user files, `.build/`, `.swiftpm/`, `.DS_Store`, the signing files, `.env`, `.env.*` (but not `.env.example`), and `docs/plans/`. It keeps `Package.resolved`. |
+
+The `swiftlint` hook runs the SwiftLint on `PATH`. The upstream SwiftLint
+hook uses `language: swift`, so pre-commit builds SwiftLint from source,
+and the first build takes minutes. The `lint` key needs SwiftLint on `PATH`
+too.
+
+`xcodebuild test` is too slow for each commit, so the template has no
+`test_quick` key. The `test` key and the pre-push hook run the same
+command. The command has this form:
+
+```sh
+xcodebuild test -project "<App>.xcodeproj" -scheme "<Scheme>" -destination "platform=iOS Simulator,name=<device>"
+```
+
+Dependabot finds each `.xcodeproj` and `.xcworkspace` folder below
+`directory` and reads its `Package.resolved` file. The app needs no
+`Package.swift`. The `--force-exclude` flag makes SwiftLint skip the
+`excluded` paths also for the file names that pre-commit gives it.
+
 ## Placeholders
 
 A template file can hold a placeholder in the form `{{key}}`. Markdown and
-JSON files can hold placeholders. In `web-app` and `container-ghcr`, a
-YAML file can also hold a placeholder, but only as a full quoted value,
-for example `run: "{{lint}}"` or the list item `- "{{typecheck}}"`. The
-file then still parses. Family A YAML and JS files hold none. These are
-the only placeholders:
+JSON files can hold placeholders. In `web-app`, `container-ghcr`, and
+`ios-app`, a YAML file can also hold a placeholder, but only as a full
+quoted value, for example `run: "{{lint}}"` or the list item
+`- "{{typecheck}}"`. The file then still parses. Family A YAML and JS
+files hold none. These are the only placeholders:
 
 | Placeholder | Value | Files |
 | --- | --- | --- |
 | `{{site_name}}` | The site name, for people to read. | Family A `CLAUDE.md` |
 | `{{site_description}}` | One sentence about the site. | Family A `CLAUDE.md` |
 | `{{package_name}}` | The npm package name: lowercase, with no spaces. | Family A `package.json` |
-| `{{app_name}}` | The app name, for people to read. | `web-app` and `container-ghcr` `CLAUDE.md` |
-| `{{app_description}}` | One sentence about the app. | `web-app` and `container-ghcr` `CLAUDE.md` |
+| `{{app_name}}` | The app name, for people to read. | `web-app`, `container-ghcr`, and `ios-app` `CLAUDE.md` |
+| `{{app_description}}` | One sentence about the app. | `web-app`, `container-ghcr`, and `ios-app` `CLAUDE.md` |
 | `{{deployment}}` | The text of one host file in `web-app-hosts/`. | `web-app` `CLAUDE.md` |
-| `{{test}}` | The command that runs all the tests. | `web-app` and `container-ghcr` `project.md`, `ci.yml`, `CLAUDE.md` |
+| `{{test}}` | The command that runs all the tests. | `web-app` and `container-ghcr` `project.md`, `ci.yml`, `CLAUDE.md`. `ios-app` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
 | `{{test_quick}}` | The command that runs the fast tests. | `web-app` and `container-ghcr` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
 | `{{typecheck}}` | The type check command. | `web-app` `project.md`, `.pre-commit-config.yaml`, `CLAUDE.md` |
 | `{{lint}}` | The lint command, with no type check. In `ci.yml`, see [`web-app`](#web-app). | `web-app` and `container-ghcr` `project.md`, `ci.yml`, `CLAUDE.md` |
@@ -308,6 +352,16 @@ For `container-ghcr`, `/flow:new-project` must do these steps:
 5. Check that no placeholder from the [Placeholders](#placeholders) table
    is left in the repo. A GitHub expression, `${{ ... }}`, is not a
    placeholder: keep it.
+
+For `ios-app`, `/flow:new-project` must do these steps:
+
+1. Ask the Xcode project, the scheme, and the simulator device. Fill
+   `{{test}}` with the `xcodebuild test` form in
+   [`ios-app`](#ios-app).
+2. In a YAML file, write the value as a valid double-quoted value: put
+   `\` before each `"` and `\`. Refuse a value that holds `${{`.
+3. Check that no placeholder from the [Placeholders](#placeholders) table
+   is left in the repo.
 
 ## Manual steps
 
@@ -383,3 +437,15 @@ For `container-ghcr`:
    `image / Build`, and `App` to branch protection on `main`.
 7. In a private repo, add the same checks to the `required_checks` key in
    `.claude/project.md`.
+
+For `ios-app`:
+
+1. Install Xcode, then `brew install swiftlint pre-commit`, on each Mac
+   that commits.
+2. Run `pre-commit install` one time in each clone. It installs the
+   pre-commit hook and the pre-push hook.
+3. If the app has no Swift package, remove the `swift` entry from
+   `.github/dependabot.yml`. Dependabot reports an error when it finds no
+   `Package.resolved`.
+4. Branch protection on `main` needs only the baseline checks. The
+   template has no app CI job. See [baseline.md](baseline.md).
