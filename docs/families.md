@@ -248,7 +248,7 @@ a device through an Xcode sideload.
 
 | File | What it holds |
 | --- | --- |
-| `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `swiftlint` hook runs `swiftlint lint --strict --force-exclude` on the staged Swift files at each commit. The `xcodebuild-test` hook runs `{{test}}` through `bash -c` at each push, with `always_run: true`. Then the top-level key `default_install_hook_types: [pre-commit, pre-push]`. |
+| `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `swiftlint` hook runs `swiftlint lint --strict --force-exclude` on the staged Swift files at each commit, with `stages: [pre-commit]`. The `xcodebuild-test` hook runs `{{test}}` through `bash -c` at each push, with `always_run: true`. Then the top-level key `default_install_hook_types: [pre-commit, pre-push]`. |
 | `.github/dependabot.yml` | Override. The baseline `github-actions` entry, then a weekly `swift` entry with `directory: /`. |
 | `.claude/project.md` | `test`, `lint` (`swiftlint lint --strict`), `plans`, and `deploy`. |
 | `.claude/settings.json` | `templates/settings.json`, plus allow `swiftlint lint` and `xcodebuild test`, and deny `Read` and `Edit` in `DerivedData/`, `build/`, and `.build/`. |
@@ -260,7 +260,14 @@ a device through an Xcode sideload.
 The `swiftlint` hook runs the SwiftLint on `PATH`. The upstream SwiftLint
 hook uses `language: swift`, so pre-commit builds SwiftLint from source,
 and the first build takes minutes. The `lint` key needs SwiftLint on `PATH`
-too.
+too. The `--force-exclude` flag makes SwiftLint skip the `excluded` paths
+also for the file names that pre-commit gives it.
+
+`default_install_hook_types` installs a pre-push hook, and pre-commit runs
+each hook with no `stages` key at pre-push too. So the `swiftlint` hook
+sets `stages: [pre-commit]`. The baseline hooks must stay the same, so
+they also run at each push, on the files of the push. gitleaks still
+scans only the staged files.
 
 `xcodebuild test` is too slow for each commit, so the template has no
 `test_quick` key. The `test` key and the pre-push hook run the same
@@ -270,10 +277,15 @@ command. The command has this form:
 xcodebuild test -project "<App>.xcodeproj" -scheme "<Scheme>" -destination "platform=iOS Simulator,name=<device>"
 ```
 
+For an app with a workspace, use `-workspace "<App>.xcworkspace"` in
+place of `-project`. If the command pipes the output to a formatter, for
+example `xcbeautify`, start it with `set -o pipefail;`. Without it, the
+exit code is the exit code of the formatter, and failed tests do not stop
+the push.
+
 Dependabot finds each `.xcodeproj` and `.xcworkspace` folder below
 `directory` and reads its `Package.resolved` file. The app needs no
-`Package.swift`. The `--force-exclude` flag makes SwiftLint skip the
-`excluded` paths also for the file names that pre-commit gives it.
+`Package.swift`.
 
 ## Placeholders
 
@@ -355,8 +367,8 @@ For `container-ghcr`, `/flow:new-project` must do these steps:
 
 For `ios-app`, `/flow:new-project` must do these steps:
 
-1. Ask the Xcode project, the scheme, and the simulator device. Fill
-   `{{test}}` with the `xcodebuild test` form in
+1. Ask the Xcode project or workspace, the scheme, and the simulator
+   device. Fill `{{test}}` with the `xcodebuild test` form in
    [`ios-app`](#ios-app).
 2. In a YAML file, write the value as a valid double-quoted value: put
    `\` before each `"` and `\`. Refuse a value that holds `${{`.
@@ -442,10 +454,14 @@ For `ios-app`:
 
 1. Install Xcode, then `brew install swiftlint pre-commit`, on each Mac
    that commits.
-2. Run `pre-commit install` one time in each clone. It installs the
+2. Open Xcode one time and accept the license. If `xcode-select -p` does
+   not show `Xcode.app`, run
+   `sudo xcode-select -s /Applications/Xcode.app`. `xcodebuild` does not
+   run with only the Command Line Tools.
+3. Run `pre-commit install` one time in each clone. It installs the
    pre-commit hook and the pre-push hook.
-3. If the app has no Swift package, remove the `swift` entry from
+4. If the app has no Swift package, remove the `swift` entry from
    `.github/dependabot.yml`. Dependabot reports an error when it finds no
    `Package.resolved`.
-4. Branch protection on `main` needs only the baseline checks. The
+5. Branch protection on `main` needs only the baseline checks. The
    template has no app CI job. See [baseline.md](baseline.md).

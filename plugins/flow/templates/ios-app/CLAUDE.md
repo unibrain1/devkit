@@ -10,17 +10,22 @@ The repo holds an Xcode project for an iOS app. The repo uses the devkit
 | Command | What it does |
 | --- | --- |
 | `{{test}}` | Runs all the tests in the iOS Simulator. The pre-push hook runs it before each push. |
-| `swiftlint lint --strict` | Runs SwiftLint. The pre-commit hook runs it on the staged Swift files at each commit. |
+| `swiftlint lint --strict` | Runs SwiftLint. The pre-commit hook runs it, with `--force-exclude`, on the staged Swift files at each commit. |
 
 The repo has no macOS CI job for the app, so the tests run on the Mac
-before each push.
+before each push. If the test command pipes the output to a formatter, for
+example `xcbeautify`, start it with `set -o pipefail;`. Without it, failed
+tests do not stop the push.
 
 ## Setup
 
 Do these steps one time on each Mac:
 
 1. Install Xcode from the App Store.
-2. Install SwiftLint and pre-commit: `brew install swiftlint pre-commit`.
+2. Open Xcode one time and accept the license. If `xcode-select -p` does
+   not show `Xcode.app`, run
+   `sudo xcode-select -s /Applications/Xcode.app`.
+3. Install SwiftLint and pre-commit: `brew install swiftlint pre-commit`.
 
 Then do this step one time in each clone:
 

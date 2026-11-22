@@ -229,6 +229,8 @@ ignore_check() {
     for p in "$@"; do
         (cd "$repo" && HOME="$repo/home" XDG_CONFIG_HOME="$repo/home" GIT_CONFIG_NOSYSTEM=1 \
             git -c core.excludesFile= check-ignore -q -- "$p"); rc=$?
+        # Exit 1 means "not ignored". A higher exit is a git error, not a result.
+        if [ "$rc" -gt 1 ]; then printf ' [git error %s: %s]' "$rc" "$p"; continue; fi
         if [ "$want" = yes ] && [ "$rc" -ne 0 ]; then printf ' [not ignored: %s]' "$p"; fi
         if [ "$want" = no ] && [ "$rc" -eq 0 ]; then printf ' [ignored: %s]' "$p"; fi
     done
@@ -344,7 +346,8 @@ EOF
           elif $h[0].entry != "swiftlint lint --strict --force-exclude" then "entry: \($h[0].entry)"
           elif $h[0].language != "system" then "language: \($h[0].language)"
           elif ($h[0].types | type) != "array" or (($h[0].types | index("swift")) == null) then "types: \($h[0].types)"
-          elif ($h[0] | has("stages")) then "stages: \($h[0].stages)"
+          elif ($h[0] | has("types_or") or has("files") or has("exclude")) then "file filter: \($h[0] | {types_or, files, exclude})"
+          elif $h[0].stages != ["pre-commit"] then "stages: \($h[0].stages)"
           else empty end' 2>&1)"
     if [ -z "$got" ]; then
         pass "$L_SWIFTLINT"
@@ -426,7 +429,7 @@ EOF
     fi
 
     # 10. Dependabot entries
-    got="$(printf '%s' "$depj" | jq -r '[.updates[]?["package-ecosystem"]] | sort | join(" ")')"
+    got="$(printf '%s' "$depj" | jq -r '[.updates[]?["package-ecosystem"]] | sort | join(" ")' 2>&1)"
     if [ "$got" = 'github-actions swift' ]; then
         pass "$L_DEP_ECO"
     else
@@ -437,7 +440,7 @@ EOF
         | if ($s | length) != 1 then "swift entries: \($s | length)"
           elif $s[0].directory != "/" then "directory: \($s[0].directory)"
           elif $s[0].schedule.interval != "weekly" then "interval: \($s[0].schedule.interval)"
-          else empty end')"
+          else empty end' 2>&1)"
     if [ -z "$got" ]; then
         pass "$L_DEP_SWIFT"
     else
@@ -525,8 +528,7 @@ EOF
     # 14. .gitignore: git check-ignore tests the effect of the rules, so a
     # reorder or a later "!" rule that commits a secret fails too.
     repo="$TMPROOT/gitignore-$$"
-    scratch_git "$repo"
-    if [ -f "$IOS/.gitignore" ] && cp "$IOS/.gitignore" "$repo/.gitignore"; then
+    if scratch_git "$repo" && [ -f "$IOS/.gitignore" ] && cp "$IOS/.gitignore" "$repo/.gitignore"; then
         got="$(ignore_check "$repo" yes DerivedData/x build/x a/xcuserdata/x x.xcuserstate .build/x a.p12 a.cer \
             a.mobileprovision a.provisionprofile .swiftpm/x .env .env.local docs/plans/x.md .DS_Store)"
         kept="$(ignore_check "$repo" no .env.example \
@@ -677,7 +679,9 @@ if [ "${FAMILY_I_NO_CONTROLS:-}" != "1" ]; then
     control swiftlint-entry "$L_SWIFTLINT" 'sub "'"$PC"'" "s/entry: swiftlint lint --strict/entry: swiftformat ./"'
     control swiftlint-language "$L_SWIFTLINT" 'sub "'"$PC"'" "/id: swiftlint\$/,/types:/ s/language: system/language: swift/"'
     control swiftlint-types "$L_SWIFTLINT" 'sub "'"$PC"'" "s/types: \[swift\]/types: [file]/"'
-    control swiftlint-stages "$L_SWIFTLINT" 'sub "'"$PC"'" "s/^        name: swiftlint\$/        stages: [pre-push]/"'
+    control swiftlint-stages "$L_SWIFTLINT" 'sub "'"$PC"'" "/id: swiftlint\$/,/stages:/ s/stages: \[pre-commit\]/stages: [pre-commit, pre-push]/"'
+    control swiftlint-no-stages "$L_SWIFTLINT" 'sub "'"$PC"'" "/^        stages: \[pre-commit\]\$/d"'
+    control swiftlint-exclude "$L_SWIFTLINT" 'sub "'"$PC"'" "s/^        types: \[swift\]\$/        types: [swift]\n        exclude: \".*\"/"'
     control swiftlint-no-strict "$L_SWIFTLINT" 'sub "'"$PC"'" "s/entry: swiftlint lint --strict --force-exclude/entry: swiftlint lint --force-exclude/"'
     control swiftlint-no-force-exclude "$L_SWIFTLINT" 'sub "'"$PC"'" "s/entry: swiftlint lint --strict --force-exclude/entry: swiftlint lint --strict/"'
     control swiftlint-cfg-derived "$L_SWIFTLINT_CFG" 'sub "$IA/.swiftlint.yml" "/^  - DerivedData\$/d"'
@@ -711,6 +715,8 @@ if [ "${FAMILY_I_NO_CONTROLS:-}" != "1" ]; then
         'printf "  - package-ecosystem: npm\n    directory: /\n    schedule:\n      interval: weekly\n" >> "'"$DEP"'"'
     control dependabot-swift-dir "$L_DEP_SWIFT" 'sub "'"$DEP"'" "/package-ecosystem: swift/,\$ s#directory: /#directory: /app#"'
     control dependabot-swift-daily "$L_DEP_SWIFT" 'sub "'"$DEP"'" "/package-ecosystem: swift/,\$ s/interval: weekly/interval: daily/"'
+    control dependabot-swift-schedule-string "$L_DEP_SWIFT" \
+        'sub "'"$DEP"'" "/package-ecosystem: swift/,\$ {/interval: weekly/d;}"; sub "'"$DEP"'" "/package-ecosystem: swift/,\$ s/^    schedule:\$/    schedule: weekly/"'
     # 11. CLAUDE.md
     control claude-no-brew "$L_CLAUDE_BREW" 'sub "$IA/CLAUDE.md" "s/brew install swiftlint/brew install lint/"'
     control claude-no-deployment "$L_CLAUDE_DEPLOY" 'sub "$IA/CLAUDE.md" "s/^## Deployment\$/## Release/"'
@@ -728,7 +734,7 @@ if [ "${FAMILY_I_NO_CONTROLS:-}" != "1" ]; then
     # 13. settings.json
     control settings-allow-missing "$L_SETTINGS" 'sub "$IA/.claude/settings.json" "/swiftlint lint:/d"'
     control settings-allow-extra "$L_SETTINGS" 'sub "$IA/.claude/settings.json" "s#\"Bash\(xcodebuild test:\*\)\"#\"Bash(xcodebuild test:*)\", \"Bash(xcodebuild build:*)\"#"'
-    control settings-deny-missing "$L_SETTINGS" 'sub "$IA/.claude/settings.json" "/Edit\(\.\/\.build/d"'
+    control settings-deny-missing "$L_SETTINGS" 'sub "$IA/.claude/settings.json" "/Read\(\.\/\.build/d"'
     control settings-template-grew "$L_SETTINGS" 'sub "$S" "s/\"Bash\(flow-repo:\*\)\",/\"Bash(flow-repo:*)\", \"Bash(flow-new:*)\",/"'
     # 14. .gitignore
     control gitignore-derived "$L_IGN_YES" 'sub "'"$GI"'" "/^DerivedData\//d"'
