@@ -532,7 +532,7 @@ EOF
         got="$(ignore_check "$repo" yes DerivedData/x build/x a/xcuserdata/x x.xcuserstate .build/x a.p12 a.cer \
             a.mobileprovision a.provisionprofile .swiftpm/x .env .env.local docs/plans/x.md .DS_Store)"
         kept="$(ignore_check "$repo" no .env.example \
-            App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved App/ContentView.swift \
+            App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved App/ContentView.swift App/build/Helper.swift \
             App.xcodeproj/project.pbxproj App.xcodeproj/xcshareddata/xcschemes/App.xcscheme)"
     else
         got=" [.gitignore missing]"; kept=" [.gitignore missing]"
@@ -738,7 +738,8 @@ if [ "${FAMILY_I_NO_CONTROLS:-}" != "1" ]; then
     control settings-template-grew "$L_SETTINGS" 'sub "$S" "s/\"Bash\(flow-repo:\*\)\",/\"Bash(flow-repo:*)\", \"Bash(flow-new:*)\",/"'
     # 14. .gitignore
     control gitignore-derived "$L_IGN_YES" 'sub "'"$GI"'" "/^DerivedData\//d"'
-    control gitignore-build "$L_IGN_YES" 'sub "'"$GI"'" "/^build\//d"'
+    control gitignore-build "$L_IGN_YES" 'sub "'"$GI"'" "/^\/build\//d"'
+    control gitignore-build-unanchored "$L_IGN_NO" 'sub "'"$GI"'" "s/^\/build\/\$/build\//"'
     control gitignore-xcuserdata "$L_IGN_YES" 'sub "'"$GI"'" "/^xcuserdata\//d"'
     control gitignore-xcuserstate "$L_IGN_YES" 'sub "'"$GI"'" "/^\*\.xcuserstate\$/d"'
     control gitignore-spm-build "$L_IGN_YES" 'sub "'"$GI"'" "/^\.build\//d"'
