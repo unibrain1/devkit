@@ -1,0 +1,6 @@
+# SwiftLint settings from devkit (docs/families.md, Family I). The default
+# rules apply. Add the rule changes of this app here.
+excluded:
+  - DerivedData
+  - build
+  - .build
