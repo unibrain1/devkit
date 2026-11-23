@@ -9,7 +9,8 @@
 # Checks:
 #   - The file exists.
 #   - Each key is a known key. An unknown key is an error, and the message
-#     names the nearest known key.
+#     names the nearest known key. An old flow install does not know a new
+#     key, so the message also gives the update command.
 #   - The necessary keys (test, lint) are present.
 #
 # Exit codes:
@@ -64,7 +65,7 @@ for key in $keys; do
     case " $KNOWN_KEYS " in
         *" $key "*) ;;
         *)
-            echo "$(basename "$0"): unknown key '${key}' in ${file}. Did you mean '$(nearest_key "$key")'?" >&2
+            echo "$(basename "$0"): unknown key '${key}' in ${file}. Did you mean '$(nearest_key "$key")'? If '${key}' is a new key, flow may be old: run claude plugin update flow@devkit --scope project, then restart the session." >&2
             problems=$((problems + 1))
             ;;
     esac

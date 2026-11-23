@@ -289,6 +289,8 @@ flowchart LR
 │   │   ├── ios-app/            # Family I: layered on baseline/. SwiftLint and xcodebuild test hooks
 │   │   └── web-app-hosts/      # Family W: Deployment text for each host. Not copied
 │   ├── bin/                    # Generic workflow scripts from Registry scripts/
+│   │   ├── flow-plugins        # Checks the enabled plugins: missing or stale
+│   │   └── flow-template       # Copies a family template and fills the placeholders
 │   └── hooks/hooks.json        # Guard hooks, and the SessionStart setup check
 ├── plugins/brain/              # /brain, /capture. User scope only. v1.1.
 │   ├── .claude-plugin/plugin.json
@@ -312,7 +314,7 @@ flowchart LR
   <li>The milestone and issue commands from Registry, and <code>/flow:setup</code>.</li>
   <li>The method: a <code>flow:workflow</code> skill, and the <code>hotfix</code> skill.</li>
   <li>The generic agents: code-reviewer, silent-failure-hunter, senior-architect, and the others. See "Generic agents" below.</li>
-  <li>The generic workflow scripts in <code>bin/</code>. Claude Code puts a plugin's <code>bin/</code> on the command path, so commands call the scripts by name.</li>
+  <li>The generic workflow scripts in <code>bin/</code>. Claude Code puts a plugin's <code>bin/</code> on the command path, so commands call the scripts by name. <code>flow-plugins</code> checks the enabled plugins. <code>flow-template</code> copies a family template for <code>/flow:new-project</code>.</li>
   <li>Optional vault steps in four commands. See <a href="#brain">section 13</a>.</li>
 </ul>
 
@@ -432,7 +434,7 @@ flowchart LR
   },
   "enabledPlugins": { "flow@devkit": true, "asd-ste100@devkit": true }
 }</code></pre>
-<p>Install both plugins at project scope: <code>claude plugin install flow@devkit --scope project</code> and <code>claude plugin install asd-ste100@devkit --scope project</code>. A plugin in <code>enabledPlugins</code> that is not installed does not load. A user-scope install loads <code>flow</code> in every repo, and a <code>ref</code> change in another project can leave it with no cache. If <code>/plugin</code> shows <code>flow</code> at user scope, uninstall it there.</p>
+<p>Install both plugins at project scope: <code>claude plugin install flow@devkit --scope project</code> and <code>claude plugin install asd-ste100@devkit --scope project</code>. A plugin in <code>enabledPlugins</code> that is not installed does not load. <code>/flow:setup</code> runs <code>flow-plugins --status</code> and installs or updates each missing or stale enabled plugin after approval. The SessionStart hook reports a missing or stale plugin. A user-scope install loads <code>flow</code> in every repo, and a <code>ref</code> change in another project can leave it with no cache. If <code>/plugin</code> shows <code>flow</code> at user scope, uninstall it there.</p>
 <p>A plugin cannot ship a permission allowlist. Each project copies <code>templates/settings.json</code> one time when it migrates, and then owns its copy.</p>
 
 <h2 id="ci">Shared CI</h2>

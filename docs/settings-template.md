@@ -37,20 +37,39 @@ the allowlist, or if the allowlist names a script that does not exist.
 2. Keep the project's own `hooks` and other keys. Merge, do not replace.
 3. For Registry, change `"ref": "main"` to the devkit tag.
 4. Install both plugins in `enabledPlugins` at project scope. An enabled
-   plugin that is not installed does not load. `/flow:setup` does not
-   check this:
+   plugin that is not installed does not load, and a stale plugin loads an
+   old version. `/flow:setup` checks this. It runs `flow-plugins --status`,
+   shows the fix command for each missing or stale plugin, and runs it
+   after your approval. The SessionStart hook also reports a missing or
+   stale plugin. If you cannot run `/flow:setup`, install the plugins with
+   these commands:
 
    ```sh
    claude plugin install flow@devkit --scope project
    claude plugin install asd-ste100@devkit --scope project
    ```
 
+   The update command keeps the scope of the install that
+   `flow-plugins` finds: `--scope project`, `--scope local`, or
+   `--scope user`. If only the running copy is old and the install is
+   current, the fix is `restart the session`.
+
+   Claude Code keeps one checkout for each marketplace. The last project
+   that opens sets its `ref`. If this repo's `ref` is not the `ref` of that
+   checkout (for example, Registry pins a tag and another repo uses
+   `main`), `flow-plugins` prints `unknown` for the plugin and the reason
+   on stderr. It cannot know the expected version then.
+
    If `/plugin` shows
    `flow` at user scope, uninstall it there. A user-scope install loads
    `flow` in every repo, and a `ref` change in another project can leave it
-   with no cache (design section 5).
+   with no cache (design section 5). For a stale `flow` at user scope,
+   `/flow:setup` does not show the update command. It shows
+   `claude plugin uninstall flow@devkit --scope user` and
+   `claude plugin install flow@devkit --scope project` in its place.
 
-5. Check `.claude/settings.json` after the installs. The install writes
+5. Check `.claude/settings.json` after the installs. `/flow:setup` runs
+   this compare after its installs. The install writes
    the file again in its own key order, also when `enabledPlugins`
    already has the plugin (issue #92). If only the key order changed,
    discard the change:

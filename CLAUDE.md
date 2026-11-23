@@ -10,10 +10,10 @@ change in each of those repos. The design is in
 | Path | What it holds |
 | --- | --- |
 | `.claude-plugin/marketplace.json` | The `devkit` marketplace: `flow`, and `asd-ste100` from upstream at a pinned SHA |
-| `plugins/flow/commands/` | The 16 `/flow:` commands. Rules: [docs/command-conventions.md](docs/command-conventions.md) |
+| `plugins/flow/commands/` | The 17 `/flow:` commands. Rules: [docs/command-conventions.md](docs/command-conventions.md) |
 | `plugins/flow/agents/` | 13 generic agents. Stack rules stay in each project |
 | `plugins/flow/skills/` | `workflow` (the full method) and `hotfix` |
-| `plugins/flow/bin/` | The `flow-*` scripts. On the command path in a session |
+| `plugins/flow/bin/` | The `flow-*` scripts. On the command path in a session. `flow-template` copies a family template, and `flow-plugins` checks the enabled plugins |
 | `plugins/flow/hooks/` | `guard-private-paths.sh` and the SessionStart `setup-check.sh` |
 | `plugins/flow/templates/` | `project.md`, the CLAUDE.md block, and `labels.tsv`, for `/flow:setup`. `baseline/` holds the every-repo files. See [docs/baseline.md](docs/baseline.md). `static-site-cloudflare/` and `static-site-host/` hold the Family A files, `web-app/` the Family W files, `container-ghcr/` the Family B files, and `ios-app/` the Family I files, layered on the baseline. `web-app-hosts/` holds the Family W host text. See [docs/families.md](docs/families.md) |
 | `plugins/brain/skills/` | Skills for the Claude apps. Not a plugin until v1.1 |

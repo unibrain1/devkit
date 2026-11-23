@@ -26,7 +26,7 @@ fi
 
 # Scripts that push, merge, write files, or start workflows. A person must
 # approve each run, so they never go in the starter allowlist.
-WRITE_SCRIPTS="flow-baseline flow-claude-block flow-commit-push-pr flow-release-hotfix flow-release-milestone flow-verify-ci-review"
+WRITE_SCRIPTS="flow-baseline flow-claude-block flow-commit-push-pr flow-release-hotfix flow-release-milestone flow-template flow-verify-ci-review"
 
 # A write script that has a read mode can have one rule for that mode
 # only. The rule ends in ":*" after the mode, so the write mode stays out.
@@ -72,7 +72,8 @@ fi
 # Negative control: the check must catch a write mode of a script that has
 # an allowed read mode, and a write script with no mode.
 for bad in "Bash(flow-baseline --apply:*)" "Bash(flow-baseline:*)" "Bash(flow-baseline --status --apply:*)" \
-    "Bash(flow-labels --create:*)" "Bash(flow-labels:*)" "Bash(flow-claude-block:*)"; do
+    "Bash(flow-labels --create:*)" "Bash(flow-labels:*)" "Bash(flow-claude-block:*)" \
+    "Bash(flow-template:*)" "Bash(flow-template --apply:*)"; do
     if [ -n "$(write_rules "Bash(flow-repo:*)" "$bad")" ]; then
         pass "control: the check finds $bad"
     else
@@ -114,5 +115,24 @@ if [ "$(jq -r '.enabledPlugins["flow@devkit"]' "$TEMPLATE")" = "true" ] \
 else
     fail "marketplace and flow plugin are on"
 fi
+
+# The family "other" has no stack rules, so /flow:new-project gives it the
+# starter settings. The two files must stay the same.
+OTHER="$REAL_REPO/plugins/flow/templates/other/.claude/settings.json"
+if cmp -s "$TEMPLATE" "$OTHER"; then
+    pass "templates/other/.claude/settings.json is identical to templates/settings.json"
+else
+    fail "templates/other/.claude/settings.json is identical to templates/settings.json" \
+        "$(diff "$TEMPLATE" "$OTHER" 2>&1 | head -5)"
+fi
+# Control: a copy with one rule changed must fail the compare.
+CONTROL="$(mktemp)"
+sed 's/flow-repo:\*/flow-repo-x:*/' "$OTHER" > "$CONTROL"
+if ! cmp -s "$TEMPLATE" "$CONTROL"; then
+    pass "control: a changed copy fails the compare"
+else
+    fail "control: a changed copy fails the compare"
+fi
+rm -f "$CONTROL"
 
 harness_report
