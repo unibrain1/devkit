@@ -511,10 +511,11 @@ EOF
     fi
 
     # 13. settings.json: the template plus the Swift rules. The arrays are
-    # sorted, so only the set of rules counts.
+    # sorted, so only the set of rules counts. flow-template fills
+    # {{test}} with the exact test command, so the rule allows only it.
     got="$(jq -S '.permissions.allow |= sort | .permissions.deny |= sort' "$IOS/.claude/settings.json" 2>/dev/null)"
     want="$(jq -S '
-        .permissions.allow += ["Bash(swiftlint lint:*)", "Bash(xcodebuild test:*)"]
+        .permissions.allow += ["Bash(swiftlint lint:*)", "Bash({{test}})"]
         | .permissions.deny += ["Read(./DerivedData/**)", "Edit(./DerivedData/**)",
                                 "Read(./build/**)", "Edit(./build/**)",
                                 "Read(./.build/**)", "Edit(./.build/**)"]
@@ -733,7 +734,8 @@ if [ "${FAMILY_I_NO_CONTROLS:-}" != "1" ]; then
     control project-fact-dryfire "$L_DENY" 'printf "DryFireTimer\n" >> "$IA/.claude/rules/ios-review.md"'
     # 13. settings.json
     control settings-allow-missing "$L_SETTINGS" 'sub "$IA/.claude/settings.json" "/swiftlint lint:/d"'
-    control settings-allow-extra "$L_SETTINGS" 'sub "$IA/.claude/settings.json" "s#\"Bash\(xcodebuild test:\*\)\"#\"Bash(xcodebuild test:*)\", \"Bash(xcodebuild build:*)\"#"'
+    control settings-allow-extra "$L_SETTINGS" 'sub "$IA/.claude/settings.json" "s#\"Bash\(\{\{test\}\}\)\"#\"Bash({{test}})\", \"Bash(xcodebuild test:*)\"#"'
+    control settings-allow-wildcard "$L_SETTINGS" 'sub "$IA/.claude/settings.json" "s#\"Bash\(\{\{test\}\}\)\"#\"Bash(xcodebuild test:*)\"#"'
     control settings-deny-missing "$L_SETTINGS" 'sub "$IA/.claude/settings.json" "/Read\(\.\/\.build/d"'
     control settings-template-grew "$L_SETTINGS" 'sub "$S" "s/\"Bash\(flow-repo:\*\)\",/\"Bash(flow-repo:*)\", \"Bash(flow-new:*)\",/"'
     # 14. .gitignore

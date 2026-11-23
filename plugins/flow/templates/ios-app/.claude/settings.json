@@ -33,6 +33,7 @@
       "Bash(flow-labels --missing:*)",
       "Bash(flow-ledger-items-for-files:*)",
       "Bash(flow-milestone-count:*)",
+      "Bash(flow-plugins:*)",
       "Bash(flow-poll-review-posted:*)",
       "Bash(flow-project-check:*)",
       "Bash(flow-project-fact:*)",
@@ -48,7 +49,7 @@
       "Bash(gh pr view:*)",
       "Bash(gh repo view:*)",
       "Bash(swiftlint lint:*)",
-      "Bash(xcodebuild test:*)"
+      "Bash({{test}})"
     ],
     "deny": [
       "Skill(commit-commands:commit-push-pr)",

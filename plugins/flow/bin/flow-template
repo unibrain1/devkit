@@ -1,0 +1,704 @@
+#!/bin/bash
+#
+# Makes the files of a new repo from a family template in
+# flow/templates/. /flow:new-project calls it. The script does the copy, the
+# placeholder fill, the devkit pin, the .env block hook, and the leftover
+# check, so the model does not edit these files by hand.
+#
+# --apply never replaces a file that it did not make in the same run.
+# --pin and --env-hook replace a file with a new copy, but change only the
+# lines and keys that they own. The script never writes through a symbolic
+# link (the file or a parent folder). It never writes outside the repo
+# root. It does not change the git index.
+#
+# Usage:
+#   flow-template --list
+#   flow-template --apply <family> [--host <name>] [key=value ...]
+#   flow-template --leftover
+#   flow-template --pin <sha> <tag>
+#   flow-template --env-hook
+#
+#   --list      Print the family names, one on each line, in the order of
+#               the family decision rule.
+#   --apply     Copy templates/baseline/, then the family folder over it,
+#               into the repo root. A family file at a baseline path wins.
+#               The script checks all targets before it writes. A target
+#               can exist, have a symbolic link in its path, or have a file
+#               that blocks a parent folder. Then the script writes no
+#               file. Next, it puts each key=value value in place of
+#               {{key}}. In a .yml, .yaml, .json, or .jsonc file, the value
+#               gets the escapes of a double-quoted string. The script puts
+#               \ before \ and ". It puts an escape for each control
+#               character and for DEL. In other files, the value is
+#               verbatim. A ${{ ... }} GitHub expression does not change.
+#               --host puts the text of templates/web-app-hosts/<name>.md
+#               in place of {{deployment}}. Only the web-app family takes
+#               --host.
+#   --leftover  Print "<file>:<line>: {{key}}" for each known placeholder
+#               in the repo files (not .git/ or node_modules/).
+#   --pin       Change each "uses: unibrain1/devkit/<path>@main" line in
+#               .github/workflows/*.yml and *.yaml to "@<sha> # <tag>".
+#               <sha> is 40 lowercase hex characters. <tag> has the form
+#               vX.Y.Z.
+#   --env-hook  Copy templates/web-app/.claude/hooks/block-env.sh to
+#               .claude/hooks/ (mode 755), and add the web-app PreToolUse
+#               hook entry to .claude/settings.json. Other keys and hooks
+#               stay. A second run changes nothing.
+#
+# Exit codes:
+#   0  Done. --leftover: no placeholder is left.
+#   1  Refused, and no file changed. The causes:
+#      - a target exists, or a path has a symbolic link (also a dangling
+#        link in .github/workflows/ for --pin)
+#      - a file blocks a parent folder
+#      - an unknown key, or a key named two times
+#      - --host and deployment= in one run ("use --host or deployment=,
+#        not both.")
+#      - a value with "{{", "${{", or a newline
+#      - a command value (test, test_quick, typecheck, lint, verify) that
+#        is empty, has "*" at any position, or has a space or tab at the
+#        start or end
+#      - a host file with "{{"
+#      - a different block-env.sh
+#      - a settings.json that is not a JSON object with a hooks.PreToolUse
+#        array
+#      --leftover: one or more placeholders are left.
+#   2  Usage error. The causes:
+#      - a bad mode or argument count, a bad --pin SHA or tag, or an
+#        argument that is not key=value
+#      - not in a git repo
+#      - an unknown family or host, or --host on a family that is not
+#        web-app
+#      - a template folder that is missing
+#      - a file or repo that the script cannot read (a host file, a
+#        template, the .github/workflows folder or a workflow file for
+#        --pin, or the repo files for --leftover)
+#      - no jq (--env-hook)
+#   3  A write step failed after the checks, or a temp file
+#      (.flow-template.*) stays at exit. Other files can be written
+#      already. The error message names them.
+
+set -euo pipefail
+
+prog="$(basename "$0")"
+nl='
+'
+
+# The family decision rule order: the first family that matches wins.
+FAMILIES="ios-app container-ghcr web-app static-site-cloudflare static-site-host other"
+
+# Keep this list the same as the "Placeholders" table in docs/families.md.
+# tests/bin/test-flow-template.sh compares the two.
+KNOWN_KEYS="site_name site_description package_name app_name app_description deployment test test_quick typecheck lint verify milestone_setup release_checks stack_ecosystem"
+
+usage() {
+    {
+        echo "Usage: ${prog} --list"
+        echo "       ${prog} --apply <family> [--host <name>] [key=value ...]"
+        echo "       ${prog} --leftover"
+        echo "       ${prog} --pin <sha> <tag>"
+        echo "       ${prog} --env-hook"
+    } >&2
+    exit 2
+}
+
+mode="${1:-}"
+case "$mode" in
+    --list|--leftover|--env-hook) [ "$#" -eq 1 ] || usage ;;
+    --pin) [ "$#" -eq 3 ] || usage ;;
+    --apply) [ "$#" -ge 2 ] || usage ;;
+    *) usage ;;
+esac
+
+if [ "$mode" = "--list" ]; then
+    for f in $FAMILIES; do echo "$f"; done
+    exit 0
+fi
+
+if ! top="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    echo "${prog}: not in a git repository." >&2
+    exit 2
+fi
+
+# The command path can hold a symbolic link to this script. Resolve each
+# link, so the script finds the template folder next to the real script.
+# Old macOS has no "readlink -f", so the loop resolves one link at a time.
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+    src_dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in
+        /*) ;;
+        *) src="${src_dir}/${src}" ;;
+    esac
+done
+plugin_root="$(cd -P "$(dirname "$src")/.." && pwd)"
+templates="${plugin_root}/templates"
+
+# has_link <rel-path>: true if the path or a parent folder below the repo
+# root is a symbolic link.
+has_link() {
+    local cur="$top" part rest="$1"
+    while [ -n "$rest" ]; do
+        part="${rest%%/*}"
+        if [ "$part" = "$rest" ]; then
+            rest=""
+        else
+            rest="${rest#*/}"
+        fi
+        cur="${cur}/${part}"
+        [ -L "$cur" ] && return 0
+    done
+    return 1
+}
+
+# parent_blocked <rel-path>: true if a parent of the path exists and is
+# not a folder, so the file cannot be made there.
+parent_blocked() {
+    local dir="$1"
+    while [ "${dir%/*}" != "$dir" ]; do
+        dir="${dir%/*}"
+        if [ -e "${top}/${dir}" ] && [ ! -d "${top}/${dir}" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+work=""
+tmp=""
+# A temp file that rm could not remove after ln. The EXIT trap tries again,
+# so no .flow-template.* file stays in the repo.
+stale=""
+# A temp file that stays makes the run incomplete, so exit 0 becomes
+# exit 3. A refusal or a failure keeps its own exit code.
+# shellcheck disable=SC2329 # called only through the EXIT trap
+on_exit() {
+    local rc=$? f left=""
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        if ! rm -f "$f" 2>/dev/null; then
+            echo "${prog}: warning: could not remove the temp file ${f}." >&2
+            left="${left:+${left}, }${f}"
+        fi
+    done <<EOF
+${tmp}
+${stale}
+EOF
+    if [ -n "$work" ]; then rm -rf "$work" || true; fi
+    if [ -n "$left" ] && [ "$rc" -eq 0 ]; then
+        echo "${prog}: temp files stay: ${left}. Remove them. Wrote: ${written:-none}." >&2
+        exit 3
+    fi
+}
+trap on_exit EXIT
+
+# Exit 1 means "changed no file". After the first write that is not true,
+# so a failure after it exits 3 and names the files that are written.
+written=""
+write_failed() {
+    echo "${prog}: could not write ${1}. Wrote: ${written:-none}." >&2
+    exit 3
+}
+
+# no_change: end a --pin or --env-hook refusal.
+no_change() {
+    echo "${prog}: changed no file." >&2
+    exit 1
+}
+
+# refuse_path <rel> <link|exists|parent|blocked>: print why the script
+# does not write <rel>, and return 1.
+refuse_path() {
+    case "$2" in
+        link) echo "${prog}: ${top}/${1}: the path has a symbolic link. The script does not write through it." >&2 ;;
+        exists) echo "${prog}: ${top}/${1} exists. The script does not replace it." >&2 ;;
+        parent) echo "${prog}: ${top}/${1}: a file blocks a parent folder." >&2 ;;
+        blocked) echo "${prog}: ${top}/${1}: a file or folder blocks the path." >&2 ;;
+    esac
+    return 1
+}
+
+# open_tmp <rel>: make the parent folder of <rel>, and set tmp to a new
+# temp file in it. The temp file is in the same folder, so ln and mv stay
+# on one file system.
+open_tmp() {
+    local dir="${top}/${1}"
+    dir="${dir%/*}"
+    mkdir -p "$dir" || write_failed "$1"
+    tmp="$(mktemp "${dir}/.flow-template.XXXXXX")" || write_failed "$1"
+}
+
+# install_tmp <rel> <mode> <ln|mv>: set the mode of tmp and put it at
+# <rel>. mv replaces a file at the target name, and moves into a folder if
+# the target name is a link to a folder. A hard link fails if the target
+# name exists, so a file that appeared after the checks stays. With -n, ln
+# does not follow a link at the target name. It then adds <rel> to the list
+# of written files.
+install_tmp() {
+    chmod "$2" "$tmp" || write_failed "$1"
+    if [ "$3" = ln ]; then
+        ln -n "$tmp" "${top}/${1}" || write_failed "$1"
+        if ! rm -f "$tmp"; then
+            echo "${prog}: warning: could not remove the temp file ${tmp}. The script tries again at exit." >&2
+            stale="${stale}${tmp}${nl}"
+        fi
+    else
+        mv -f "$tmp" "${top}/${1}" || write_failed "$1"
+    fi
+    tmp=""
+    written="${written:+${written}, }${1}"
+}
+
+# The fill and the leftover scan use the same rule: "{{" that follows "$"
+# starts a GitHub expression, not a placeholder.
+# shellcheck disable=SC2016 # awk code, not shell text
+AWK_FILL='
+function esc(s,   out, i, c, n) {
+    out = ""
+    for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c == "\\") out = out "\\\\"
+        else if (c == "\"") out = out "\\\""
+        else if (c in ctl) {
+            n = ctl[c]
+            if (n == 9) out = out "\\t"
+            else if (n == 10) out = out "\\n"
+            else if (n == 13) out = out "\\r"
+            else if (n == 8) out = out "\\b"
+            else if (n == 12) out = out "\\f"
+            else out = out sprintf("\\u%04x", n)
+        } else out = out c
+    }
+    return out
+}
+function fill(line,   out, rest, p, after, q, key, prev, before) {
+    out = ""
+    rest = line
+    before = ""
+    while ((p = index(rest, "{{")) > 0) {
+        prev = (p > 1) ? substr(rest, p - 1, 1) : before
+        after = substr(rest, p + 2)
+        q = index(after, "}}")
+        key = (q > 0) ? substr(after, 1, q - 1) : ""
+        if (prev != "$" && (key in val)) {
+            out = out substr(rest, 1, p - 1) (quote ? esc(val[key]) : val[key])
+            rest = substr(after, q + 2)
+            before = "}"
+        } else {
+            out = out substr(rest, 1, p + 1)
+            rest = after
+            before = "{"
+        }
+    }
+    return out rest
+}
+BEGIN {
+    for (i = 1; i < 32; i++) ctl[sprintf("%c", i)] = i
+    ctl[sprintf("%c", 127)] = 127
+    mapf = ENVIRON["FT_MAP"]
+    hostf = ENVIRON["FT_HOST"]
+    quote = ENVIRON["FT_QUOTE"] + 0
+    while ((getline k < mapf) > 0) {
+        if ((getline v < mapf) <= 0) v = ""
+        val[k] = v
+    }
+    if (hostf != "") {
+        t = ""
+        n = 0
+        while ((r = (getline l < hostf)) > 0) t = (n++ ? t "\n" : "") l
+        # An empty {{deployment}} from a read error must not pass as done.
+        if (r < 0) exit 2
+        val["deployment"] = t
+    }
+}
+{ print fill($0) }
+'
+
+# --- --leftover ----------------------------------------------------------
+
+if [ "$mode" = "--leftover" ]; then
+    # shellcheck disable=SC2016 # awk code, not shell text
+    found="$(cd "$top" && find . \( -name .git -o -name node_modules \) -prune -o -type f -print0 \
+        | FT_KNOWN=" $KNOWN_KEYS " xargs -0 env LC_ALL=C awk '
+        {
+            known = ENVIRON["FT_KNOWN"]
+            rest = $0
+            prevc = ""
+            while ((p = index(rest, "{{")) > 0) {
+                prev = (p > 1) ? substr(rest, p - 1, 1) : prevc
+                after = substr(rest, p + 2)
+                q = index(after, "}}")
+                key = (q > 0) ? substr(after, 1, q - 1) : ""
+                if (prev != "$" && key != "" && index(known, " " key " ") > 0) {
+                    f = FILENAME
+                    sub(/^\.\//, "", f)
+                    print f ":" FNR ": {{" key "}}"
+                }
+                prevc = "{"
+                rest = after
+            }
+        }')" || {
+        echo "${prog}: cannot read the repo files." >&2
+        exit 2
+    }
+    if [ -n "$found" ]; then
+        printf '%s\n' "$found"
+        exit 1
+    fi
+    exit 0
+fi
+
+# --- --pin ---------------------------------------------------------------
+
+if [ "$mode" = "--pin" ]; then
+    sha="$2"
+    tag="$3"
+    # [[ =~ ]] anchors to the full value, so a value with a newline fails.
+    if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "${prog}: '${sha}' is not a full commit SHA (40 lowercase hex characters)." >&2
+        exit 2
+    fi
+    if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "${prog}: '${tag}' is not a tag of the form vX.Y.Z." >&2
+        exit 2
+    fi
+    pin_re='^([[:space:]]*(-[[:space:]]+)?uses:[[:space:]]+unibrain1/devkit/[^@[:space:]]+)@main[[:space:]]*$'
+    wf_dir="${top}/.github/workflows"
+    # A glob in a folder that the script cannot read matches nothing, and
+    # "no caller" would hide the callers.
+    if [ -e "$wf_dir" ] && { [ ! -r "$wf_dir" ] || [ ! -x "$wf_dir" ]; }; then
+        echo "${prog}: cannot read ${wf_dir}. Changed no file." >&2
+        exit 2
+    fi
+    targets=""
+    for f in "$wf_dir"/*.yml "$wf_dir"/*.yaml; do
+        [ -e "$f" ] || [ -L "$f" ] || continue
+        rel="${f#"${top}"/}"
+        # grep cannot read a dangling link, and a skip would hide a caller.
+        if [ -L "$f" ] && [ ! -e "$f" ]; then refuse_path "$rel" link || no_change; fi
+        # grep exits 1 for no match. Exit 2 (an unreadable file) must not
+        # pass as "no caller".
+        grep_rc=0
+        grep -qE "$pin_re" "$f" || grep_rc=$?
+        case "$grep_rc" in
+            0) ;;
+            1) continue ;;
+            *)
+                echo "${prog}: cannot read ${f}. Changed no file." >&2
+                exit 2
+                ;;
+        esac
+        if has_link "$rel" || [ ! -f "$f" ]; then refuse_path "$rel" link || no_change; fi
+        targets="${targets}${rel}${nl}"
+    done
+    if [ -z "$targets" ]; then
+        echo "${prog}: no unibrain1/devkit caller uses @main. Changed no file."
+        exit 0
+    fi
+    while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        f="${top}/${rel}"
+        open_tmp "$rel"
+        sed -E "s|${pin_re}|\\1@${sha} # ${tag}|" "$f" > "$tmp" || write_failed "$rel"
+        perm=644
+        if [ -x "$f" ]; then perm=755; fi
+        # Do the link check again, so a link that appeared after the first
+        # check stops the write.
+        if has_link "$rel"; then refuse_path "$rel" link || write_failed "$rel"; fi
+        install_tmp "$rel" "$perm" mv
+        echo "${prog}: pinned ${rel} to ${tag}."
+    done <<EOF
+$targets
+EOF
+    exit 0
+fi
+
+# --- --env-hook ----------------------------------------------------------
+
+if [ "$mode" = "--env-hook" ]; then
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "${prog}: jq is not installed. --env-hook needs it." >&2
+        exit 2
+    fi
+    hook_src="${templates}/web-app/.claude/hooks/block-env.sh"
+    settings_src="${templates}/web-app/.claude/settings.json"
+    if [ ! -f "$hook_src" ] || [ ! -f "$settings_src" ]; then
+        echo "${prog}: the web-app template has no .claude/hooks/block-env.sh or .claude/settings.json." >&2
+        exit 2
+    fi
+    if ! entry="$(jq -ce '[.hooks.PreToolUse[]? | select(any(.hooks[]?; (.command // "") | contains("block-env.sh")))] | if length == 1 then .[0] else empty end' "$settings_src")"; then
+        echo "${prog}: ${settings_src} has no single block-env.sh PreToolUse entry." >&2
+        exit 2
+    fi
+    hook_rel=".claude/hooks/block-env.sh"
+    settings_rel=".claude/settings.json"
+    hook="${top}/${hook_rel}"
+    settings="${top}/${settings_rel}"
+
+    for rel in "$hook_rel" "$settings_rel"; do
+        if has_link "$rel"; then refuse_path "$rel" link || no_change; fi
+        if parent_blocked "$rel" || { [ -e "${top}/${rel}" ] && [ ! -f "${top}/${rel}" ]; }; then
+            refuse_path "$rel" blocked || no_change
+        fi
+    done
+
+    copy_hook=1
+    if [ -e "$hook" ]; then
+        if cmp -s "$hook_src" "$hook"; then
+            copy_hook=0
+        else
+            echo "${prog}: ${hook} exists and is different from the template. The script does not replace it." >&2
+            no_change
+        fi
+    fi
+
+    merge_settings=1
+    if [ -e "$settings" ]; then
+        if ! jq -e 'type == "object" and ((.hooks // {}) | type == "object") and ((.hooks.PreToolUse // []) | type == "array")' "$settings" >/dev/null 2>&1; then
+            echo "${prog}: ${settings} is not a JSON object with a hooks.PreToolUse array. The script does not change it." >&2
+            no_change
+        fi
+        if jq -e --argjson e "$entry" 'any((.hooks.PreToolUse // [])[]; . == $e)' "$settings" >/dev/null 2>&1; then
+            merge_settings=0
+        fi
+    fi
+
+    if [ "$copy_hook" -eq 1 ]; then
+        open_tmp "$hook_rel"
+        cat "$hook_src" > "$tmp" || write_failed "$hook_rel"
+        install_tmp "$hook_rel" 755 ln
+        echo "${prog}: wrote ${hook_rel}."
+    fi
+
+    if [ "$merge_settings" -eq 1 ]; then
+        open_tmp "$settings_rel"
+        if [ -e "$settings" ]; then
+            jq --argjson e "$entry" '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [$e])' "$settings" > "$tmp" \
+                || write_failed "$settings_rel"
+        else
+            jq -n --argjson e "$entry" '{hooks: {PreToolUse: [$e]}}' > "$tmp" || write_failed "$settings_rel"
+        fi
+        if has_link "$settings_rel"; then refuse_path "$settings_rel" link || write_failed "$settings_rel"; fi
+        install_tmp "$settings_rel" 644 mv
+        echo "${prog}: added the block-env.sh hook to ${settings_rel}."
+    fi
+    if [ -z "$written" ]; then
+        echo "${prog}: the .env block hook is in place. Changed no file."
+    fi
+    exit 0
+fi
+
+# --- --apply -------------------------------------------------------------
+
+shift
+family="$1"
+shift
+case " $FAMILIES " in
+    *" ${family} "*) ;;
+    *)
+        echo "${prog}: '${family}' is not a family. Families: ${FAMILIES}." >&2
+        exit 2
+        ;;
+esac
+
+host=""
+host_set=0
+pairs=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --host)
+            [ "$#" -ge 2 ] && [ "$host_set" -eq 0 ] || usage
+            host="$2"
+            host_set=1
+            shift 2
+            ;;
+        *)
+            pairs+=("$1")
+            shift
+            ;;
+    esac
+done
+
+host_file=""
+if [ "$host_set" -eq 1 ]; then
+    if [ "$family" != "web-app" ]; then
+        echo "${prog}: --host is only for the web-app family." >&2
+        exit 2
+    fi
+    # An exact name compare: a case-insensitive file system would also
+    # find "A2-TAG.md", and a "/" in the name could leave the folder.
+    hosts=""
+    for f in "${templates}"/web-app-hosts/*.md; do
+        [ -f "$f" ] || continue
+        name="$(basename "$f" .md)"
+        hosts="${hosts:+${hosts} }${name}"
+        [ "$name" = "$host" ] && host_file="$f"
+    done
+    if [ -z "$host_file" ]; then
+        echo "${prog}: '${host}' is not a host. Hosts: ${hosts:-none}." >&2
+        exit 2
+    fi
+    # grep exits 2 on a file that it cannot read, and the {{ check would
+    # pass.
+    if [ ! -r "$host_file" ]; then
+        echo "${prog}: cannot read ${host_file}." >&2
+        exit 2
+    fi
+    if grep -qF '{{' "$host_file"; then
+        echo "${prog}: ${host_file} holds '{{'. The script does not fill it." >&2
+        exit 1
+    fi
+fi
+
+baseline="${templates}/baseline"
+family_dir="${templates}/${family}"
+for d in "$baseline" "$family_dir"; do
+    if [ ! -d "$d" ]; then
+        echo "${prog}: template folder ${d} is missing." >&2
+        exit 2
+    fi
+done
+
+work="$(mktemp -d)" || exit 2
+map="${work}/map"
+: > "$map"
+
+# Each value goes to awk through a file, because awk -v reads backslash
+# escapes in the value. A value has no newline, so one line holds it.
+rc=0
+seen=" "
+for pair in ${pairs[@]+"${pairs[@]}"}; do
+    case "$pair" in
+        *=*) ;;
+        *)
+            echo "${prog}: '${pair}' is not key=value." >&2
+            exit 2
+            ;;
+    esac
+    key="${pair%%=*}"
+    value="${pair#*=}"
+    case " $KNOWN_KEYS " in
+        *" ${key} "*) ;;
+        *)
+            echo "${prog}: '${key}' is not a known placeholder. Known: ${KNOWN_KEYS}." >&2
+            rc=1
+            continue
+            ;;
+    esac
+    case "$seen" in
+        *" ${key} "*)
+            echo "${prog}: ${key} is named two times." >&2
+            rc=1
+            continue
+            ;;
+    esac
+    seen="${seen}${key} "
+    if [ "$key" = "deployment" ] && [ "$host_set" -eq 1 ]; then
+        echo "${prog}: use --host or deployment=, not both." >&2
+        rc=1
+        continue
+    fi
+    # A value with {{ could add a new placeholder, and one fill pass would
+    # miss it. A value with ${{ in a YAML run: line can inject code.
+    case "$value" in
+        *"$nl"*) echo "${prog}: the ${key} value has a newline." >&2; rc=1; continue ;;
+        *"\${{"*) echo "${prog}: the ${key} value has '\${{'. A GitHub expression is not allowed." >&2; rc=1; continue ;;
+        *'{{'*) echo "${prog}: the ${key} value has '{{'." >&2; rc=1; continue ;;
+    esac
+    # A template makes the allow rule Bash(<value>) from a command value.
+    # Claude Code reads a * at any position in Bash(<value>) as a wildcard,
+    # so the rule allows other commands with no approval. A space at an end
+    # makes a rule that does not match the command.
+    case "$key" in
+        test|test_quick|typecheck|lint|verify)
+            case "$value" in
+                '')
+                    echo "${prog}: the ${key} value is empty. The allow rule Bash() could allow all commands." >&2
+                    rc=1
+                    continue
+                    ;;
+                *'*'*)
+                    echo "${prog}: the ${key} value has '*'. The allow rule Bash(<value>) would allow other commands." >&2
+                    rc=1
+                    continue
+                    ;;
+                [[:space:]]*|*[[:space:]])
+                    echo "${prog}: the ${key} value starts or ends with a space or tab." >&2
+                    rc=1
+                    continue
+                    ;;
+            esac
+            ;;
+    esac
+    printf '%s\n%s\n' "$key" "$value" >> "$map"
+done
+if [ "$rc" -ne 0 ]; then
+    echo "${prog}: wrote no file." >&2
+    exit "$rc"
+fi
+
+# Finder can put a .DS_Store file in a working copy of the plugin. It is not
+# a template file.
+list_files() {
+    (cd "$1" && find . -type f ! -name .DS_Store | sed 's|^\./||')
+}
+if ! base_files="$(list_files "$baseline")"; then
+    echo "${prog}: cannot read ${baseline}." >&2
+    exit 2
+fi
+if ! fam_files="$(list_files "$family_dir")"; then
+    echo "${prog}: cannot read ${family_dir}." >&2
+    exit 2
+fi
+files="$(printf '%s\n%s\n' "$base_files" "$fam_files" | sed '/^$/d' | LC_ALL=C sort -u)"
+if [ -z "$files" ]; then
+    echo "${prog}: the templates have no files." >&2
+    exit 2
+fi
+
+rc=0
+while IFS= read -r rel; do
+    if has_link "$rel"; then
+        refuse_path "$rel" link || rc=1
+    elif [ -e "${top}/${rel}" ]; then
+        refuse_path "$rel" exists || rc=1
+    elif parent_blocked "$rel"; then
+        refuse_path "$rel" parent || rc=1
+    fi
+done <<EOF
+$files
+EOF
+if [ "$rc" -ne 0 ]; then
+    echo "${prog}: wrote no file." >&2
+    exit 1
+fi
+
+while IFS= read -r rel; do
+    from="${baseline}/${rel}"
+    if [ -f "${family_dir}/${rel}" ]; then
+        from="${family_dir}/${rel}"
+    fi
+    # Do the checks again before mkdir, so a link that appeared after the
+    # checks stops the write and mkdir does not follow it.
+    if has_link "$rel"; then refuse_path "$rel" link || write_failed "$rel"; fi
+    if [ -e "${top}/${rel}" ]; then refuse_path "$rel" exists || write_failed "$rel"; fi
+    open_tmp "$rel"
+    if grep -qF '{{' "$from"; then
+        case "$rel" in
+            *.yml|*.yaml|*.json|*.jsonc) quote=1 ;;
+            *) quote=0 ;;
+        esac
+        FT_MAP="$map" FT_HOST="$host_file" FT_QUOTE="$quote" LC_ALL=C awk "$AWK_FILL" "$from" > "$tmp" \
+            || write_failed "$rel"
+    else
+        cat "$from" > "$tmp" || write_failed "$rel"
+    fi
+    perm=644
+    if [ -x "$from" ]; then perm=755; fi
+    install_tmp "$rel" "$perm" ln
+    echo "${prog}: wrote ${rel}."
+done <<EOF
+$files
+EOF
+exit 0

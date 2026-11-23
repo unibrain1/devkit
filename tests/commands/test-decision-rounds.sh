@@ -9,6 +9,10 @@
 #   execute-plan.md         "### Step 3: Re-Verify Checklist Against Repo State"
 #                           "### Step 6.6: Cleanup Ledger Check"
 #                           "### Step 8: Confirm Plan Completeness"
+#   new-project.md          "## Step 2: Ask the setup questions"
+#                           "## Step 3: Recommend the family"
+#                           "## Step 4: Ask the family questions"
+#                           "## Step 5: Ask the commands"
 # Each step must cite the skill's "Decision rounds" section, state the
 # limit of at most 4 questions in one call, put the "(Recommended)" option
 # first, and act only after the last call. A step that can need more than
@@ -122,6 +126,10 @@ bad_commands() {
     bad_step "$1/execute-plan.md" '### Step 3: Re-Verify Checklist Against Repo State' many
     bad_step "$1/execute-plan.md" '### Step 6.6: Cleanup Ledger Check' many
     bad_step "$1/execute-plan.md" '### Step 8: Confirm Plan Completeness' many
+    bad_step "$1/new-project.md" '## Step 2: Ask the setup questions' many
+    bad_step "$1/new-project.md" '## Step 3: Recommend the family' one
+    bad_step "$1/new-project.md" '## Step 4: Ask the family questions' many
+    bad_step "$1/new-project.md" '## Step 5: Ask the commands' many
     bad_false_positives "$1/review-pr.md"
     for file in "$1"/*.md; do
         bad_sequential "$file"

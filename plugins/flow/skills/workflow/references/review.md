@@ -62,6 +62,7 @@ These steps ask all the decisions of a list in one round:
 - `/flow:address-pr-comments` Steps 5 and 7: the Blocking false positives and the Advisory items.
 - `/flow:execute-plan` Step 3 (contradicted items), Step 6.6 (new cleanup-ledger items) and Step 8 (unchecked items).
 - `/flow:finish-milestone` Step 6.5: the retrospective questions.
+- `/flow:new-project` Steps 2, 3, 4, and 5: the setup questions, the family, the family questions, and the commands.
 
 Each of these steps cites this section. Some other steps still ask about each item by itself. A step that you change to this rule cites this section and goes in this list. A step with two lists asks the false-positive round first, because a `Fix it` answer adds a Blocking fix.
 

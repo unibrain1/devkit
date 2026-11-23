@@ -57,6 +57,8 @@ check "every known key exits 0" 0 ""
 project_md_write "$REPO" 'test: `t`' 'lint: `l`' 'release_check: `x`'
 check "typo release_check exits 1" 1 "unknown key 'release_check'"
 check "typo names the nearest key" 1 "Did you mean 'release_checks'?"
+check "unknown key gives the update hint" 1 "If 'release_check' is a new key, flow may be old: run claude plugin update flow@devkit --scope project, then restart the session."
+check "update hint names the exact command" 1 "claude plugin update flow@devkit --scope project"
 
 project_md_write "$REPO" 'test: `t`' 'lint: `l`' 'privat_paths: `x`'
 check "typo privat_paths names private_paths" 1 "Did you mean 'private_paths'?"
@@ -71,6 +73,15 @@ check "tests instead of test: test is missing" 1 "necessary key 'test' is missin
 # Headings and prose lines are not keys.
 printf '# Facts\n\nSome text: not a key.\n- test: `t`\n- lint: `l`\n' > .claude/project.md
 check "prose lines are ignored" 0 ""
+
+# The hint is only for an unknown key, not for a missing necessary key.
+project_md_write "$REPO" 'test: `t`'
+ERR_HINT="$("$SCRIPT" 2>&1 >/dev/null)"
+if [[ "$ERR_HINT" != *"plugin update"* ]]; then
+    pass "missing key has no update hint"
+else
+    fail "missing key has no update hint" "stderr: [$ERR_HINT]"
+fi
 
 OUT_ARGS="$("$SCRIPT" extra 2>&1)"
 STATUS_ARGS=$?
