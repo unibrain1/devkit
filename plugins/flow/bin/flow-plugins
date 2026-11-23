@@ -20,21 +20,25 @@
 #              An install counts when its scope is "project" or "local" and
 #              its projectPath is this repo, or when its scope is "user".
 #              <scope> is the scope of that install.
-#              "unknown" means that the marketplace gives no expected
-#              version. It also means that this repo pins a marketplace ref
-#              (extraKnownMarketplaces.<mkt>.source.ref) that is not the ref
-#              of the shared marketplace checkout. Then the checkout does not
-#              show the version that this repo expects. It also means that
-#              the marketplace.json of the marketplace does not list the
-#              plugin. For the ref case and the not-listed case, stderr
-#              gives the reason in one line.
+#              "unknown" has three causes:
+#                - The marketplace gives no expected version.
+#                - This repo pins a marketplace ref
+#                  (extraKnownMarketplaces.<mkt>.source.ref) that is not
+#                  the ref of the shared marketplace checkout. Then the
+#                  checkout does not show the version that this repo
+#                  expects.
+#                - The marketplace.json of the marketplace does not list
+#                  the plugin.
+#              For the ref cause and the not-listed cause, stderr gives the
+#              reason in one line.
 #              A key that is not <name>@<name> (each name starts with a
 #              letter or digit) is skipped. stderr names it, with other
 #              characters changed to "?".
 #   --running  Also compare the running plugin with the expected version.
 #              <plugin-root> is CLAUDE_PLUGIN_ROOT. An installed plugin runs
-#              from .../cache/<mkt>/<plugin>/<sha12>. If <sha12> is not the
-#              expected version, print:
+#              from .../cache/<mkt>/<plugin>/<sha12>. If the expected
+#              version is known and <sha12> is not the expected version,
+#              print:
 #                stale-running <plugin@mkt> <running12> <expected12>  fix: <fix>
 #              <fix> is "restart the session" when the install is already
 #              the expected version. Otherwise it is the update command for
@@ -51,9 +55,9 @@
 #   0  No missing, stale, or stale-running line.
 #   1  One or more missing, stale, or stale-running lines.
 #   2  Usage error, not in a git repo, no jq, a JSON file that the script
-#      cannot read or parse, or a marketplace checkout with a relative plugin source and a
-#      .git where "git rev-parse HEAD" fails. A checkout with no .git gives
-#      "unknown".
+#      cannot read or parse, or a marketplace checkout with a relative
+#      plugin source and a .git where "git rev-parse HEAD" fails. A
+#      checkout with no .git gives "unknown".
 
 # The jq filters use jq variables such as $k, so single quotes are on purpose.
 # shellcheck disable=SC2016

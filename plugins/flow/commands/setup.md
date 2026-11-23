@@ -12,8 +12,8 @@ With `--check`, do Step 1 and Step 2 only. Report the state. Change nothing.
 
 ## Hard constraints
 
-1. Do not write a file or create a label before the user approves the exact
-   content, diff, or list.
+1. Do not write a file, create a label, or install or update a plugin
+   before the user approves the exact content, diff, list, or command.
 2. Do not change text in CLAUDE.md outside the flow markers.
 3. Do not commit, push, or make a branch. The user decides how to commit.
 
@@ -166,18 +166,33 @@ a `stale` line, or a `stale-running` line with a `claude plugin` fix.
    as `missing` or `stale` again. If this run exits 2, or with an exit
    code that is not 0 or 1, show its stderr. Record the plugins as failed.
 7. Run `git ls-files --error-unmatch .claude/settings.json`. If it exits
-   0, the file is tracked. Then run this compare:
+   0, the file is tracked. Then run
+   `git cat-file -e HEAD:.claude/settings.json`. If it does not exit 0,
+   `HEAD` has no copy of the file: do not compare, and go to item 8.
+   Then run this compare:
 
    ```sh
-   diff <(git show HEAD:.claude/settings.json | jq -S .) \
-     <(jq -S . .claude/settings.json) \
-     && git checkout -- .claude/settings.json
+   if tmp="$(mktemp -d)" &&
+     git show HEAD:.claude/settings.json > "$tmp/head.raw" &&
+     jq -S . "$tmp/head.raw" > "$tmp/head.json" &&
+     jq -S . .claude/settings.json > "$tmp/work.json"; then
+     if cmp -s "$tmp/head.json" "$tmp/work.json"; then
+       git checkout -- .claude/settings.json
+     else
+       diff "$tmp/head.json" "$tmp/work.json"
+     fi
+   else
+     echo "compare failed: .claude/settings.json not changed" >&2
+   fi
+   rm -rf "$tmp"
    ```
 
-   The `diff` uses sorted keys. It exits 0 only when the content is the
-   same. Then only the key order changed, and the `git checkout` discards
-   the change. If the `diff` shows a difference, show it to the user. Do
-   not change the file.
+   Each `jq -S` writes the content with sorted keys to a temp file. The
+   `git checkout` runs only when both `jq` commands exit 0 and the two
+   files are equal. Then only the key order changed, and the
+   `git checkout` discards the change. If the `diff` shows a difference,
+   show it to the user. If the compare fails, show its error. In these two
+   cases, do not change the file.
 8. Tell the user to run `/reload-plugins`. The plugins load after it.
 
 ## Step 8: Report

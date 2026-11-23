@@ -8,8 +8,9 @@
 # runs `gh repo create`, `git commit`, and `git push`, and it must never
 # run a command with `--force`. It must name each flow-template mode and
 # each setup script, and the manual steps. It has no Step 0 and no
-# `model:` key. "## Step 2" must name the seven setup topics and the five
-# kinds. In "## Step 9", each answer and its action must be in the same
+# `model:` key. "## Step 1" must keep each folder guard and stop when a
+# guard fails. "## Step 2" must name the seven decision topics, then the
+# name and the description, and the kinds. In "## Step 9", each answer and its action must be in the same
 # numbered item. The push protection step in the report must say that it
 # is for a public repo. "## Step 6" must run the commands of item 1 after
 # the approval, with no second ```sh block, and must give the visibility
@@ -17,6 +18,9 @@
 # and no space at an end in a command value, no allow rule for a `&&` part
 # with `*`, the temp files of exit 3, setup.md items 1 to 6, no push after
 # a failed commit, and `rm .DS_Store` before `git add -A`.
+# Steps 7 and 11 must stop on a failure. After `gh repo create`, the
+# failure paths of Steps 9, 12, and 14 must go on to the report, and the
+# report must have the Pin and .env hook fields and the jq step.
 #
 # setup.md must check the plugins with `flow-plugins --status`, report six
 # results, give the install and update commands, do the `jq -S` compare,
@@ -245,6 +249,68 @@ bad_start() {
         echo "Step 15 does not report a failed push"
 }
 
+# bad_step1 <file>
+# Prints a line for each folder guard that "## Step 1" does not hold, and
+# when the step does not stop after a failed guard.
+bad_step1() {
+    local t
+    t=$(flat "$1" '## Step 1: Check the folder')
+    [[ "$t" == *'Run `ls -A`. The folder must be empty'* ]] ||
+        echo "Step 1 has no ls -A empty rule"
+    [[ "$t" == *'run `git rev-parse --verify -q HEAD`. It must fail.'* ]] ||
+        echo "Step 1 has no HEAD guard"
+    [[ "$t" == *'run `git remote`. It must print nothing.'* ]] ||
+        echo "Step 1 has no remote guard"
+    [[ "$t" == *'If `.git` does not exist, run `git rev-parse --show-toplevel`. It must fail.'* ]] ||
+        echo "Step 1 has no guard for a folder in another repo"
+    [[ "$t" == *'Run `gh auth status`.'* ]] ||
+        echo "Step 1 has no gh auth status guard"
+    [[ "$t" == *'If a check fails, tell the user which check failed.'*'Stop.'* ]] ||
+        echo "Step 1 does not stop after a failed check"
+}
+
+# bad_stops <file>
+# Prints a line when Step 7 exit 1 or Step 11 does not stop.
+bad_stops() {
+    local t
+    t=$(flat "$1" '## Step 7: Copy the template files')
+    [[ "$t" == *'Exit 1: the script refused and wrote no file. Show its output. Stop.'* ]] ||
+        echo "Step 7 exit 1 does not stop"
+    t=$(flat "$1" '## Step 11: Check for placeholders')
+    [[ "$t" == *'If it exits 1 after the fixes, or exits 2, show the output. Stop.'* ]] ||
+        echo "Step 11 does not stop after a failed fix or exit 2"
+}
+
+# bad_after_create <file>
+# Prints a line for each failure path after `gh repo create` that does not
+# go on to the report, and for each report field that is absent.
+bad_after_create() {
+    local t
+    t=$(flat "$1" '## Step 9: Apply the setup answers')
+    [[ "$t" == *'If one of the two commands fails, show the output. Record the pin as failed. Go to item 3.'* ]] ||
+        echo "Step 9 stops on a failed release lookup"
+    [[ "$t" == *'If it exits 0 and prints `Changed no file.`, show the output. Record the pin as failed.'* ]] ||
+        echo "Step 9 accepts a pin run that pins no file"
+    t=$(flat "$1" '## Step 12: Add the flow block and the labels')
+    [[ "$t" == *'Exit 2, or any other exit code: show its stderr. Add the labels to the skipped list. Go to Step 13.'* ]] ||
+        echo "Step 12 does not handle flow-labels exit 2"
+    [[ "$t" == *'If `flow-labels --create` fails, show the output. Add the labels to the skipped list.'* ]] ||
+        echo "Step 12 does not handle a failed flow-labels --create"
+    t=$(flat "$1" '## Step 13: Install the enabled plugins')
+    [[ "$t" == *'with no `--running`, so no `stale-running` line shows here.'* ]] ||
+        echo "Step 13 does not say that it runs flow-plugins --status with no --running"
+    t=$(flat "$1" '## Step 14: Install the pre-commit hooks')
+    [[ "$t" == *'If `pre-commit install` fails, show the output. Add it to the skipped list.'* ]] ||
+        echo "Step 14 does not add a failed pre-commit install to the skipped list"
+    t=$(flat "$1" '## Step 16: Report')
+    [[ "$t" == *'- Pin: pinned to `<tag>` (with the files), failed (with the output), skipped, or not asked.'* ]] ||
+        echo "the report has no Pin field"
+    [[ "$t" == *'- .env hook: added, in place already (`web-app`), failed (with the output), skipped, or not asked.'* ]] ||
+        echo "the report has no .env hook field"
+    [[ "$t" == *'If the repo has the `.env` block hook, install `jq` on each machine that runs Claude Code.'* ]] ||
+        echo "the shared manual steps have no jq step"
+}
+
 # bad_new_project <file>
 # Prints one line for each rule that new-project.md breaks.
 bad_new_project() {
@@ -334,14 +400,20 @@ if grep -qF 'claude --plugin-dir ~/.claude/plugins/marketplaces/devkit/plugins/f
 else
     fail "README.md gives the --plugin-dir start line for /flow:new-project"
 fi
-check "new-project.md Step 2 names the seven setup topics and the kinds" "$(bad_questions "$NEW")"
+check "new-project.md Step 1 has each folder guard and stops" "$(bad_step1 "$NEW")"
+check "new-project.md Steps 7 and 11 stop on a failure" "$(bad_stops "$NEW")"
+check "new-project.md goes on to the report after a failure past gh repo create" "$(bad_after_create "$NEW")"
+check "new-project.md Step 2 names the seven decision topics and the kinds" "$(bad_questions "$NEW")"
 check "new-project.md Step 9 keeps each answer with its action" "$(bad_step9 "$NEW")"
 check "new-project.md says push protection is for a public repo" "$(bad_report "$NEW")"
-if grep -qF '`flow-plugins --status`' "$SETTINGS_DOC"; then
-    pass "docs/settings-template.md names flow-plugins --status"
-else
-    fail "docs/settings-template.md names flow-plugins --status"
-fi
+# bad_settings_doc <file>
+# Prints a line when the settings doc does not name flow-plugins --status.
+bad_settings_doc() {
+    grep -qF '`flow-plugins --status`' "$1" ||
+        echo "does not name flow-plugins --status"
+}
+
+check "docs/settings-template.md names flow-plugins --status" "$(bad_settings_doc "$SETTINGS_DOC")"
 check "docs/families.md gives the same family order" \
     "$(bad_order "$FAMILIES_DOC" '## Choose a family')"
 got=$("$FLOW_TEMPLATE" --list | tr '\n' ' ' | sed 's/ $//')
@@ -454,12 +526,51 @@ expect_fail "new-project.md with no outside contributors item fails" "$(bad_step
 f=$(broken public.md "$NEW" 's/Public repo: turn on secret scanning/Turn on secret scanning/')
 expect_fail "new-project.md with push protection not for a public repo fails" "$(bad_report "$f")"
 
-sed 's/`flow-plugins --status`/`flow-plugins`/g' "$SETTINGS_DOC" > "$TMPROOT/settings-doc.md"
-if grep -qF '`flow-plugins --status`' "$TMPROOT/settings-doc.md"; then
-    fail "control: a settings doc with no flow-plugins --status fails the check"
-else
-    pass "control: a settings doc with no flow-plugins --status fails the check"
-fi
+f=$(broken settings-doc.md "$SETTINGS_DOC" 's/`flow-plugins --status`/`flow-plugins`/g')
+expect_fail "a settings doc with no flow-plugins --status fails" "$(bad_settings_doc "$f")"
+
+for item in 'ls:/^1\. Run `ls -A`\./d' \
+    'head:/^3\. If `\.git` exists, run `git rev-parse --verify -q HEAD`/d' \
+    'remote:/^4\. If `\.git` exists, run `git remote`/d' \
+    'toplevel:/^5\. If `\.git` does not exist/d' \
+    'auth:/^6\. Run `gh auth status`/d' \
+    'stop:s/^`\/flow:setup` for a repo with files\. Stop\.$/`\/flow:setup` for a repo with files./'; do
+    f=$(broken "step1-${item%%:*}.md" "$NEW" "/^## Step 1/,/^## Step 2/{${item#*:};}")
+    expect_fail "new-project.md Step 1 with no ${item%%:*} guard fails" "$(bad_step1 "$f")"
+done
+
+f=$(broken step7-stop.md "$NEW" 's/^   - Exit 1: the script refused and wrote no file\. Show its output\. Stop\.$/   - Exit 1: the script refused and wrote no file. Show its output./')
+expect_fail "new-project.md Step 7 that goes on after exit 1 fails" "$(bad_stops "$f")"
+
+f=$(broken step11-stop.md "$NEW" 's/^3\. If it exits 1 after the fixes, or exits 2, show the output\. Stop\.$/3. If it exits 1 after the fixes, or exits 2, show the output./')
+expect_fail "new-project.md Step 11 that goes on after a failure fails" "$(bad_stops "$f")"
+
+f=$(broken lookup.md "$NEW" 's/failed\. Go to item 3\./failed. Stop./')
+expect_fail "new-project.md Step 9 that stops on a failed release lookup fails" "$(bad_after_create "$f")"
+
+f=$(broken nopin.md "$NEW" '/^   If it exits 0 and prints `Changed no file\.`/,/^   pins no file is an error\./d')
+expect_fail "new-project.md Step 9 that accepts a pin of no file fails" "$(bad_after_create "$f")"
+
+f=$(broken labels2.md "$NEW" '/^   - Exit 2, or any other exit code: show its stderr\. Add the labels to$/,/^     the skipped list\. Go to Step 13\./d')
+expect_fail "new-project.md Step 12 with no flow-labels exit 2 case fails" "$(bad_after_create "$f")"
+
+f=$(broken labels-create.md "$NEW" '/^5\. If `flow-labels --create` fails/,/^   skipped list\./d')
+expect_fail "new-project.md Step 12 with no failed --create case fails" "$(bad_after_create "$f")"
+
+f=$(broken running.md "$NEW" 's/with no `--running`, so/so/')
+expect_fail "new-project.md Step 13 with no --running note fails" "$(bad_after_create "$f")"
+
+f=$(broken precommit.md "$NEW" '/^4\. If `pre-commit install` fails/,/^   list\./d')
+expect_fail "new-project.md Step 14 that stops on a failed pre-commit install fails" "$(bad_after_create "$f")"
+
+f=$(broken report-pin.md "$NEW" '/^- Pin: pinned to/d')
+expect_fail "new-project.md with no Pin report field fails" "$(bad_after_create "$f")"
+
+f=$(broken report-hook.md "$NEW" '/^- \.env hook: added/d')
+expect_fail "new-project.md with no .env hook report field fails" "$(bad_after_create "$f")"
+
+f=$(broken report-jq.md "$NEW" 's/^  5\. If the repo has the `\.env` block hook, install `jq` on each machine$/  5. If the repo has the `.env` block hook, check each machine/')
+expect_fail "new-project.md with no shared jq step fails" "$(bad_after_create "$f")"
 
 f=$(broken five.md "$SETUP" 's/six results/five results/')
 expect_fail "setup.md that says five results fails" "$(bad_setup "$f")"

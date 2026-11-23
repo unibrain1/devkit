@@ -23,6 +23,10 @@ devkit marketplace has this copy:
 claude --plugin-dir ~/.claude/plugins/marketplaces/devkit/plugins/flow
 ```
 
+If `$CLAUDE_CONFIG_DIR` is set, the marketplace copy is in
+`$CLAUDE_CONFIG_DIR/plugins/marketplaces/devkit/plugins/flow`. Use that
+path in place of `~/.claude`.
+
 ## Hard constraints
 
 1. Do not write a file before the user approves the exact command, edit, or
@@ -383,13 +387,25 @@ change, skip it and add it to the skipped list.
    gh api repos/unibrain1/devkit/commits/<tag> --jq .sha
    ```
 
+   If one of the two commands fails, show the output. Record the pin as
+   failed. Go to item 3.
+
    Show the command `flow-template --pin <sha> <tag>`. After approval, run
    it. If it exits with a code that is not 0, show the output. Record the
-   pin as failed.
+   pin as failed. For exit 3, read the `Wrote:` list in stderr. Record
+   those files as pinned. Exit 3 also means that temp files
+   (`.flow-template.*`) can stay in the repo. Then stderr names them.
+   Tell the user to remove them before Step 15.
+
+   If it exits 0 and prints `Changed no file.`, show the output. Record
+   the pin as failed. A new repo always has devkit callers, so a run that
+   pins no file is an error.
 3. Secrets or a database, and the family is not `web-app`: show the
    command `flow-template --env-hook`. It adds the `.env` block hook.
    `web-app` has the hook already. After approval, run it. If it exits
    with a code that is not 0, show the output. Record the hook as failed.
+   For exit 3, tell the user to remove the temp files that stderr names
+   before Step 15.
 
 ## Step 10: Install the packages
 
@@ -416,15 +432,22 @@ Do this step only for `static-site-cloudflare` and `static-site-host`.
 2. Run `flow-claude-block --diff`. Show the diff. Ask for approval. If the
    user approves, run `flow-claude-block --apply`. If not, add the block
    to the skipped list.
-3. Run `flow-labels --missing`. If it exits 0, go to Step 13.
+3. Run `flow-labels --missing`.
+   - Exit 0: no label is missing. Go to Step 13.
+   - Exit 1: one or more labels are missing. Do item 4.
+   - Exit 2, or any other exit code: show its stderr. Add the labels to
+     the skipped list. Go to Step 13.
 4. Show the missing labels as a table: name, color, description. Ask for
    approval. If the user approves, run `flow-labels --create`. If not, add
    the labels to the skipped list.
+5. If `flow-labels --create` fails, show the output. Add the labels to the
+   skipped list.
 
 ## Step 13: Install the enabled plugins
 
 1. Run `flow-plugins --status`. Keep the `missing`, `stale`, and `unknown`
-   lines.
+   lines. This step runs `flow-plugins --status` with no `--running`, so
+   no `stale-running` line shows here.
    - Exit 0: no enabled plugin is missing or stale. Go to Step 14.
    - Exit 1: one or more `missing` or `stale` lines.
    - Exit 2, or any other exit code: show its stderr. Record the plugins
@@ -446,6 +469,8 @@ Do this step only for `static-site-cloudflare` and `static-site-host`.
 2. Show the command `pre-commit install`. Ask for approval.
 3. If the user approves, run `pre-commit install`. If not, add it to the
    skipped list.
+4. If `pre-commit install` fails, show the output. Add it to the skipped
+   list.
 
 ## Step 15: Commit and push
 
@@ -496,6 +521,11 @@ Print a short report:
 - Plugins: installed or updated (with the names), all current, failed, or
   skipped. List each `unknown` plugin.
 - Labels: created (with the count), none missing, or skipped.
+- Pin: pinned to `<tag>` (with the files), failed (with the output),
+  skipped, or not asked. For a `--pin` exit 3, list the pinned files from
+  its `Wrote:` lines.
+- .env hook: added, in place already (`web-app`), failed (with the
+  output), skipped, or not asked.
 - Skipped steps: list each step that you skipped, with the reason:
 
   ```markdown
@@ -512,7 +542,10 @@ Print a short report:
   4. Public repo: turn on secret scanning and push protection. Add the
      check names of the family (Step 9, item 1) to branch protection on
      `main`.
-  5. The steps of the family below.
+  5. If the repo has the `.env` block hook, install `jq` on each machine
+     that runs Claude Code. The hook needs `jq`. A `web-app` repo has the
+     hook. Another family has it if `flow-template --env-hook` ran.
+  6. The steps of the family below.
 
 For `static-site-cloudflare`:
 
@@ -539,10 +572,8 @@ For `web-app`:
 1. Add the setup steps of the stack to the `App` job in
    `.github/workflows/ci.yml`. Use the commented examples.
 2. Add the stack folders to `.gitignore`.
-3. Install `jq` on each machine that runs Claude Code. The `.env` block
-   hook needs it.
-4. Public repo: turn on CodeQL default setup.
-5. Do the host steps. Cloudflare Pages: connect the Pages project to the
+3. Public repo: turn on CodeQL default setup.
+4. Do the host steps. Cloudflare Pages: connect the Pages project to the
    repo, with `main` as the production branch. A2 Hosting: add the deploy
    remote. Check that its post-receive hook deploys the pushed commit.
 

@@ -13,6 +13,9 @@
 #     user scope and an install at project scope. The settings doc says so
 #     too.
 #   - Step 7 shows the marketplace source that the repo sets.
+#   - Step 7 compares .claude/settings.json with HEAD only when HEAD has
+#     the file, and runs `git checkout` only when both `jq` commands exit 0
+#     and their outputs are equal.
 #
 # Each check also runs on a copy of setup.md without the text. That copy
 # must fail, so the check can find a removed rule.
@@ -73,6 +76,28 @@ rerun_exit2_fails() {
     [[ "$(section "$1" "$STEP7")" \
         == *'Run `flow-plugins --status` again.'*'If this run exits 2, or with an exit code that is not 0 or 1, show its stderr. Record the plugins as failed.'* ]]
 }
+settings_head_guard() {
+    [[ "$(section "$1" "$STEP7")" \
+        == *'Then run `git cat-file -e HEAD:.claude/settings.json`. If it does not exit 0, `HEAD` has no copy of the file: do not compare, and go to item 8.'*'Then run this compare:'* ]]
+}
+# A process substitution hides a failed command, so the check also refuses
+# the old `diff <(...)` form.
+settings_checkout_guard() {
+    local text
+    text="$(section "$1" "$STEP7")"
+    [[ "$text" != *'<('* ]] &&
+        [[ "$text" == *'jq -S . "$tmp/head.raw" > "$tmp/head.json" && jq -S . .claude/settings.json > "$tmp/work.json"; then if cmp -s "$tmp/head.json" "$tmp/work.json"; then git checkout -- .claude/settings.json else'* ]] &&
+        [[ "$text" == *'The `git checkout` runs only when both `jq` commands exit 0 and the two files are equal.'* ]]
+}
+# The doc gives the same compare as setup.md, so a person who follows the
+# doc gets the same guard.
+settings_doc_compare_guard() {
+    local text
+    text="$(tr -s ' \n' '  ' < "$1")"
+    [[ "$text" == *'`git cat-file -e HEAD:.claude/settings.json`'* ]] &&
+        [[ "$text" == *'jq -S . "$tmp/head.raw" > "$tmp/head.json" && jq -S . .claude/settings.json > "$tmp/work.json"; then if cmp -s "$tmp/head.json" "$tmp/work.json"; then git checkout -- .claude/settings.json else'* ]] &&
+        [[ "$text" != *'diff <(git show'* ]]
+}
 settings_doc_user_flow() {
     [[ "$(tr -s ' \n' '  ' < "$1")" \
         == *'`claude plugin uninstall flow@devkit --scope user` and `claude plugin install flow@devkit --scope project` in its place.'* ]]
@@ -112,7 +137,13 @@ run_check "Step 7 shows the marketplace source that the repo sets" shows_mkt_sou
     's/^   Tell the user that this repo sets that marketplace source\.$/   Go on./'
 run_check "Step 7 records the plugins as failed when the second run exits 2" rerun_exit2_fails \
     's/If this run exits 2, or with an exit/If this run ends with an exit/'
+run_check "Step 7 compares settings.json only when HEAD has the file" settings_head_guard \
+    's/^   `git cat-file -e HEAD:\.claude\/settings\.json`\. If it does not exit 0,$/   `git status`. If it does not exit 0,/'
+run_check "Step 7 checks out settings.json only after both jq runs and an equal compare" settings_checkout_guard \
+    's/^     if cmp -s "\$tmp\/head\.json" "\$tmp\/work\.json"; then$/     if true; then/'
 run_check "settings-template.md: a user-scope flow is reinstalled at project scope" settings_doc_user_flow \
     's/claude plugin uninstall flow@devkit --scope user/claude plugin update flow@devkit --scope user/' "$SETTINGS_DOC"
+run_check "settings-template.md: the compare checks out only after both jq runs and an equal compare" settings_doc_compare_guard \
+    's/^     if cmp -s "\$tmp\/head\.json" "\$tmp\/work\.json"; then$/     if true; then/' "$SETTINGS_DOC"
 
 harness_report

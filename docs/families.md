@@ -15,8 +15,8 @@ A target repo gets its files in two layers:
 A family file at a baseline path replaces the baseline file. The family
 file holds the full baseline content with no change, then the family
 additions. A test checks that each baseline entry and each baseline line
-is in the family file. A family
-folder holds no other copy of a baseline file.
+is in the family file. A family folder holds no other copy of a baseline
+file.
 
 Only these overrides are allowed:
 
@@ -124,8 +124,8 @@ install PHP.
 Family W is the web apps with a database and a version, for example a
 TypeScript app on Cloudflare Pages and Supabase, or a PHP and MySQL app on
 A2 Hosting. The stacks differ, so the `web-app` template holds no stack
-file. Each stack command is a placeholder. `/flow:new-project` (#117)
-fills it from the setup answers.
+file. Each stack command is a placeholder. `/flow:new-project` fills it
+from the setup answers.
 
 ### `web-app`
 
@@ -150,8 +150,8 @@ then `&&`, then the lint command, in the `{{lint}}` step of `ci.yml`.
 
 The host is a setup answer. The text for the Deployment section of
 `CLAUDE.md` is in `plugins/flow/templates/web-app-hosts/`. That folder is
-not copied to the repo. `/flow:new-project` must put the file of the
-chosen host in place of `{{deployment}}`.
+not copied to the repo. `/flow:new-project` puts the file of the chosen
+host in place of `{{deployment}}`.
 
 | Host | File | Deploy |
 | --- | --- | --- |
@@ -176,7 +176,7 @@ See the [devkit pin rule](ci-workflows.md#devkit-pin-rule).
 
 The milestone branch `milestone/vX.Y.Z` names the version. The
 `milestone_setup` key writes it into the app, and the `release_checks` key
-stops a release when the two do not agree. `/flow:new-project` must put
+stops a release when the two do not agree. `/flow:new-project` puts
 the commands of one form in place of `{{milestone_setup}}` and
 `{{release_checks}}`:
 
@@ -220,6 +220,11 @@ The settings run the hook through `$CLAUDE_PROJECT_DIR`, so the hook also
 runs when the session works in a subfolder. Each Family W repo has a
 database, so the hook is always on.
 
+A repo of another family gets the hook from `flow-template --env-hook`.
+Install `jq` on each machine that runs Claude Code in a repo with the
+hook: a `web-app` repo, or a repo where `flow-template --env-hook` ran.
+Without `jq`, the hook blocks each call that it checks.
+
 Each repo gets its own copy of the hook. A later fix to the hook in devkit
 does not reach a repo that has a copy: change each copy by hand.
 
@@ -229,7 +234,7 @@ Family B is the repos that build a container image and push it to the
 GitHub Container Registry (GHCR). A host pulls the image and runs it. The
 stacks differ, so the `container-ghcr` template holds no stack file and
 no Dockerfile. Each stack command is a placeholder. `/flow:new-project`
-(#117) fills it from the setup answers.
+fills it from the setup answers.
 
 CI calls the reusable `container-image.yml`. See
 [ci-workflows.md](ci-workflows.md#container-imageyml). It lints the
@@ -342,9 +347,9 @@ example a tab as `\t`). These are the only placeholders:
 | `{{release_checks}}` | The `release_checks` command of one version form. | `web-app` `project.md` |
 | `{{stack_ecosystem}}` | The Dependabot ecosystem of the stack, for example `npm`, `pip`, or `gomod`. | `container-ghcr` `.github/dependabot.yml` |
 
-## What `/flow:new-project` must do
+## What `/flow:new-project` does
 
-`/flow:new-project` (#117) makes a repo from a family template. The
+`/flow:new-project` makes a repo from a family template. The
 `flow-template` script does the file work:
 
 - `flow-template --apply <family> [key=value ...]` copies `baseline/`,
@@ -367,12 +372,12 @@ The model does only the structural edits, for example a hook to remove or
 an allow rule to add.
 
 For a Family A template, after it copies the files and replaces the
-placeholders, it must run `npm install`.
+placeholders, it runs `npm install`.
 `npm install` makes `package-lock.json`. Commit that file. Without it,
 `npm ci` in CI fails. The templates hold no lock file, because the
 package versions change.
 
-For `web-app`, `/flow:new-project` must also do these steps:
+For `web-app`, `/flow:new-project` also does these steps:
 
 1. Ask the stack commands and fill each command placeholder. For a stack
    with a type check, fill the `{{lint}}` step of `ci.yml` with the type
@@ -398,7 +403,7 @@ For `web-app`, `/flow:new-project` must also do these steps:
    is left in the repo. A GitHub expression, `${{ ... }}`, is not a
    placeholder: keep it.
 
-For `container-ghcr`, `/flow:new-project` must do these steps:
+For `container-ghcr`, `/flow:new-project` does these steps:
 
 1. Ask the stack commands and the Dependabot ecosystem of the stack. Fill
    each placeholder.
@@ -417,7 +422,7 @@ For `container-ghcr`, `/flow:new-project` must do these steps:
    is left in the repo. A GitHub expression, `${{ ... }}`, is not a
    placeholder: keep it.
 
-For `ios-app`, `/flow:new-project` must do these steps:
+For `ios-app`, `/flow:new-project` does these steps:
 
 1. Ask the Xcode project or workspace, the scheme, and the simulator
    device. Fill `{{test}}` with the `xcodebuild test` form in
@@ -432,8 +437,10 @@ For `ios-app`, `/flow:new-project` must do these steps:
 ## Manual steps
 
 After the files are in the repo, do the manual steps in
-[baseline.md](baseline.md#add-the-baseline-to-a-repo). Then do the steps
-for the template.
+[baseline.md](baseline.md#add-the-baseline-to-a-repo). If the repo has the
+`.env` block hook, install `jq` on each machine that runs Claude Code. See
+[The `.env` block hook](#the-env-block-hook). Then do the steps for the
+template.
 
 For `static-site-cloudflare`:
 
@@ -472,14 +479,12 @@ For `web-app`:
    `.github/workflows/ci.yml`. Use the commented examples.
 2. Add the stack folders (for example `node_modules/` or `vendor/`) to
    `.gitignore`.
-3. Install `jq` on each machine that runs Claude Code. The `.env` block
-   hook needs it.
-4. In a public repo, turn on CodeQL default setup (Settings, then Code
+3. In a public repo, turn on CodeQL default setup (Settings, then Code
    security). It runs next to the Semgrep app. Add the `App` check to
    branch protection on `main`.
-5. In a private repo, add `App` to the `required_checks` key in
+4. In a private repo, add `App` to the `required_checks` key in
    `.claude/project.md`.
-6. Do the host steps. For Cloudflare Pages, connect the Pages project to
+5. Do the host steps. For Cloudflare Pages, connect the Pages project to
    the repo, with `main` as the production branch. For A2 Hosting, add
    the deploy remote and check that its post-receive hook deploys the
    pushed commit.

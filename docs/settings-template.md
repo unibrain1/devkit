@@ -69,17 +69,31 @@ the allowlist, or if the allowlist names a script that does not exist.
    `claude plugin install flow@devkit --scope project` in its place.
 
 5. Check `.claude/settings.json` after the installs. `/flow:setup` runs
-   this compare after its installs. The install writes
-   the file again in its own key order, also when `enabledPlugins`
-   already has the plugin (issue #92). If only the key order changed,
-   discard the change:
+   this compare after its installs. The install writes the file again in
+   its own key order, also when `enabledPlugins` already has the plugin.
+   If only the key order changed, discard the change. First run
+   `git cat-file -e HEAD:.claude/settings.json`. If it does not exit 0,
+   `HEAD` has no copy of the file, and there is nothing to compare.
+   Then run this compare:
 
    ```sh
-   diff <(git show HEAD:.claude/settings.json | jq -S .) \
-     <(jq -S . .claude/settings.json) \
-     && git checkout -- .claude/settings.json
+   if tmp="$(mktemp -d)" &&
+     git show HEAD:.claude/settings.json > "$tmp/head.raw" &&
+     jq -S . "$tmp/head.raw" > "$tmp/head.json" &&
+     jq -S . .claude/settings.json > "$tmp/work.json"; then
+     if cmp -s "$tmp/head.json" "$tmp/work.json"; then
+       git checkout -- .claude/settings.json
+     else
+       diff "$tmp/head.json" "$tmp/work.json"
+     fi
+   else
+     echo "compare failed: .claude/settings.json not changed" >&2
+   fi
+   rm -rf "$tmp"
    ```
 
-   The `diff` compares the two files with the keys in sorted order. It
-   exits 0 only when the content is the same, and only then does the
-   `git checkout` run.
+   Each `jq -S` writes the content with sorted keys to a temp file. The
+   `git checkout` runs only when both `jq` commands exit 0 and the two
+   files are equal. Do not use `diff <(...)` for this compare. A process
+   substitution hides a failed `jq`. Then both sides are empty, `diff`
+   exits 0, and `git checkout` discards a real change.

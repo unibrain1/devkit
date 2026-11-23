@@ -193,6 +193,14 @@ run --status
 expect "A8 sha source, other version -> stale" 1 \
     "stale asd-ste100@devkit ${OLD12} ${ASD12}  fix: claude plugin update asd-ste100@devkit --scope project"
 
+# A8b: an upstream plugin can set a semver version. Then only gitCommitSha
+# shows that the install is the expected sha.
+printf '%s\n' "{\"version\": 2, \"plugins\": {\"asd-ste100@devkit\": [{\"scope\": \"project\", \"projectPath\": \"$REPO\", \"version\": \"1.0.0\", \"gitCommitSha\": \"$ASD_SHA\"}]}}" \
+    > "$PLUGINS/installed_plugins.json"
+run --status
+expect "A8b sha source, semver version, gitCommitSha is the sha -> ok" 0 \
+    "ok asd-ste100@devkit ${ASD12}"
+
 # B1: a user record has no projectPath. The empty field must not move the
 # version and the sha. The version is not the sha.
 write_settings "$REPO" flow@devkit

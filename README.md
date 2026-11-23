@@ -55,6 +55,10 @@ of `flow`:
 claude --plugin-dir ~/.claude/plugins/marketplaces/devkit/plugins/flow
 ```
 
+If `$CLAUDE_CONFIG_DIR` is set, use
+`$CLAUDE_CONFIG_DIR/plugins/marketplaces/devkit/plugins/flow` in place of
+the `~/.claude` path.
+
 Install at project scope. A user-scope install loads `flow` in every repo
 (design section 5).
 

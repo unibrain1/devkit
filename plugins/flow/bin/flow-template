@@ -5,11 +5,11 @@
 # placeholder fill, the devkit pin, the .env block hook, and the leftover
 # check, so the model does not edit these files by hand.
 #
-# The script never replaces a file that it did not make in the same run.
-# --pin and --env-hook change only the lines and keys that they own. The
-# script never writes through a symbolic link (the file or a parent
-# folder). It never writes outside the repo root. It does not change the
-# git index.
+# --apply never replaces a file that it did not make in the same run.
+# --pin and --env-hook replace a file with a new copy, but change only the
+# lines and keys that they own. The script never writes through a symbolic
+# link (the file or a parent folder). It never writes outside the repo
+# root. It does not change the git index.
 #
 # Usage:
 #   flow-template --list
@@ -52,6 +52,8 @@
 #        link in .github/workflows/ for --pin)
 #      - a file blocks a parent folder
 #      - an unknown key, or a key named two times
+#      - --host and deployment= in one run ("use --host or deployment=,
+#        not both.")
 #      - a value with "{{", "${{", or a newline
 #      - a command value (test, test_quick, typecheck, lint, verify) that
 #        is empty, has "*" at any position, or has a space or tab at the
