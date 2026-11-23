@@ -7,7 +7,7 @@
     "validate:plugin": "claude plugin validate . && claude plugin validate plugins/flow"
   },
   "devDependencies": {
-    "@anthropic-ai/claude-code": "2.1.323",
-    "markdownlint-cli2": "0.24.1"
+    "@anthropic-ai/claude-code": "2.1.329",
+    "markdownlint-cli2": "0.24.2"
   }
 }
