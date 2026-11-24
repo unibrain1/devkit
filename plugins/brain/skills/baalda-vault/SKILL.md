@@ -48,6 +48,8 @@ Each command has one procedure file in this skill. Read the file, then follow it
 | "pick up <activity>", "resume <activity>" | `references/pickup.md` |
 | "tidy", "clean up the vault" | `references/tidy.md` |
 
+Wrap and tidy hold a vault lock while they write, so that only one session writes at a time. The steps are in `references/lock.md`.
+
 ## Work in progress
 
 1. `Projects/In progress.md` has one row for each activity that runs over more than one session.

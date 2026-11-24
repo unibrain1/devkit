@@ -36,7 +36,9 @@ when you can run shell commands. Skip it in the desktop and phone apps.
 6. Read `Inbox/Open questions.md`. List the open lines that link to the hub
    or to the resume prompt.
 7. If the row's Updated date is more than 7 days old, tell Jim. Offer to
-   set the State to `waiting`.
+   set the State to `waiting`. If Jim says yes, get the vault lock
+   (`references/lock.md`, command `pickup`), edit the row, then release
+   the lock.
 8. **Claude Code.** Check the repo:
    1. If the current directory is not the project's repo, tell Jim the
       repo path. Ask whether to continue here.

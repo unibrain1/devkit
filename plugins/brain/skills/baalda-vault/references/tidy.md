@@ -13,9 +13,12 @@ tidy keeps the notes small enough to read.
 3. Copy text word for word when you move it. Do not summarize text that
    you move to `Archive/`.
 4. Do not change a State in `Projects/In progress.md` without Jim's word.
+5. Hold the vault lock for all writes. Follow `references/lock.md`.
 
 ## Steps
 
+0. **Lock.** Get the vault lock (`references/lock.md`, "Get the lock").
+   Use the command `tidy`.
 1. Read the root `AGENTS.md` and `Archive/AGENTS.md`.
 2. **Open questions.** In `Inbox/Open questions.md`:
    1. Move each checked line whose answer date is more than 14 days old to
@@ -52,4 +55,6 @@ tidy keeps the notes small enough to read.
    goes.
 9. Append one section to today's daily note: `## Vault tidy`. Write the
    counts: lines moved, prompts archived, logs trimmed, index rows fixed.
-10. Tell Jim each note that you created, changed, or moved, with its path.
+10. **Lock.** Release the vault lock (`references/lock.md`, "Release the
+    lock").
+11. Tell Jim each note that you created, changed, or moved, with its path.
