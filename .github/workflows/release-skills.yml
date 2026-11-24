@@ -1,10 +1,10 @@
-# Publishes the zips of the brain skills for the claude.ai upload. Each push
-# to main that changes plugins/brain/skills/ replaces the release
-# "skills-latest" with new zips at the new commit. It is a pre-release:
+# Publishes the .skill files (zip files) of the brain skills for the claude.ai
+# upload. Each push to main that changes plugins/brain/skills/ replaces the
+# release "skills-latest" with new .skill files at the new commit. It is a pre-release:
 # GitHub never marks a pre-release "Latest", even when it is the only release.
 # --latest=false did not stop that.
 #
-# Download: gh release download skills-latest -R unibrain1/devkit -p '*.zip'
+# Download: gh release download skills-latest -R unibrain1/devkit -p '*.skill'
 name: release-skills
 
 on:
@@ -46,8 +46,8 @@ jobs:
         # upload with --clobber would keep the tag on the old commit.
         run: |
           gh release delete skills-latest --cleanup-tag --yes || true
-          gh release create skills-latest dist/*.zip \
+          gh release create skills-latest dist/*.skill \
             --target "$GITHUB_SHA" \
             --title "Brain skills (latest)" \
             --prerelease \
-            --notes "Zips of plugins/brain/skills at ${GITHUB_SHA::7}. Upload each zip at claude.ai -> Settings -> Customize -> Skills. An upload replaces the skill as a new version."
+            --notes "Skill files of plugins/brain/skills at ${GITHUB_SHA::7}. Upload each .skill file at claude.ai -> Settings -> Plugins -> <skill> -> ... -> Upload new version. An upload replaces all the files of the skill as a new version."

@@ -1,18 +1,20 @@
 #!/bin/bash
 #
 # Checks each skill in plugins/brain/skills/ against the claude.ai upload
-# rules, then zips it to dist/<skill>.zip. Jim uploads these zips at
-# claude.ai -> Settings -> Customize -> Skills, so the desktop and phone apps
-# get the skills. The checks run here because claude.ai refuses a bad upload
-# only after the upload, for example an XML tag in the description.
+# rules, then zips it to dist/<skill>.skill. A .skill file is a zip file.
+# The claude.ai upload refuses the .zip extension. Jim uploads each file at
+# claude.ai -> Settings -> Plugins -> <skill> -> ... -> Upload new version,
+# so the desktop and phone apps get the skills. The checks run here because
+# claude.ai refuses a bad upload only after the upload, for example an XML
+# tag in the description.
 #
 # Usage: .github/scripts/package-skills.sh [--check] [skills-dir] [out-dir]
-#   --check     Check only. Write no zip.
+#   --check     Check only. Write no .skill file.
 #   skills-dir  Default: plugins/brain/skills
 #   out-dir     Default: dist
 #
 # Exit codes:
-#   0  Every skill passed (and, without --check, is zipped).
+#   0  Every skill passed (and, without --check, has a .skill file).
 #   1  One or more skills failed a check. Each failure is printed on stderr.
 #   2  Usage error, or the skills dir does not exist.
 
@@ -91,7 +93,7 @@ for dir in "$skills_dir"/*/; do
 
     if [ "$check_only" -eq 0 ]; then
         mkdir -p "$out_dir"
-        zip_path="$(cd "$out_dir" && pwd)/${skill}.zip"
+        zip_path="$(cd "$out_dir" && pwd)/${skill}.skill"
         rm -f "$zip_path"
         (cd "$skills_dir" && zip -r -X -q "$zip_path" "$skill" -x '*.DS_Store')
         echo "$zip_path"

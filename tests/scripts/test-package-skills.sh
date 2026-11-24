@@ -26,17 +26,17 @@ skill() {
     printf -- '---\nname: %s\ndescription: %s\n---\n\n# Body with <placeholder>\n' "$3" "$4" > "$1/$2/SKILL.md"
 }
 
-# 1. Good skill: exit 0, zip holds the folder and SKILL.md.
+# 1. Good skill: exit 0, .skill file (a zip) holds the folder and SKILL.md.
 d="$TMPROOT/good"
 skill "$d/skills" vault vault "Rules for the vault. Use when Jim says \"wrap\"."
 out="$("$SCRIPT" "$d/skills" "$d/dist" 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && unzip -l "$d/dist/vault.zip" | grep -q 'vault/SKILL.md'; then
-    pass "good skill: exit 0, zip has vault/SKILL.md"
+if [ "$rc" -eq 0 ] && unzip -l "$d/dist/vault.skill" | grep -q 'vault/SKILL.md'; then
+    pass "good skill: exit 0, .skill has vault/SKILL.md"
 else
     fail "good skill" "exit: $rc" "output: [$out]"
 fi
 
-# 2. --check writes no zip.
+# 2. --check writes no .skill file.
 d="$TMPROOT/check"
 skill "$d/skills" vault vault "Rules for the vault."
 "$SCRIPT" --check "$d/skills" "$d/dist" >/dev/null 2>&1; rc=$?
@@ -46,12 +46,12 @@ else
     fail "--check" "exit: $rc"
 fi
 
-# 3. Angle brackets in the description: exit 1, no zip. Brackets in the body pass.
+# 3. Angle brackets in the description: exit 1, no .skill file. Brackets in the body pass.
 d="$TMPROOT/xml"
 skill "$d/skills" vault vault "Use when Jim says \"pick up <activity>\"."
 out="$("$SCRIPT" "$d/skills" "$d/dist" 2>&1)"; rc=$?
-if [ "$rc" -eq 1 ] && [ ! -e "$d/dist/vault.zip" ] && printf '%s' "$out" | grep -q "XML tags"; then
-    pass "angle brackets in description: exit 1, no zip"
+if [ "$rc" -eq 1 ] && [ ! -e "$d/dist/vault.skill" ] && printf '%s' "$out" | grep -q "XML tags"; then
+    pass "angle brackets in description: exit 1, no .skill file"
 else
     fail "angle brackets" "exit: $rc" "output: [$out]"
 fi
