@@ -9,21 +9,22 @@ This repo will hold:
 - `.github/workflows/` — reusable CI workflows that project repos call. See
   [docs/ci-workflows.md](docs/ci-workflows.md).
 - `plugins/brain/skills/` — skills for the Claude desktop and phone apps.
-  They are not a Claude Code plugin yet. Upload each one as a zip at
-  claude.ai → Settings → Customize → Skills.
+  They are not a Claude Code plugin yet. Upload each one as a `.skill` file
+  at claude.ai → Settings → Plugins → the skill → ⋯ → Upload new version.
 
-## Brain skill zips
+## Brain skill files
 
 Each push to `main` that changes `plugins/brain/skills/` runs
-`release-skills.yml`. It replaces the release `skills-latest` with one zip
-for each skill. Get the zips:
+`release-skills.yml`. It replaces the release `skills-latest` with one
+`.skill` file for each skill. A `.skill` file is a zip file. The claude.ai
+upload refuses the `.zip` extension. Get the files:
 
 ```sh
-gh release download skills-latest -R unibrain1/devkit -p '*.zip' --clobber
+gh release download skills-latest -R unibrain1/devkit -p '*.skill' --clobber
 ```
 
 To build them locally, run `.github/scripts/package-skills.sh`. It writes
-`dist/<skill>.zip`, and git ignores `dist/`. The script first checks the
+`dist/<skill>.skill`, and git ignores `dist/`. The script first checks the
 claude.ai upload rules, for example no `<` or `>` in the description.
 
 The design is in [docs/design.html](docs/design.html). The repo is in
