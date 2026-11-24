@@ -15,9 +15,14 @@ you can run shell commands. Skip it in the desktop and phone apps.
    is not known, write `unknown`.
 6. Do not commit, push, or merge in a repo. Wrap writes to the vault only.
 7. If the session did no work worth a record, tell Jim. Write nothing.
+8. Hold the vault lock for all writes. Follow `references/lock.md`.
 
 ## Steps
 
+0. **Lock.** If the session did no work worth a record, do rule 7 and
+   stop. Do not get the lock. Otherwise, get the vault lock
+   (`references/lock.md`, "Get the lock"). Use the command `wrap` and the
+   activity name.
 1. Read the root `AGENTS.md`, `Daily/AGENTS.md`, and
    `Projects/In progress.md`.
 2. Make a list of the hubs that the session changed. A hub is a project hub
@@ -75,5 +80,7 @@ you can run shell commands. Skip it in the desktop and phone apps.
 11. **Check.** Read each note that you wrote again. Make sure that each new
     section, row, and line is there. If one is missing, write it again,
     then read again. If it is still missing, tell Jim which write failed.
-12. Tell Jim each note that you created or changed, with its path. Give the
+12. **Lock.** Release the vault lock (`references/lock.md`, "Release the
+    lock").
+13. Tell Jim each note that you created or changed, with its path. Give the
     next step in one line.
