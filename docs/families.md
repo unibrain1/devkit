@@ -360,7 +360,10 @@ example a tab as `\t`). These are the only placeholders:
   `test`, `test_quick`, `typecheck`, `lint`, or `verify` value is empty,
   has `*` at any position, or starts or ends with a space or tab. Claude Code reads a
   `*` in the allow rule `Bash(<value>)` as a wildcard, so the rule would
-  then allow other commands.
+  then allow other commands. It also writes nothing if a command value
+  (`test`, `test_quick`, `typecheck`, `lint`, `verify`, `milestone_setup`,
+  or `release_checks`) has a backtick. `.claude/project.md` holds the value
+  in backticks, so a flow command would run a shorter command than CI.
 - `--host <name>` puts the text of `web-app-hosts/<name>.md` in place of
   `{{deployment}}`. Use it only with `web-app`.
 - `flow-template --leftover` lists each placeholder that is left in the

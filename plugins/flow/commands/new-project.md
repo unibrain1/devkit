@@ -100,7 +100,8 @@ Find the family with this rule. The first match wins:
 4. A static site on Cloudflare Pages: `static-site-cloudflare`.
 5. A static site on a host with a webhook or PHP: `static-site-host`.
 6. Other: `other`. The repo gets the baseline, the starter
-   `.claude/settings.json`, and `.claude/project.md`.
+   `.claude/settings.json`, a `.gitignore` for `.env` files and
+   `docs/plans/`, and `.claude/project.md`.
 
 Ask the user to confirm the family in one AskUserQuestion call, as the
 `flow:workflow` skill, `references/review.md`, "Decision rounds", says.
@@ -257,7 +258,8 @@ For a workspace, use `-workspace "<App>.xcworkspace"` in place of
      if fast tests is `No`.
    - `ios-app`: `app_name`, `app_description`, and `test`.
    - `other`: no value. The family folder gives the starter
-     `.claude/settings.json`, which enables flow.
+     `.claude/settings.json`, which enables flow, and a `.gitignore` for
+     `.env` files and `docs/plans/`.
 2. For `web-app`, the version form gives `milestone_setup` and
    `release_checks`. For the npm form:
 
