@@ -11,9 +11,12 @@ at the end. `pickup.md` gets the lock only for its one write.
 
 - Path: `Vault lock.md` at the vault root.
 - The body has one lock line. The line is `free`, or
-  `held by <name> for <command> since <time>`.
+  `held by <name> <id> for <command> since <time>`.
 - `<name>`: the Claude Code session name if you know it. If not, the name
   of the repo folder. In the desktop and phone apps, use `claude.ai`.
+- `<id>`: 4 random hex characters, for example `a3f9`. Make the id once,
+  before you first get the lock. Use the same id until the command ends.
+  Two sessions can have the same name, but they do not have the same id.
 - `<command>`: `wrap`, `tidy`, or `pickup`, then the activity name if
   there is one.
 - `<time>`: the current UTC time, in the format `2026-11-24T18:40Z`.
@@ -22,16 +25,18 @@ at the end. `pickup.md` gets the lock only for its one write.
 ## Get the lock
 
 1. Read `Vault lock.md`. Keep its `revision`.
-2. If the note does not exist, create it with the body `free`. Then do
-   step 1 again.
+2. If the note does not exist, create it with the body `free`. If Baalda
+   refuses the create because the note exists, another session created it
+   first. In both cases, do step 1 again.
 3. If the lock line is `free`, or the lock is stale, go to step 5.
-4. If the lock line names this session, go to step 5. Otherwise another
+4. If the lock line has this session's name and id, go to step 5. Otherwise another
    session holds the lock:
    1. Tell Jim the name, the command, and the time from the lock line.
    2. Do not write to the vault.
    3. Ask Jim: wait and try again, or stop. If Jim says wait, wait about
       one minute. Then do step 1 again.
-5. Replace the lock line with `held by <name> for <command> since <time>`.
+5. Replace the lock line with
+   `held by <name> <id> for <command> since <time>`.
    Use `edit_note` with `expectedRevision` from step 1.
 6. If Baalda refuses the edit because the revision changed, another session
    changed the note first. Do step 1 again.
@@ -47,8 +52,9 @@ at the end. `pickup.md` gets the lock only for its one write.
 ## Release the lock
 
 1. Read `Vault lock.md`.
-2. If the lock line names this session, replace it with `free`. Use
+2. If the lock line has this session's name and id, replace it with
+   `free`. Use
    `edit_note` with `expectedRevision`.
-3. If the lock line names another session, do not change it. That session
+3. If the lock line has another name or id, do not change it. That session
    took a stale lock.
 4. Release the lock also when a step fails or Jim stops the command.

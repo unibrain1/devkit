@@ -19,8 +19,10 @@ you can run shell commands. Skip it in the desktop and phone apps.
 
 ## Steps
 
-0. **Lock.** Get the vault lock (`references/lock.md`, "Get the lock").
-   Use the command `wrap` and the activity name.
+0. **Lock.** If the session did no work worth a record, do rule 7 and
+   stop. Do not get the lock. Otherwise, get the vault lock
+   (`references/lock.md`, "Get the lock"). Use the command `wrap` and the
+   activity name.
 1. Read the root `AGENTS.md`, `Daily/AGENTS.md`, and
    `Projects/In progress.md`.
 2. Make a list of the hubs that the session changed. A hub is a project hub
