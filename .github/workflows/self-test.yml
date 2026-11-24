@@ -97,8 +97,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS runs the scripts on bash 3.2, the version on a stock Mac.
-        os: [ubuntu-24.04, macos-15]
+        # No macOS job: the macOS runner queue often passed the job timeout.
+        # A local run on the Mac covers bash 3.2 (see CLAUDE.md).
+        os: [ubuntu-24.04]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
