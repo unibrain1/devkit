@@ -174,7 +174,7 @@ tmp=""
 stale=""
 # A temp file that stays makes the run incomplete, so exit 0 becomes
 # exit 3. A refusal or a failure keeps its own exit code.
-# shellcheck disable=SC2329 # called only through the EXIT trap
+# shellcheck disable=SC2317,SC2329 # called only through the EXIT trap
 on_exit() {
     local rc=$? f left=""
     while IFS= read -r f; do
@@ -510,7 +510,7 @@ pairs=()
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --host)
-            [ "$#" -ge 2 ] && [ "$host_set" -eq 0 ] || usage
+            if [ "$#" -lt 2 ] || [ "$host_set" -ne 0 ]; then usage; fi
             host="$2"
             host_set=1
             shift 2
