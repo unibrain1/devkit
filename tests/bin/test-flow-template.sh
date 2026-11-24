@@ -411,6 +411,11 @@ refuse "open braces only" "has '{{'" 'test=a {{ b'
 refuse "key named two times" "two times" test=a test=b
 refuse "deployment and --host" "not both" --host cloudflare-pages deployment=x
 refuse "one bad value among good values" "GitHub expression" test=ok lint=ok 'verify=${{ x }}'
+# project.md holds a command value in backticks, so a backtick cuts it.
+refuse "test has a backtick" "has a backtick" 'test=npm test `x`'
+refuse "lint has a backtick" "has a backtick" 'lint=echo `id`'
+refuse "release_checks has a backtick" "has a backtick" 'release_checks=a`b'
+refuse "milestone_setup has a backtick" "has a backtick" 'milestone_setup=a`b'
 # A command value makes the allow rule Bash(<value>). Claude Code reads a
 # * at any position in the rule as a wildcard.
 refuse "test is *" "has '*'" 'test=*'
@@ -441,18 +446,20 @@ fi
 # --- D42: Markdown is verbatim -------------------------------------------
 
 HOSTILE='a&b /c|d \e $HOME `f` "g" '"'h'"' \1 &amp;'
+# A command value cannot hold a backtick (project.md quotes it in backticks).
+HOSTILE_CMD='a&b /c|d \e $HOME "g" '"'h'"' \1 &amp;'
 new_repo markdown
-run --apply container-ghcr "app_name=$HOSTILE" "test=$HOSTILE"
+run --apply container-ghcr "app_name=$HOSTILE" "test=$HOSTILE_CMD"
 if [ "$RC" -eq 0 ] && [ "$(head -n 1 CLAUDE.md)" = "# CLAUDE.md — $HOSTILE" ] \
-    && grep -qxF -- "- test: \`$HOSTILE\`" .claude/project.md; then
-    pass "Markdown: a value with & / | \\ \$ backtick and quotes is verbatim"
+    && grep -qxF -- "- test: \`$HOSTILE_CMD\`" .claude/project.md; then
+    pass "Markdown: a value with & / | \\ \$ quotes (and a backtick outside a command) is verbatim"
 else
     fail "Markdown: value is verbatim" "exit: $RC" "line 1: [$(head -n 1 CLAUDE.md)]" "stderr: [$ERR]"
 fi
 
 # --- D43: YAML round trip ------------------------------------------------
 
-YVAL='make "t" \ & | / $HOME `x` '"'q'${TAB}end"' \n'
+YVAL='make "t" \ & | / $HOME x '"'q'${TAB}end"' \n'
 new_repo yaml
 run --apply web-app "test=$YVAL" "lint=$YVAL" "typecheck=$YVAL" "test_quick=$YVAL"
 if command -v ruby >/dev/null 2>&1 && ruby -ryaml -rjson -e 'exit 0' 2>/dev/null; then

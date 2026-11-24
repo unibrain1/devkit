@@ -235,6 +235,18 @@ for F in $families; do
         else
             fail "$F: .claude/settings.json is the starter settings, with flow on"
         fi
+        # The command can add the .env block hook to an "other" repo, and
+        # the hook stops only Claude, not git add.
+        got=""
+        for rel in .env .env.local docs/plans/issue-1.md; do
+            git check-ignore -q "$rel" || got="$got $rel"
+        done
+        git check-ignore -q .env.example && got="$got !.env.example"
+        if [ -z "$got" ]; then
+            pass "$F: .gitignore ignores .env, .env.<name>, and docs/plans/, not .env.example"
+        else
+            fail "$F: .gitignore ignores .env, .env.<name>, and docs/plans/, not .env.example" "wrong:$got"
+        fi
     else
         out="$("$FLOW_BIN/flow-project-check" 2>&1)"
         rc=$?

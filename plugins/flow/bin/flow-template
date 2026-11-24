@@ -55,6 +55,8 @@
 #      - --host and deployment= in one run ("use --host or deployment=,
 #        not both.")
 #      - a value with "{{", "${{", or a newline
+#      - a command value (test, test_quick, typecheck, lint, verify,
+#        milestone_setup, release_checks) with a backtick
 #      - a command value (test, test_quick, typecheck, lint, verify) that
 #        is empty, has "*" at any position, or has a space or tab at the
 #        start or end
@@ -605,6 +607,20 @@ for pair in ${pairs[@]+"${pairs[@]}"}; do
         *"$nl"*) echo "${prog}: the ${key} value has a newline." >&2; rc=1; continue ;;
         *"\${{"*) echo "${prog}: the ${key} value has '\${{'. A GitHub expression is not allowed." >&2; rc=1; continue ;;
         *'{{'*) echo "${prog}: the ${key} value has '{{'." >&2; rc=1; continue ;;
+    esac
+    # project.md holds a command value in backticks, and flow-project-fact
+    # stops at the first inner backtick. A flow command would then run a
+    # shorter command than CI and the hooks run.
+    case "$key" in
+        test|test_quick|typecheck|lint|verify|milestone_setup|release_checks)
+            case "$value" in
+                *'`'*)
+                    echo "${prog}: the ${key} value has a backtick. .claude/project.md cannot hold it." >&2
+                    rc=1
+                    continue
+                    ;;
+            esac
+            ;;
     esac
     # A template makes the allow rule Bash(<value>) from a command value.
     # Claude Code reads a * at any position in Bash(<value>) as a wildcard,

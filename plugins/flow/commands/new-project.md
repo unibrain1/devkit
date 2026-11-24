@@ -182,6 +182,12 @@ with `Other`.
 Refuse a value that holds `${{`, `{{`, or a newline. A GitHub expression in
 a `run:` value can inject code. Tell the user why. Ask that question again.
 
+Refuse a `test`, `test_quick`, `typecheck`, `lint`, `verify`,
+`milestone_setup`, or `release_checks` value that has a backtick.
+`.claude/project.md` holds the value in backticks, so a flow command would
+run a shorter command than CI runs. Tell the user why. Ask that question
+again.
+
 Refuse a `test`, `test_quick`, `typecheck`, `lint`, or `verify` value that
 has `*` at any position. The template makes the allow rule
 `Bash(<value>)` from the value. Claude Code reads a `*` at any position in

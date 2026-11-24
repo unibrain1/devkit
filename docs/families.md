@@ -47,7 +47,8 @@ rule, and the user confirms it. The first match wins:
 3. A web app with a database or a version: `web-app`.
 4. A static site on Cloudflare Pages: `static-site-cloudflare`.
 5. A static site on a host with a webhook or PHP: `static-site-host`.
-6. Other: `other`. The repo gets the baseline and
+6. Other: `other`. The repo gets the baseline, a `.gitignore` for `.env`,
+   `.env.*` (but not `.env.example`), and `docs/plans/`, and
    `other/.claude/settings.json`, a copy of the starter
    [templates/settings.json](../templates/settings.json) that enables
    flow. `/flow:new-project` then writes `.claude/project.md` from the
