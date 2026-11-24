@@ -8,4 +8,5 @@ backticks. The keys are in
 - test: `npm run build`
 - lint: `npm run lint`
 - plans: `docs/plans`
+- release_notes: `docs/releases/{version}.md`
 - deploy: `A push to main starts the host webhook. The host builds the site and copies it with rsync. See the Deployment section in CLAUDE.md.`

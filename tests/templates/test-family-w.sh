@@ -456,7 +456,7 @@ EOF
         fail "web-app: flow-project-check passes on project.md" "exit: $rc" "$got"
     fi
     got=""
-    for rel in test test_quick lint verify plans deploy milestone_setup release_checks; do
+    for rel in test test_quick lint verify plans release_notes deploy milestone_setup release_checks; do
         f="$(cd "$repo" && "$FLOW_BIN/flow-project-fact" "$rel" 2>/dev/null)" && [ -n "$f" ] || got="$got $rel"
     done
     if [ -z "$got" ]; then

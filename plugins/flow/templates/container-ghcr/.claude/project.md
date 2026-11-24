@@ -9,4 +9,5 @@ backticks. The keys are in
 - test_quick: `{{test_quick}}`
 - lint: `{{lint}}`
 - plans: `docs/plans`
+- release_notes: `docs/releases/{version}.md`
 - deploy: `See the Deployment section in CLAUDE.md.`

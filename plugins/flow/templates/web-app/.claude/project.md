@@ -10,6 +10,7 @@ backticks. The keys are in
 - lint: `{{typecheck}} && {{lint}}`
 - verify: `{{verify}}`
 - plans: `docs/plans`
+- release_notes: `docs/releases/{version}.md`
 - deploy: `See the Deployment section in CLAUDE.md.`
 - milestone_setup: `{{milestone_setup}}`
 - release_checks: `{{release_checks}}`

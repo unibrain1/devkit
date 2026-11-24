@@ -373,6 +373,13 @@ EOF
         else
             fail "$kind: flow-project-check passes on project.md" "exit: $f" "$got"
         fi
+        # /flow:release-milestone stops without release_notes.
+        got="$(cd "$rel" && "$FLOW_BIN/flow-project-fact" release_notes 2>/dev/null)"
+        if [ "$got" = "docs/releases/{version}.md" ]; then
+            pass "$kind: project.md sets release_notes"
+        else
+            fail "$kind: project.md sets release_notes" "got: '$got'"
+        fi
     else
         fail "$kind: flow-project-check passes on project.md" "project.md missing"
     fi

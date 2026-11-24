@@ -477,7 +477,7 @@ EOF
         fail "container-ghcr: flow-project-check passes on project.md" "exit: $rc" "$got"
     fi
     got=""
-    for rel in test test_quick lint plans deploy; do
+    for rel in test test_quick lint plans release_notes deploy; do
         f="$(cd "$repo" && "$FLOW_BIN/flow-project-fact" "$rel" 2>/dev/null)" && [ -n "$f" ] || got="$got $rel"
     done
     if [ -z "$got" ]; then

@@ -82,7 +82,7 @@ L_SWIFTLINT_CFG="ios-app: .swiftlint.yml excludes DerivedData, build, and .build
 L_XCODE="ios-app: the local xcodebuild-test hook runs bash -c {{test}} at each pre-push"
 L_INSTALL="ios-app: default_install_hook_types is pre-commit and pre-push"
 L_PM_CHECK="ios-app: flow-project-check passes on project.md"
-L_PM_FACTS="ios-app: project.md test equals the hook command, and lint is swiftlint lint --strict"
+L_PM_FACTS="ios-app: project.md test equals the hook command, lint is swiftlint lint --strict, and release_notes is set"
 L_DOC_FORM="docs/families.md: shows the xcodebuild test form"
 L_NO_MAC="ios-app: no file holds runs-on or macos"
 L_DEP_ECO="ios-app: dependabot ecosystems are github-actions and swift"
@@ -407,6 +407,8 @@ EOF
     { [ "$fact" = "{{test}}" ] && [ "$fact" = "$hook_arg" ]; } || got="$got [test: '$fact', hook arg: '$hook_arg']"
     fact="$(cd "$repo" && "$FLOW_BIN/flow-project-fact" lint 2>/dev/null)"
     [ "$fact" = "swiftlint lint --strict" ] || got="$got [lint: '$fact']"
+    fact="$(cd "$repo" && "$FLOW_BIN/flow-project-fact" release_notes 2>/dev/null)"
+    [ "$fact" = "docs/releases/{version}.md" ] || got="$got [release_notes: '$fact']"
     if [ -z "$got" ]; then
         pass "$L_PM_FACTS"
     else

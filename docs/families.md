@@ -79,7 +79,7 @@ Cloudflare Pages deploys `main` through its Git integration.
 | --- | --- |
 | `.github/workflows/ci.yml` | The `node-site.yml@main` caller, with no `with:`. A comment shows `pages_functions: true` for a site with Pages Functions. |
 | `.github/dependabot.yml` | Override. The baseline `github-actions` entry, then a weekly `npm` entry. |
-| `.claude/project.md` | `test`, `lint`, `plans`, and `deploy`. |
+| `.claude/project.md` | `test`, `lint`, `plans`, `release_notes`, and `deploy`. |
 | `.claude/settings.json` | `templates/settings.json`, plus allow `npm run build` and `npm run lint`, and deny `Read` and `Edit` in `node_modules/` and `_site/`. |
 | `.claude/rules/site-review.md` | A stub with the sections Site and build, Pages Functions (optional), and Docs. |
 | `CLAUDE.md` | A skeleton: Project Overview, Deployment, Key Conventions, Never Do, and the flow block. |
@@ -100,7 +100,7 @@ pages.
 | `.github/workflows/ci.yml` | The `node-site.yml@main` caller, with `lint_script: lint`. |
 | `.github/dependabot.yml` | Override. The baseline `github-actions` entry, then a weekly `npm` entry and a weekly `composer` entry. The `composer` entry uses `directory: /`. If `composer.json` is in a subfolder, change the directory. |
 | `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` hook. The hook runs `npm run lint` when a CSS or PHP file changes. |
-| `.claude/project.md` | `test`, `lint`, `plans`, and `deploy`. |
+| `.claude/project.md` | `test`, `lint`, `plans`, `release_notes`, and `deploy`. |
 | `.claude/settings.json` | The same as in `static-site-cloudflare`. |
 | `.claude/rules/site-review.md` | A stub with the sections Site and build, PHP, and Docs. |
 | `CLAUDE.md` | A skeleton: Project Overview, Deployment, Key Conventions, Never Do, and the flow block. |
@@ -133,7 +133,7 @@ from the setup answers.
 | --- | --- |
 | `.github/workflows/ci.yml` | The `App` job. It runs on each PR and on each push to `main` and `milestone/**`. It checks out the repo, then runs `{{lint}}` and `{{test}}`. Commented examples show the Node and the PHP setup steps, with pinned SHAs. |
 | `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `typecheck` hook runs `{{typecheck}}` and the `test-quick` hook runs `{{test_quick}}`, at each commit. Each hook runs its command through `bash -c`, because pre-commit runs `entry` with no shell. |
-| `.claude/project.md` | `test`, `test_quick`, `lint` (`{{typecheck}} && {{lint}}`), `verify`, `plans`, `deploy`, `milestone_setup`, and `release_checks`. |
+| `.claude/project.md` | `test`, `test_quick`, `lint` (`{{typecheck}} && {{lint}}`), `verify`, `plans`, `release_notes`, `deploy`, `milestone_setup`, and `release_checks`. |
 | `.claude/settings.json` | `templates/settings.json`, plus the PreToolUse hook on `Read\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep` that runs `"$CLAUDE_PROJECT_DIR"/.claude/hooks/block-env.sh`. |
 | `.claude/hooks/block-env.sh` | The `.env` block hook. See [The `.env` block hook](#the-env-block-hook). |
 | `.claude/rules/app-review.md` | A stub with the sections App and tests, Database, Secrets, and Docs. |
@@ -251,7 +251,7 @@ tag, never `edge`, a `sha-` tag, or `main`.
 | `.github/workflows/ci.yml` | The `App` job, as in `web-app`. It runs on each PR and on each push to `main` and `milestone/**`. It runs `{{lint}}` and `{{test}}`. Commented examples show the Node and the PHP setup steps, with pinned SHAs. |
 | `.github/dependabot.yml` | Override. The baseline `github-actions` entry, then a weekly `docker` entry and a weekly stack entry. Both use `directory: /`. If the Dockerfile is in a subfolder, change the `docker` directory. |
 | `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `hadolint` hook runs the image `ghcr.io/hadolint/hadolint` at a pinned tag and digest. The `test-quick` hook runs `{{test_quick}}` through `bash -c` at each commit. |
-| `.claude/project.md` | `test`, `test_quick`, `lint`, `plans`, and `deploy`. |
+| `.claude/project.md` | `test`, `test_quick`, `lint`, `plans`, `release_notes`, and `deploy`. |
 | `.claude/settings.json` | The same as `templates/settings.json`. |
 | `.claude/rules/image-review.md` | A stub with the sections Image and Dockerfile, App and tests, Secrets, and Docs. |
 | `CLAUDE.md` | A skeleton: Project Overview, Deployment (the image tags), Key Conventions, Never Do, and the flow block. |
@@ -282,7 +282,7 @@ a device through an Xcode sideload.
 | --- | --- |
 | `.pre-commit-config.yaml` | Override. The baseline hooks, then a `repo: local` block. The `swiftlint` hook runs `swiftlint lint --strict --force-exclude` on the staged Swift files at each commit, with `stages: [pre-commit]`. The `xcodebuild-test` hook runs `{{test}}` through `bash -c` at each push, with `always_run: true`. Then the top-level key `default_install_hook_types: [pre-commit, pre-push]`. |
 | `.github/dependabot.yml` | Override. The baseline `github-actions` entry, then a weekly `swift` entry with `directory: /`. |
-| `.claude/project.md` | `test`, `lint` (`swiftlint lint --strict`), `plans`, and `deploy`. |
+| `.claude/project.md` | `test`, `lint` (`swiftlint lint --strict`), `plans`, `release_notes`, and `deploy`. |
 | `.claude/settings.json` | `templates/settings.json`, plus allow `swiftlint lint` and the exact `{{test}}` command, and deny `Read` and `Edit` in `DerivedData/`, `build/`, and `.build/`. |
 | `.claude/rules/ios-review.md` | A stub with the sections App and tests, SwiftLint, Signing and secrets, and Docs. |
 | `CLAUDE.md` | A skeleton: Project Overview, Setup (`brew install swiftlint pre-commit`), Deployment (the Xcode sideload), Key Conventions, Never Do, and the flow block. |

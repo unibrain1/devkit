@@ -8,4 +8,5 @@ backticks. The keys are in
 - test: `{{test}}`
 - lint: `swiftlint lint --strict`
 - plans: `docs/plans`
+- release_notes: `docs/releases/{version}.md`
 - deploy: `See the Deployment section in CLAUDE.md.`
