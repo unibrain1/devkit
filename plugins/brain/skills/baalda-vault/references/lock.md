@@ -29,8 +29,8 @@ at the end. `pickup.md` gets the lock only for its one write.
    refuses the create because the note exists, another session created it
    first. In both cases, do step 1 again.
 3. If the lock line is `free`, or the lock is stale, go to step 5.
-4. If the lock line has this session's name and id, go to step 5. Otherwise another
-   session holds the lock:
+4. If the lock line has this session's name and id, go to step 5.
+   Otherwise another session holds the lock:
    1. Tell Jim the name, the command, and the time from the lock line.
    2. Do not write to the vault.
    3. Ask Jim: wait and try again, or stop. If Jim says wait, wait about
@@ -53,8 +53,7 @@ at the end. `pickup.md` gets the lock only for its one write.
 
 1. Read `Vault lock.md`.
 2. If the lock line has this session's name and id, replace it with
-   `free`. Use
-   `edit_note` with `expectedRevision`.
+   `free`. Use `edit_note` with `expectedRevision`.
 3. If the lock line has another name or id, do not change it. That session
    took a stale lock.
 4. Release the lock also when a step fails or Jim stops the command.
