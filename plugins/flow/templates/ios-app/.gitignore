@@ -1,0 +1,26 @@
+# Xcode build output. Xcode writes build/ only at the root, so the rule
+# does not ignore an app folder named build.
+/build/
+DerivedData/
+# Xcode user files
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+# Swift Package Manager. Keep Package.resolved: Dependabot reads it.
+.build/
+.swiftpm/
+# macOS
+.DS_Store
+# Signing files
+*.cer
+*.p12
+*.mobileprovision
+*.provisionprofile
+# Secrets
+.env
+.env.*
+!.env.example
+# Plan files
+docs/plans/

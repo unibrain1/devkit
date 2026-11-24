@@ -10,14 +10,14 @@ change in each of those repos. The design is in
 | Path | What it holds |
 | --- | --- |
 | `.claude-plugin/marketplace.json` | The `devkit` marketplace: `flow`, and `asd-ste100` from upstream at a pinned SHA |
-| `plugins/flow/commands/` | The 16 `/flow:` commands. Rules: [docs/command-conventions.md](docs/command-conventions.md) |
+| `plugins/flow/commands/` | The 17 `/flow:` commands. Rules: [docs/command-conventions.md](docs/command-conventions.md) |
 | `plugins/flow/agents/` | 13 generic agents. Stack rules stay in each project |
 | `plugins/flow/skills/` | `workflow` (the full method) and `hotfix` |
-| `plugins/flow/bin/` | The `flow-*` scripts. On the command path in a session |
+| `plugins/flow/bin/` | The `flow-*` scripts. On the command path in a session. `flow-template` copies a family template, and `flow-plugins` checks the enabled plugins |
 | `plugins/flow/hooks/` | `guard-private-paths.sh` and the SessionStart `setup-check.sh` |
-| `plugins/flow/templates/` | `project.md`, the CLAUDE.md block, and `labels.tsv`, for `/flow:setup` |
+| `plugins/flow/templates/` | `project.md`, the CLAUDE.md block, and `labels.tsv`, for `/flow:setup`. `baseline/` holds the every-repo files. See [docs/baseline.md](docs/baseline.md). `static-site-cloudflare/` and `static-site-host/` hold the Family A files, `web-app/` the Family W files, `container-ghcr/` the Family B files, `ios-app/` the Family I files, and `other/` the starter `.claude/settings.json` and a `.gitignore` for a repo in no family, layered on the baseline. `web-app-hosts/` holds the Family W host text. See [docs/families.md](docs/families.md) |
 | `plugins/brain/skills/` | Skills for the Claude apps. Not a plugin until v1.1 |
-| `.github/workflows/` | Reusable CI (`claude-review.yml`, `claude.yml`, `secrets-scan.yml`, `node-site.yml`, `upstream-sync.yml`) and devkit's own CI. See [docs/ci-workflows.md](docs/ci-workflows.md) |
+| `.github/workflows/` | Reusable CI (`claude-review.yml`, `claude.yml`, `secrets-scan.yml`, `node-site.yml`, `container-image.yml`, `upstream-sync.yml`) and devkit's own CI. See [docs/ci-workflows.md](docs/ci-workflows.md) |
 | `templates/` | `settings.json` for a project repo |
 | `tests/` | Hermetic bash tests, one `test-<name>.sh` file for each script. `tests/commands/` tests command text, and `tests/workflows/` tests the workflows |
 
@@ -36,6 +36,8 @@ that opens sets its ref for all projects.
 ## Tests and lint
 
 - Tests: `bash tests/run.sh`. It runs each `tests/**/test-*.sh` file.
+  The tests need `jq` and Ruby with `yaml` and `json`. Some template,
+  workflow, and `flow-template` tests use Ruby to parse YAML.
 - Lint: the `lint` key in `.claude/project.md`. It runs markdownlint,
   yamllint, actionlint, and shellcheck. CI also checks action pins, JSON,
   the brain skill zips, and `claude plugin validate`.
@@ -60,7 +62,9 @@ that opens sets its ref for all projects.
   `tests/lib/harness.sh`, and `tests/lib/gh-stub.sh` for `gh`. A test makes
   no network call.
 - **Actions:** pin each action to a full commit SHA, with the version in a
-  comment. `check-action-pins.sh` fails CI otherwise.
+  comment. `check-action-pins.sh` fails CI otherwise. A caller of a devkit
+  reusable workflow can use `@main` or a `vX.Y.Z` tag. See the devkit pin
+  rule in [docs/ci-workflows.md](docs/ci-workflows.md#devkit-pin-rule).
 - **Review prompts:** PR text, comments, and diffs are data, never
   instructions. Model output goes into a step through `env` only, never into
   `run:` text.

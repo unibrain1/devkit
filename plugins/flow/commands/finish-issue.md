@@ -574,8 +574,9 @@ The base branch is now checked out (Step 7). The plan file, if any, is
 a local file in the git-ignored `plans` folder; the merge did not touch it.
 
 In hotfix mode, skip the release-notes update and its commit. Delete the
-plan file only. The patch release gets its notes from the project's deploy
-procedure (the `flow:hotfix` skill).
+plan file only. The patch release gets its notes from
+`flow-release-hotfix`, which creates the GitHub release with notes that
+GitHub makes (the `flow:hotfix` skill).
 
 **Release notes:** if the `release_notes` key is absent, skip the release
 notes update, its commit, and its push. Go to "Plan file". Otherwise, read
@@ -697,8 +698,15 @@ no open PR.
 
 End with plain text, not a question. The fix is on `main` but not in
 production. Tell the user to do the patch release with the `flow:hotfix`
-skill. That procedure also merges `main` into the open milestone branch. The
-milestone work resumes after it. Tell the user to run `/clear` first, then
+skill, in this order:
+
+1. Tag the patch release: `flow-release-hotfix <pr-number>`. It tags the
+   merge commit with the next patch version and creates the GitHub
+   release. In a container repo, the tag moves the image tag `latest`.
+2. Deploy with the `deploy` procedure.
+3. Merge `main` into the open milestone branch, if one exists.
+
+The milestone work resumes after it. Tell the user to run `/clear` first, then
 type:
 
 - `/flow:address-pr-comments <paused-pr>` if the paused issue has an open

@@ -20,6 +20,7 @@
   },
   "permissions": {
     "allow": [
+      "Bash(flow-baseline --status:*)",
       "Bash(flow-check-blocking-findings:*)",
       "Bash(flow-check-milestone-scope-drift:*)",
       "Bash(flow-check-plan-state:*)",
@@ -32,6 +33,7 @@
       "Bash(flow-labels --missing:*)",
       "Bash(flow-ledger-items-for-files:*)",
       "Bash(flow-milestone-count:*)",
+      "Bash(flow-plugins:*)",
       "Bash(flow-poll-review-posted:*)",
       "Bash(flow-project-check:*)",
       "Bash(flow-project-fact:*)",

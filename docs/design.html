@@ -116,7 +116,7 @@ td code { white-space: nowrap; }
 <header class="doc">
   <div class="eyebrow">Design doc · Draft 6 · Lean version</div>
   <h1>Devkit: one source for Claude workflows and CI</h1>
-  <p class="lede">One public repo holds one Claude plugin and four reusable CI workflows. Private repos use the latest version. Registry pins a tag because it has outside contributors.</p>
+  <p class="lede">One public repo holds one Claude plugin and five reusable CI workflows. Private repos use the latest version. Registry pins a tag because it has outside contributors.</p>
   <div class="meta">
     <span><b>Owner</b> Jim Boone</span>
     <span><b>Date</b> 2026-10-26</span>
@@ -137,7 +137,7 @@ td code { white-space: nowrap; }
     <tr><td>Distribution</td><td>Claude Code plugin marketplace, in a public repo</td></tr>
     <tr><td>Repo layout</td><td>One repo for the plugin and the reusable CI</td></tr>
     <tr><td>Plugins</td><td><code>flow</code> for all repos. <code>brain</code> for your user settings only, in v1.1. Stack items stay in their projects.</td></tr>
-    <tr><td>Shared CI</td><td>Four reusable workflows. Stack CI stays in each project. The secret scanner is trufflehog.</td></tr>
+    <tr><td>Shared CI</td><td>Five reusable workflows. Stack CI stays in each project. The secret scanner is trufflehog.</td></tr>
     <tr><td>CI work during the build</td><td>A short freeze in Registry and MyGunLog, from the base SHAs to <code>v0.1.0</code>. See <a href="#rollout">section 10</a>.</td></tr>
     <tr><td>Updates</td><td>Private repos use <code>main</code>. Registry pins a tag.</td></tr>
     <tr><td>Project facts</td><td>A small reference file, <code>.claude/project.md</code>. Commands read it when they run. CLAUDE.md does not load it.</td></tr>
@@ -208,7 +208,7 @@ td code { white-space: nowrap; }
   <p>Draft 5 records Jim's answers to the open decisions. <a href="#decide">Section 14</a> lists them.</p>
   <ul>
     <li>The second brain ships in v1.1, after the pilot. Section 13 and rollout phase 4 say so.</li>
-    <li>trufflehog is the secret scanner for private repos.</li>
+    <li>trufflehog is the secret scanner. Draft 4 used it for private repos. From v1.4.0, every repo runs it. See <a href="baseline.md">the baseline</a>.</li>
     <li>A short CI freeze replaces the catch-up step.</li>
     <li>Sensitive notes stay in <code>UniBrain</code>, under a written rule. A second vault costs money, so it waits until there is a need.</li>
     <li>The milestone limit rule counts <code>milestone/*</code> branches, not open GitHub milestones. See <a href="#plugin">section 4</a>.</li>
@@ -253,7 +253,7 @@ td code { white-space: nowrap; }
 flowchart LR
   subgraph DK["unibrain1/devkit (public)"]
     P["plugins/flow<br/>commands, agents, skills, scripts"]
-    W[".github/workflows<br/>4 reusable workflows"]
+    W[".github/workflows<br/>5 reusable workflows"]
   end
   subgraph PRIV["Private repos"]
     S1["settings.json<br/>ref: main"]
@@ -281,7 +281,17 @@ flowchart LR
 │   ├── agents/                 # code-reviewer, senior-architect, ...
 │   ├── skills/                 # workflow (the method), hotfix
 │   ├── templates/              # project.md, the CLAUDE.md block
+│   │   ├── baseline/           # Every-repo files: pre-commit, callers, Dependabot
+│   │   ├── static-site-cloudflare/ # Family A: layered on baseline/. See docs/families.md
+│   │   ├── static-site-host/   # Family A: layered on baseline/
+│   │   ├── web-app/            # Family W: layered on baseline/. Stack commands are placeholders
+│   │   ├── container-ghcr/     # Family B: layered on baseline/. Image to GHCR
+│   │   ├── ios-app/            # Family I: layered on baseline/. SwiftLint and xcodebuild test hooks
+│   │   ├── other/              # No family: layered on baseline/. The starter .claude/settings.json
+│   │   └── web-app-hosts/      # Family W: Deployment text for each host. Not copied
 │   ├── bin/                    # Generic workflow scripts from Registry scripts/
+│   │   ├── flow-plugins        # Checks the enabled plugins: missing or stale
+│   │   └── flow-template       # Copies a family template and fills the placeholders
 │   └── hooks/hooks.json        # Guard hooks, and the SessionStart setup check
 ├── plugins/brain/              # /brain, /capture. User scope only. v1.1.
 │   ├── .claude-plugin/plugin.json
@@ -289,8 +299,9 @@ flowchart LR
 ├── .github/workflows/
 │   ├── claude.yml              # Reusable: @claude mentions
 │   ├── claude-review.yml       # Reusable: PR review, milestone-aware
-│   ├── secrets-scan.yml        # Reusable: private repos
-│   ├── node-site.yml           # Reusable: 3 Cloudflare static sites
+│   ├── secrets-scan.yml        # Reusable: every repo
+│   ├── node-site.yml           # Reusable: Node static sites, Cloudflare or another host
+│   ├── container-image.yml     # Reusable: multi-arch image to GHCR, Family B
 │   ├── self-test.yml           # devkit's own CI
 │   └── upstream-sync.yml       # devkit's own: weekly check of upstream plugin pins
 ├── templates/
@@ -304,7 +315,7 @@ flowchart LR
   <li>The milestone and issue commands from Registry, and <code>/flow:setup</code>.</li>
   <li>The method: a <code>flow:workflow</code> skill, and the <code>hotfix</code> skill.</li>
   <li>The generic agents: code-reviewer, silent-failure-hunter, senior-architect, and the others. See "Generic agents" below.</li>
-  <li>The generic workflow scripts in <code>bin/</code>. Claude Code puts a plugin's <code>bin/</code> on the command path, so commands call the scripts by name.</li>
+  <li>The generic workflow scripts in <code>bin/</code>. Claude Code puts a plugin's <code>bin/</code> on the command path, so commands call the scripts by name. <code>flow-plugins</code> checks the enabled plugins. <code>flow-template</code> copies a family template for <code>/flow:new-project</code>.</li>
   <li>Optional vault steps in four commands. See <a href="#brain">section 13</a>.</li>
 </ul>
 
@@ -424,7 +435,7 @@ flowchart LR
   },
   "enabledPlugins": { "flow@devkit": true, "asd-ste100@devkit": true }
 }</code></pre>
-<p>Install both plugins at project scope: <code>claude plugin install flow@devkit --scope project</code> and <code>claude plugin install asd-ste100@devkit --scope project</code>. A plugin in <code>enabledPlugins</code> that is not installed does not load. A user-scope install loads <code>flow</code> in every repo, and a <code>ref</code> change in another project can leave it with no cache. If <code>/plugin</code> shows <code>flow</code> at user scope, uninstall it there.</p>
+<p>Install both plugins at project scope: <code>claude plugin install flow@devkit --scope project</code> and <code>claude plugin install asd-ste100@devkit --scope project</code>. A plugin in <code>enabledPlugins</code> that is not installed does not load. <code>/flow:setup</code> runs <code>flow-plugins --status</code> and installs or updates each missing or stale enabled plugin after approval. The SessionStart hook reports a missing or stale plugin. A user-scope install loads <code>flow</code> in every repo, and a <code>ref</code> change in another project can leave it with no cache. If <code>/plugin</code> shows <code>flow</code> at user scope, uninstall it there.</p>
 <p>A plugin cannot ship a permission allowlist. Each project copies <code>templates/settings.json</code> one time when it migrates, and then owns its copy.</p>
 
 <h2 id="ci">Shared CI</h2>
@@ -432,13 +443,15 @@ flowchart LR
 <table>
   <tr><th>Reusable workflow</th><th>Source</th><th>Public repos</th><th>Private repos</th></tr>
   <tr><td><code>claude.yml</code> (@claude mentions)</td><td>Registry</td><td><span class="pill on">On</span></td><td><span class="pill on">On</span></td></tr>
-  <tr><td><code>claude-review.yml</code></td><td>Registry, plus MyGunLog #625 and #631</td><td><span class="pill on">On</span></td><td><span class="pill opt">Opt-in</span></td></tr>
-  <tr><td><code>secrets-scan.yml</code></td><td>New, trufflehog</td><td><span class="pill off">Not needed</span></td><td><span class="pill on">On</span></td></tr>
+  <tr><td><code>claude-review.yml</code></td><td>Registry, plus MyGunLog #625 and #631</td><td><span class="pill on">On</span></td><td><span class="pill on">On</span></td></tr>
+  <tr><td><code>secrets-scan.yml</code></td><td>New, trufflehog</td><td><span class="pill on">On</span></td><td><span class="pill on">On</span></td></tr>
   <tr><td><code>node-site.yml</code></td><td>TeamCroc, BurgessMachineWorks, CCS-Website</td><td>n/a</td><td>3 Cloudflare sites</td></tr>
+  <tr><td><code>container-image.yml</code></td><td>New, Family B</td><td>n/a</td><td>Container apps on HomeLab</td></tr>
 </table>
 </div>
-<p>"Opt-in" means that a private repo adds the caller file only if it wants the review.</p>
-<p><code>node-site.yml</code> builds and lints a static site: <code>npm ci</code>, <code>npm run build</code>, and markdownlint. An optional input builds Cloudflare Pages Functions. It does not deploy. Cloudflare Pages deploys <code>main</code> through its Git integration.</p>
+<p>Every repo gets the <code>claude.yml</code>, <code>claude-review.yml</code>, and <code>secrets-scan.yml</code> callers from the every-repo baseline in <code>plugins/flow/templates/baseline/</code>. In a public repo, trufflehog and GitHub push protection both run. See <a href="baseline.md">baseline.md</a> for the files, the needed checks, and the merge gate rule.</p>
+<p><code>node-site.yml</code> builds and lints a static site on Cloudflare Pages or another host: <code>npm ci</code>, <code>npm run build</code>, and markdownlint. The optional <code>lint_script</code> input runs one more npm lint script, for example the CSS and PHP lint of a host site. An optional input builds Cloudflare Pages Functions. It does not deploy. Cloudflare Pages deploys <code>main</code> through its Git integration. Another host deploys <code>main</code> through a GitHub webhook.</p>
+<p><code>container-image.yml</code> lints the Dockerfile with hadolint, then builds a multi-arch image. A PR pushes nothing. A push to <code>main</code> pushes <code>edge</code> and <code>sha-&lt;sha&gt;</code> to GHCR. A <code>vX.Y.Z</code> tag pushes <code>X.Y.Z</code>, <code>X.Y</code>, and <code>latest</code>. The host pulls <code>latest</code> or a version. See <a href="ci-workflows.md#container-imageyml">ci-workflows.md</a>.</p>
 
 <h3>Public repos: repo settings, not workflow files</h3>
 <p>GitHub gives these free to public repos. You turn them on in each repo's settings, so they need no workflow file and no maintenance:</p>
@@ -447,6 +460,7 @@ flowchart LR
   <li>Secret scanning and push protection</li>
   <li>Dependabot alerts</li>
 </ul>
+<p>These settings add to the baseline callers. They do not replace them. A public repo also runs the <code>secrets-scan.yml</code> caller.</p>
 <p>Registry's own <code>codeql-analysis.yml</code> can stay or change to default setup. Release automation stays in the projects that have it (mock-brevo and Monitoring).</p>
 
 <h3>A caller</h3>
@@ -772,7 +786,7 @@ skip this step. Do not stop the command.</code></pre>
   <tr><td>Second brain release</td><td>v1.1, after the pilot. Rollout phase 4.</td></tr>
   <tr><td>Repo name</td><td><code>unibrain1/devkit</code>. Plugin IDs: <code>flow@devkit</code>, <code>brain@devkit</code>.</td></tr>
   <tr><td>Plugin name</td><td><code>flow</code>. Commands: <code>/flow:start-issue</code> and the others.</td></tr>
-  <tr><td>Secret scanner for private repos</td><td>trufflehog. Two repos use it now, and it needs no license.</td></tr>
+  <tr><td>Secret scanner</td><td>trufflehog. Two repos use it now, and it needs no license. From v1.4.0, every repo runs it, not only private repos.</td></tr>
   <tr><td>Active CI work</td><td>A short freeze in Registry and MyGunLog, from the base SHAs to <code>v0.1.0</code>. Registry #2513 merges first. After <code>v0.1.0</code>, shared changes go to devkit first.</td></tr>
   <tr><td>Vault skills</td><td>A second plugin, <code>brain@devkit</code>, turned on only in <code>~/.claude/settings.json</code>.</td></tr>
   <tr><td>Sensitive notes</td><td>Stay in <code>UniBrain</code> for now, under a written rule. A second vault costs money. Section 13 has the upgrade path.</td></tr>

@@ -31,21 +31,36 @@ rollout phase 1 (build). Do not use it in a project before tag `v0.1.0`.
 
 ## Install
 
-After `v0.1.0`, add the marketplace and turn on the plugins:
+Do not run `/plugin marketplace add unibrain1/devkit`. It writes a
+`devkit` entry with no `ref` in `~/.claude/settings.json`, and then
+`/plugin` fails in each project that sets a `ref`.
 
-```text
-/plugin marketplace add unibrain1/devkit
-/plugin install flow@devkit --scope project
-/plugin install asd-ste100@devkit --scope project
+For an existing repo:
+
+1. Copy [templates/settings.json](templates/settings.json) to
+   `.claude/settings.json`. It holds the `devkit` marketplace entry and
+   `enabledPlugins`. See [docs/settings-template.md](docs/settings-template.md).
+2. Start one Claude Code session in the repo and trust the project.
+3. Run `/flow:setup`. It creates `.claude/project.md` (see
+   [docs/project-md.md](docs/project-md.md)) and, after your approval,
+   installs the enabled plugins at project scope.
+4. Run `/reload-plugins`.
+
+For a new repo, run `/flow:new-project`. It makes the repo from a family
+template. See [docs/families.md](docs/families.md). The empty folder has
+no `.claude/settings.json`, so start the session with the marketplace copy
+of `flow`:
+
+```sh
+claude --plugin-dir ~/.claude/plugins/marketplaces/devkit/plugins/flow
 ```
+
+If `$CLAUDE_CONFIG_DIR` is set, use
+`$CLAUDE_CONFIG_DIR/plugins/marketplaces/devkit/plugins/flow` in place of
+the `~/.claude` path.
 
 Install at project scope. A user-scope install loads `flow` in every repo
 (design section 5).
-
-Each repo also needs a `.claude/project.md`. See
-[docs/project-md.md](docs/project-md.md). Copy
-[templates/settings.json](templates/settings.json) to `.claude/settings.json`
-one time. See [docs/settings-template.md](docs/settings-template.md).
 
 ## Work on devkit with flow
 

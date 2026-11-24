@@ -22,7 +22,8 @@ Each command starts with this step, before any other step:
 2. Read each fact that this command needs with `flow-project-fact <key>`.
 ```
 
-`/flow:setup` is the only exception, because it creates the file.
+`/flow:setup` and `/flow:new-project` are the exceptions, because each
+creates the file.
 
 ## Version check: Step 0b
 

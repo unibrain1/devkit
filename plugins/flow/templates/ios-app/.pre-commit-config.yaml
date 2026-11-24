@@ -1,0 +1,75 @@
+# Baseline pre-commit hooks from devkit (docs/baseline.md). Each repo gets
+# the same checks. Run `pre-commit install` one time in each clone to turn
+# the hooks on.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.24.0
+    hooks:
+      - id: markdownlint-cli2
+  # test_quick slot. To turn it on, remove the first "# " mark from each
+  # line from "- repo: local" to the stages line. Then replace the entry
+  # with the test_quick command of this repo.
+  # If test_quick takes more than about 20 seconds, move it to pre-push.
+  # Remove the second "# " mark from the stages line too. Then run:
+  # `pre-commit install --hook-type pre-push`.
+  # - repo: local
+  #   hooks:
+  #     - id: test-quick
+  #       name: test_quick
+  #       entry: REPLACE-WITH-TEST-QUICK-COMMAND
+  #       language: system
+  #       pass_filenames: false
+  #       # stages: [pre-push]
+  # gitleaks scans only the staged files.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+  # Family I hooks (docs/families.md).
+  - repo: local
+    hooks:
+      # The swiftlint hook lints the staged Swift files at each commit. The
+      # stages key keeps it off the push: default_install_hook_types below
+      # installs a pre-push hook, and a hook with no stages runs there too. It
+      # runs the SwiftLint on PATH, so each machine that commits needs
+      # SwiftLint: `brew install swiftlint`. The upstream SwiftLint hook
+      # builds SwiftLint from source, and the first build takes minutes.
+      # pre-commit gives SwiftLint the file names, and SwiftLint then skips
+      # the excluded paths of .swiftlint.yml only with --force-exclude.
+      - id: swiftlint
+        name: swiftlint
+        entry: swiftlint lint --strict --force-exclude
+        language: system
+        types: [swift]
+        stages: [pre-commit]
+      # The xcodebuild-test hook runs all the tests before each push. The
+      # tests run in the iOS Simulator and take too long for each commit.
+      # The commented test_quick slot above is the baseline copy. Do not turn
+      # it on. pre-commit runs entry with no shell, so the hook runs its
+      # command through bash -c. Then a quoted scheme name works. Without
+      # always_run, pre-commit skips the hook when a push changes no file.
+      - id: xcodebuild-test
+        name: xcodebuild test
+        entry: bash
+        args:
+          - "-c"
+          - "{{test}}"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+# Family I: `pre-commit install` installs the pre-commit hook and the
+# pre-push hook. Without this key, the xcodebuild-test hook needs
+# `pre-commit install --hook-type pre-push`. The baseline hooks have no
+# stages key, so they also run at each push, on the files of the push.
+# gitleaks still scans only the staged files.
+default_install_hook_types: [pre-commit, pre-push]

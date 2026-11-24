@@ -1,5 +1,5 @@
 ---
-description: Set up this repo for the flow commands. Creates .claude/project.md and adds or updates the flow block in CLAUDE.md.
+description: Set up this repo for the flow commands. Creates .claude/project.md, adds or updates the flow block in CLAUDE.md, creates the missing labels, adds the missing baseline files, and installs or updates the enabled plugins.
 argument-hint: "[--check]"
 ---
 
@@ -12,8 +12,8 @@ With `--check`, do Step 1 and Step 2 only. Report the state. Change nothing.
 
 ## Hard constraints
 
-1. Do not write a file or create a label before the user approves the exact
-   content, diff, or list.
+1. Do not write a file, create a label, or install or update a plugin
+   before the user approves the exact content, diff, list, or command.
 2. Do not change text in CLAUDE.md outside the flow markers.
 3. Do not commit, push, or make a branch. The user decides how to commit.
 
@@ -30,8 +30,28 @@ With `--check`, do Step 1 and Step 2 only. Report the state. Change nothing.
 2. If it exists, run `flow-project-check`. Keep its output for the report.
 3. Run `flow-claude-block --status`. Keep the output.
 4. Run `flow-labels --missing`. Keep the list of missing labels.
+5. Run `flow-baseline --status`. Keep the `missing` and `different` lines.
+   - Exit 0: no file is missing.
+   - Exit 1: one or more files are missing. This is a normal result. If
+     the output has no `missing` line, treat the exit as an error.
+   - Exit 2, or any other exit code: an error. Show its stderr. Record the
+     baseline as failed. Skip Step 6.
+6. Run `flow-plugins --status --running "${CLAUDE_PLUGIN_ROOT}"`. Keep the
+   `missing`, `stale`, `stale-running`, and `unknown` lines.
+   - Exit 0: no enabled plugin is missing or stale.
+   - Exit 1: one or more `missing`, `stale`, or `stale-running` lines.
+     This is a normal result.
+   - Exit 2, or any other exit code: an error. Show its stderr. Record the
+     plugins as failed. Skip Step 7.
+   - An `unknown` line is not a failure. Report it. If stderr has a line
+     for it, show that line.
+   - A `stale-running` line means that this session runs an old copy of
+     the plugin. Report it with the fix in the line. If the fix is
+     `restart the session`, the install is current, and Step 7 runs no
+     command for it.
 
-If `$ARGUMENTS` has `--check`, report the four results and stop.
+If `$ARGUMENTS` has `--check`, report the six results and stop. A `missing`
+or `stale` line marks the plugins result as `failed`.
 
 ## Step 3: Create `.claude/project.md`
 
@@ -78,7 +98,104 @@ Do this step only if Step 2 found missing labels.
 3. Ask for approval. If the user approves, run `flow-labels --create`.
    If not, skip this step.
 
-## Step 6: Report
+## Step 6: Add the missing baseline files
+
+The baseline is the set of files that every repo gets: the pre-commit
+config, the Claude callers, the secrets-scan caller, and the Dependabot
+config. Do this step only if Step 2 found a `missing` or a `different`
+line.
+
+1. If Step 2 found no `missing` line, go to item 7.
+2. Show each `missing` file as a list.
+3. Tell the user that this step only adds missing files. It never changes
+   a file that exists.
+4. Ask for approval. The user can approve all files, some files, or none.
+5. If the user approves one or more files, run
+   `flow-baseline --apply <path>...` with only the approved paths.
+   If not, skip the copy.
+6. If `flow-baseline --apply` exits 1 or 2, show its output. Record the
+   baseline as failed. Do not run it again.
+   If it exits 3, show its output. Read the `Wrote:` list in stderr. If
+   the list is `none`, record the baseline as failed. Otherwise, record a
+   partial write with the files in the list. Do not run it again.
+   Any other exit code is an error. Show the output, and record the
+   baseline as failed.
+7. Show each `different` file as a list. Tell the user to compare each
+   one with the baseline file. Do not change a `different` file.
+
+## Step 7: Install or update the enabled plugins
+
+An enabled plugin that is not installed does not load. A stale plugin
+loads an old version. Do this step only if Step 2 found a `missing` line,
+a `stale` line, or a `stale-running` line with a `claude plugin` fix.
+
+1. Show the `fix:` command of each `missing` and `stale` line, and of each
+   `stale-running` line with a `claude plugin` fix:
+   - `missing`: `claude plugin install <plugin> --scope project`
+   - `stale`: `claude plugin update <plugin> --scope <scope>`. The
+     `<scope>` is the scope of the install: `project`, `local`, or `user`.
+   - `stale-running`: the fix is one of these forms:
+     `claude plugin update <plugin> --scope <scope>` with the scope of the
+     install, `restart the session`, or
+     `claude plugin install <plugin> --scope project` when no install
+     exists. Show only a `claude plugin` fix as a command. For
+     `restart the session`, tell the user to restart the session.
+   - A `stale` or `stale-running` line for `flow@<mkt>` with the scope
+     `user`: do not show the update command. Show these two commands in
+     its place, in this order:
+     `claude plugin uninstall flow@<mkt> --scope user` and
+     `claude plugin install flow@<mkt> --scope project`. A user-scope
+     install loads `flow` in each repo. A `ref` change in another project
+     can leave it with no cache (design section 5).
+2. Tell the user that the list comes from `enabledPlugins` in this repo's
+   `.claude/settings.json`. Name the marketplace of each plugin: the part
+   after `@`. The command gets the plugin from that marketplace. If this
+   repo's `.claude/settings.json` has
+   `extraKnownMarketplaces.<mkt>.source`, show its `repo` or `url` value.
+   Tell the user that this repo sets that marketplace source.
+3. Tell the user that the install writes `.claude/settings.json` again, in
+   its own key order.
+4. Ask for approval. The user can approve all commands, some commands, or
+   none.
+5. Run each approved command. If a run is blocked, give the user the
+   command to run with the `!` prefix. If a command fails, show its
+   output. Record that plugin as failed. Go on to the next command. Do not
+   run the failed command again.
+6. Run `flow-plugins --status` again. Report the plugins from this result,
+   not from the exit codes of the commands. An install that failed shows
+   as `missing` or `stale` again. If this run exits 2, or with an exit
+   code that is not 0 or 1, show its stderr. Record the plugins as failed.
+7. Run `git ls-files --error-unmatch .claude/settings.json`. If it exits
+   0, the file is tracked. Then run
+   `git cat-file -e HEAD:.claude/settings.json`. If it does not exit 0,
+   `HEAD` has no copy of the file: do not compare, and go to item 8.
+   Then run this compare:
+
+   ```sh
+   if tmp="$(mktemp -d)" &&
+     git show HEAD:.claude/settings.json > "$tmp/head.raw" &&
+     jq -S . "$tmp/head.raw" > "$tmp/head.json" &&
+     jq -S . .claude/settings.json > "$tmp/work.json"; then
+     if cmp -s "$tmp/head.json" "$tmp/work.json"; then
+       git checkout -- .claude/settings.json
+     else
+       diff "$tmp/head.json" "$tmp/work.json"
+     fi
+   else
+     echo "compare failed: .claude/settings.json not changed" >&2
+   fi
+   rm -rf "$tmp"
+   ```
+
+   Each `jq -S` writes the content with sorted keys to a temp file. The
+   `git checkout` runs only when both `jq` commands exit 0 and the two
+   files are equal. Then only the key order changed, and the
+   `git checkout` discards the change. If the `diff` shows a difference,
+   show it to the user. If the compare fails, show its error. In these two
+   cases, do not change the file.
+8. Tell the user to run `/reload-plugins`. The plugins load after it.
+
+## Step 8: Report
 
 Print a short report:
 
@@ -86,6 +203,31 @@ Print a short report:
 - `flow-project-check`: passed, or the errors.
 - CLAUDE.md block: added, updated from rev N, already current, or skipped.
 - Labels: created (with the count), none missing, or skipped.
+- Baseline files: added (with the paths), partial write (with the paths
+  written), none missing, failed (with the error), or skipped. List each
+  `different` file.
+- Plugins: installed or updated (with the names), all current, failed
+  (with the error or the names), or skipped. List each `unknown` plugin,
+  and each `stale-running` line with its fix.
+- Manual steps for the baseline. Give the link
+  <https://github.com/unibrain1/devkit/blob/main/docs/baseline.md>. List
+  these steps:
+  1. Run `pre-commit install` in the repo.
+  2. Add the repo in the Semgrep GitHub App and in the GitGuardian GitHub
+     App. Jim adds each repo in each app.
+  3. Install the Claude GitHub App on the repo.
+  4. Add the `CLAUDE_CODE_OAUTH_TOKEN` repo secret. The Claude callers need
+     it.
+  5. If the repo is public, turn on secret scanning and push protection.
+     Set the needed checks in branch protection. Run
+     `flow-repo --visibility` to get the visibility.
+  6. If the repo is private, set `required_checks` in
+     `.claude/project.md`.
+
+  Tell the user that Claude does not review the PR that adds the Claude
+  review caller. The caller is not on `main` yet. See the
+  main-match rule in
+  <https://github.com/unibrain1/devkit/blob/main/docs/design.html#main-match>.
 - Skipped steps: each step that you skipped, with the reason.
 - Next: tell the user to review the changes with `git diff` and to commit
   them.

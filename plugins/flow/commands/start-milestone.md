@@ -65,8 +65,9 @@ flow-check-version-newer "$ARGUMENTS"
 - **Exit 2** — read stderr:
   1. `Could not parse candidate version` — stop. Tell the user:
      "`$ARGUMENTS` is not a milestone version. Use the form
-     `vX.Y.Z` or `vX.Y.Z.N`, for example `v2.17.0`, or `v2.17.0.1` for a
-     patch release. Then type the command again."
+     `vX.Y.Z`, for example `v2.17.0`. Then type the command again."
+     A hotfix does not get a milestone version. `flow-release-hotfix`
+     makes its tag.
   2. `git describe --tags --abbrev=0 failed` — run
      `git fetch origin --tags`. If the fetch fails, stop and show its
      stderr. Then run the check again. If it fails again and

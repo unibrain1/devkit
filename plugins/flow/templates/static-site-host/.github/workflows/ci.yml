@@ -1,0 +1,17 @@
+# Site CI from devkit (docs/families.md). node-site.yml builds the site,
+# runs `npm run lint`, and lints the Markdown. It does not deploy: the host
+# deploys main through its push webhook. Edit a caller only at a milestone
+# boundary (docs/design.html, section 8, "Rules that follow").
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  site:
+    uses: unibrain1/devkit/.github/workflows/node-site.yml@main
+    with:
+      lint_script: lint

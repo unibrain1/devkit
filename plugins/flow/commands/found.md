@@ -321,7 +321,8 @@ Then give the user the hotfix sequence as plain text. Tell them to run
    against `main`.
 3. `/flow:finish-issue NNN` — sees the `main` base, merges into `main`, and
    skips the milestone-only steps.
-4. The patch release: the `flow:hotfix` skill. It ends with a merge of
+4. The patch release: the `flow:hotfix` skill. It tags the merge commit
+   with `flow-release-hotfix <PR>`, deploys, and ends with a merge of
    `main` into the open milestone branch.
 5. Resume the paused issue. `/flow:finish-issue` (hotfix end) names
    the command: `/flow:address-pr-comments` if the paused issue already has

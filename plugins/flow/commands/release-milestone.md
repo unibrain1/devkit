@@ -248,8 +248,10 @@ that window.
 flow-check-version-newer <version>
 ```
 
-The script accepts a three-part version and a four-part patch-release tag
-(for example `v2.30.4.1`).
+A milestone version has three parts. A hotfix tag also has three parts:
+`flow-release-hotfix` adds one to the patch number (for example `v2.30.4`
+to `v2.30.5`). The script also reads an older four-part tag (for example
+`v2.30.4.1`) as the last tag.
 
 - **Exit 0** — newer than the last tag. Proceed.
 - **Exit 1** — not newer. Stop. Show the version and the last tag, and ask

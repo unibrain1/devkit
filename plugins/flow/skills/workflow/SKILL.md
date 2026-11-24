@@ -53,6 +53,7 @@ main ← milestone/vX.Y.Z ← issue/NNN-slug
 ## Command order
 
 ```text
+setup (per repo)     /flow:setup, or /flow:new-project for a new repo (before the first milestone)
 capture (any time)   /flow:new-issue          /flow:found (finds during an issue)
 plan (per milestone) /flow:plan-milestone → /flow:start-milestone
 build (per issue)    /flow:start-issue → /flow:execute-plan → /commit → /flow:review-pr
