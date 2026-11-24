@@ -1,6 +1,6 @@
 ---
 name: baalda-vault
-description: Rules for Jim's second brain, the Baalda vault "UniBrain". Use this skill every time you use the Baalda connector or tools, and when Jim says "my second brain", "my vault", "my brain", "my inbox", "add to my notes", "remember this in Baalda", "daily note", "wrap", "wrap up", "end the session", "pick up" followed by an activity name, or asks about the status of one of his projects.
+description: Rules for Jim's second brain, the Baalda vault "UniBrain". Use this skill every time you use the Baalda connector or tools, and when Jim says "my second brain", "my vault", "my brain", "my inbox", "add to my notes", "remember this in Baalda", "daily note", "wrap", "wrap up", "end the session", "pick up" followed by an activity name, "tidy" or "clean up the vault", or asks about the status of one of his projects.
 ---
 
 # Baalda vault: UniBrain
@@ -24,7 +24,7 @@ UniBrain is Jim's second brain. It is a Baalda vault of Markdown notes. People a
 | Reusable reference knowledge | `Resources/` |
 | A person or organization | `People/` |
 | A weekly or milestone review | `Reviews/` |
-| Finished work | `Archive/` |
+| Finished work | `Archive/`. A finished resume prompt goes in `Archive/Resume prompts/`. |
 
 ## Sensitive folders
 
@@ -38,27 +38,21 @@ Do not read or search `Areas/Health/` or `Areas/Personal/` unless Jim asks for i
 4. Do not invent a number, date, name, or quote. If a fact is not known, write `unknown`.
 5. A project's GitHub repo is the source of truth for code facts. Do not copy a README into the vault.
 
-## Session end: "wrap"
+## Session commands
 
-When Jim says "wrap", "wrap up", or "end the session", do these steps. Claude Code has the same steps as the `/wrap` command.
+Each command has one procedure file in this skill. Read the file, then follow it step by step. Claude Code runs the same files through `/wrap`, `/pickup`, and `/tidy`.
 
-1. Read `Daily/AGENTS.md` and `Projects/In progress.md`.
-2. Use today's real date. If `Daily/YYYY-MM-DD` does not exist, create it and add a row to the `Daily/AGENTS.md` table.
-3. Append one section for each project to the daily note: `## [[<Project hub>]] (session end)`. Write what was done, the decisions, and the next step.
-4. Update the status and the log of each project hub that the chat changed.
-5. If the work continues in a later session, write or update its resume prompt in the project folder. Then update its row in `Projects/In progress.md`. The dashboard reads that table live. Do not copy rows into `Dashboards/Home.html`.
-6. For each fact that you wrote as `unknown` and that only Jim knows, append a line to `Inbox/Open questions.md`.
-7. If the chat did no work worth a record, tell Jim. Write nothing.
+| Jim says | Read and follow |
+|---|---|
+| "wrap", "wrap up", "end the session" | `references/wrap.md` |
+| "pick up <activity>", "resume <activity>" | `references/pickup.md` |
+| "tidy", "clean up the vault" | `references/tidy.md` |
 
-## Session start: "pick up"
+## Work in progress
 
-When Jim says "pick up <activity>" or "resume <activity>", do these steps. Claude Code has the same steps as the `/pickup` command.
-
-1. Read `Projects/In progress.md`. Find the row for the activity. If no row or more than one row matches, show the rows and ask Jim.
-2. Read the resume prompt note in the Prompt note column, and the section that the row names.
-3. Read the project hub and the last daily note section for the project.
-4. Give Jim a brief of five lines or fewer: the stage, the next step, and the first question.
-5. Follow the resume prompt. If the work needs code changes, tell Jim to start it in Claude Code in the project's repo.
+1. `Projects/In progress.md` has one row for each activity that runs over more than one session.
+2. Each activity has one resume prompt note, named `<activity> resume prompt`, in the folder of the hub that owns the work. The hub can be a project hub in `Projects/` or an Area hub, for example `[[Home Assistant]]` in `Areas/Home & HomeLab/`.
+3. When the work ends, the prompt moves to `Archive/Resume prompts/`.
 
 ## When you finish
 
