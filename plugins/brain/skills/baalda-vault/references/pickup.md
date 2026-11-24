@@ -22,9 +22,9 @@ when you can run shell commands. Skip it in the desktop and phone apps.
       for the current repo if the `repo:` key of its hub names the same
       GitHub repo.
    3. Ask Jim to select a row. Show at most 4 rows with State `active` or
-      `waiting`: the current-repo rows first, then `active`, then
-      `waiting`. Mark one row as recommended. Name the other rows in the
-      question text.
+      `waiting`: the current-repo rows first (Claude Code only), then
+      `active`, then `waiting`. Mark one row as recommended. Name the
+      other rows in the question text.
    4. If no row matches, search the vault for the hub. Tell Jim that no
       resume prompt exists. Stop.
 3. Read the note in the Prompt note column. If the Resume prompt cell names

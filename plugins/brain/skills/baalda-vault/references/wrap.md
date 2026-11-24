@@ -52,7 +52,8 @@ you can run shell commands. Skip it in the desktop and phone apps.
       `Projects/In progress.md`: State, Stage, Next step, Waiting on,
       Resume prompt, Prompt note, Updated.
    2. If the work started in this session, add a row.
-   3. If the work ended, delete its row. Add a log line to the hub. Set
+   3. If Jim says that the work ended, delete its row. Do not decide this
+      yourself: ask Jim if it is not clear. Add a log line to the hub. Set
       the prompt's `status: done`. Move the prompt to
       `Archive/Resume prompts/`. Update the index of the old folder and of
       `Archive/Resume prompts/AGENTS.md`.
