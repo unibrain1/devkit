@@ -36,8 +36,8 @@ that opens sets its ref for all projects.
 ## Tests and lint
 
 - Tests: `bash tests/run.sh`. It runs each `tests/**/test-*.sh` file.
-  The tests need `jq` and Ruby with `yaml` and `json`. The template and
-  workflow tests use Ruby to parse YAML.
+  The tests need `jq` and Ruby with `yaml` and `json`. Some template,
+  workflow, and `flow-template` tests use Ruby to parse YAML.
 - Lint: the `lint` key in `.claude/project.md`. It runs markdownlint,
   yamllint, actionlint, and shellcheck. CI also checks action pins, JSON,
   the brain skill zips, and `claude plugin validate`.
