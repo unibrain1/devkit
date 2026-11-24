@@ -6,7 +6,7 @@ node_modules/
 # Agent worktrees that Claude Code makes for subagents.
 .claude/worktrees/
 
-# Brain skill zips from .github/scripts/package-skills.sh.
+# Brain skill .skill files from .github/scripts/package-skills.sh.
 dist/
 
 # Plan files from the flow commands (the plans key in .claude/project.md).

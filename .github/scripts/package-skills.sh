@@ -4,8 +4,9 @@
 # rules, then zips it to dist/<skill>.skill. A .skill file is a zip file.
 # The claude.ai upload refuses the .zip extension. Jim uploads each file at
 # claude.ai -> Settings -> Plugins -> <skill> -> ... -> Upload new version,
-# so the desktop and phone apps get the skills. The checks run here because claude.ai refuses a bad upload
-# only after the upload, for example an XML tag in the description.
+# so the desktop and phone apps get the skills. The checks run here because
+# claude.ai refuses a bad upload only after the upload, for example an XML
+# tag in the description.
 #
 # Usage: .github/scripts/package-skills.sh [--check] [skills-dir] [out-dir]
 #   --check     Check only. Write no .skill file.

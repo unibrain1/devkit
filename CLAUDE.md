@@ -40,7 +40,7 @@ that opens sets its ref for all projects.
   workflow, and `flow-template` tests use Ruby to parse YAML.
 - Lint: the `lint` key in `.claude/project.md`. It runs markdownlint,
   yamllint, actionlint, and shellcheck. CI also checks action pins, JSON,
-  the brain skill zips, and `claude plugin validate`.
+  the brain skill `.skill` files, and `claude plugin validate`.
 - Branch protection on `main` requires `lint` and `test (ubuntu-24.04)`.
   CI has no macOS job. Before a push, run the tests on the Mac with bash 3.2:
   `PATH="/bin:$PATH" bash tests/run.sh`. A plain `bash` can be Homebrew

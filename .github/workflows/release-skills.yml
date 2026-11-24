@@ -1,7 +1,6 @@
 # Publishes the .skill files (zip files) of the brain skills for the claude.ai
-# upload. Each push
-# to main that changes plugins/brain/skills/ replaces the release
-# "skills-latest" with new .skill files at the new commit. It is a pre-release:
+# upload. Each push to main that changes plugins/brain/skills/ replaces the
+# release "skills-latest" with new .skill files at the new commit. It is a pre-release:
 # GitHub never marks a pre-release "Latest", even when it is the only release.
 # --latest=false did not stop that.
 #
