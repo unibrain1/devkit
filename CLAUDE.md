@@ -41,8 +41,10 @@ that opens sets its ref for all projects.
 - Lint: the `lint` key in `.claude/project.md`. It runs markdownlint,
   yamllint, actionlint, and shellcheck. CI also checks action pins, JSON,
   the brain skill zips, and `claude plugin validate`.
-- Branch protection on `main` requires `lint`, `test (ubuntu-24.04)`, and
-  `test (macos-15)`. The macOS job sometimes waits in the queue for minutes.
+- Branch protection on `main` requires `lint` and `test (ubuntu-24.04)`.
+  CI has no macOS job. Before a push, run the tests on the Mac with bash 3.2:
+  `PATH="/bin:$PATH" bash tests/run.sh`. A plain `bash` can be Homebrew
+  bash 5.
 
 ## Rules
 
