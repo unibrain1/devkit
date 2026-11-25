@@ -88,8 +88,13 @@ bash tests/run.sh
 
 CI (`.github/workflows/self-test.yml`) also runs shellcheck, actionlint,
 yamllint, markdownlint, a JSON check, a check that each action is pinned to
-a full commit SHA, and `claude plugin validate`. Branch protection on `main`
-requires the jobs `lint` and `test`.
+a full commit SHA, and `claude plugin validate`. CI uses shellcheck 0.11.0.
+Install the same version locally, so local lint and CI lint give the same
+findings. Check it with `shellcheck --version`.
+
+Branch protection on `main` requires the jobs `lint` and
+`test (ubuntu-24.04)`. CI has no macOS job. Before a push, run the tests on
+the Mac with bash 3.2: `PATH="/bin:$PATH" bash tests/run.sh`.
 
 ## Contributing
 

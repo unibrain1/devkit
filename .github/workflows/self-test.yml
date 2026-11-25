@@ -60,9 +60,20 @@ jobs:
           "$RUNNER_TEMP/actionlint" -color
 
       - name: shellcheck
+        # The pinned version is the version that README.md names for a local
+        # install, so local lint and CI lint give the same findings.
+        env:
+          SHELLCHECK_VERSION: 0.11.0
+          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
         run: |
-          shellcheck --version | head -n 2
-          shellcheck plugins/flow/bin/flow-* plugins/flow/bin/lib/*.sh \
+          tarball="shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -fsSL -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/${tarball}"
+          echo "${SHELLCHECK_SHA256}  $RUNNER_TEMP/$tarball" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP"
+          shellcheck="$RUNNER_TEMP/shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          "$shellcheck" --version | head -n 2
+          "$shellcheck" plugins/flow/bin/flow-* plugins/flow/bin/lib/*.sh \
             plugins/flow/hooks/*.sh plugins/flow/templates/*/.claude/hooks/*.sh \
             tests/*.sh tests/*/*.sh .github/scripts/*.sh
 

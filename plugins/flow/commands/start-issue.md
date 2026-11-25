@@ -289,7 +289,7 @@ do this instead:
 
 ```bash
 git fetch origin main
-git describe --tags --abbrev=0 origin/main
+git describe --tags --abbrev=0 --match 'v*' origin/main
 git log --oneline <tag>..origin/main
 ```
 

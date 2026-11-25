@@ -174,7 +174,7 @@ tmp=""
 stale=""
 # A temp file that stays makes the run incomplete, so exit 0 becomes
 # exit 3. A refusal or a failure keeps its own exit code.
-# shellcheck disable=SC2317,SC2329 # called only through the EXIT trap
+# shellcheck disable=SC2329 # called only through the EXIT trap
 on_exit() {
     local rc=$? f left=""
     while IFS= read -r f; do

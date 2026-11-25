@@ -168,7 +168,10 @@ release_tags() {
 }
 
 # --- Step 2: the merge commit must be on origin/main ---
-git fetch -q origin main --tags
+# Fetch only release tags. The forced refspec lets origin win for a v* tag.
+# A moving tag such as skills-latest stays out of the fetch, so its move on
+# origin cannot fail the fetch with a "would clobber existing tag" error.
+git fetch -q origin main '+refs/tags/v*:refs/tags/v*'
 if ! is_on_main "$MERGE_SHA"; then
   echo "${NAME}: the merge commit ${MERGE_SHA} of PR #${PR_NUMBER} is not on origin/main. Stop." >&2
   exit 1
@@ -195,9 +198,9 @@ elif [ -n "$OTHER_TAG" ]; then
   echo "${NAME}: release tag ${OTHER_TAG} is already on the merge commit ${MERGE_SHA}, and it is not a hotfix tag. PR #${PR_NUMBER} is not a hotfix merge. Stop. Check the PR number." >&2
   exit 1
 else
-  # Only tags on origin count, at their commit on origin. fetch --tags does
-  # not delete a local tag that is gone from origin, so a local tag can be
-  # stale. The fetch brought the objects of the tags on origin.
+  # Only tags on origin count, at their commit on origin. The release-tag
+  # fetch does not delete a local tag that is gone from origin, so a local
+  # tag can be stale. The fetch brought the objects of the v* tags on origin.
   # Assignments, not a for list, so that an ls-remote error stops the run.
   ORIGIN_REFS="$(git ls-remote --tags --refs origin 'refs/tags/v*')"
   ORIGIN_TAGS="$(printf '%s\n' "$ORIGIN_REFS" | awk '{ sub("^refs/tags/", "", $2); print $2 }' | release_tags)"

@@ -69,8 +69,8 @@ flow-check-version-newer "$ARGUMENTS"
      A hotfix does not get a milestone version. `flow-release-hotfix`
      makes its tag.
   2. `git describe --tags --abbrev=0 failed` — run
-     `git fetch origin --tags`. If the fetch fails, stop and show its
-     stderr. Then run the check again. If it fails again and
+     `git fetch origin '+refs/tags/v*:refs/tags/v*'`. If the fetch fails,
+     stop and show its stderr. Then run the check again. If it fails again and
      `git tag --list 'v*'` prints nothing, the repo has no release yet.
      Run `flow-check-version-newer "$ARGUMENTS" v0.0.0`. This checks the
      form, and that the version is newer than `v0.0.0`. Read its exit code

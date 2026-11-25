@@ -135,4 +135,42 @@ else
 fi
 rm -f "$CONTROL"
 
+# flow-plugins has one mode today, --status, which only reads. The starter
+# allowlist names that mode only, in the template and in each family
+# template. A bare Bash(flow-plugins:*) rule would also allow a mode that a
+# later version adds.
+SETTINGS_FILES=("$TEMPLATE" "$REAL_REPO"/plugins/flow/templates/*/.claude/settings.json)
+if [ "${#SETTINGS_FILES[@]}" -eq 7 ]; then
+    pass "found 7 settings files (the template and 6 family templates)"
+else
+    fail "found 7 settings files" "found ${#SETTINGS_FILES[@]}: ${SETTINGS_FILES[*]}"
+fi
+# allows_status_only <file>: true when the allowlist has the --status rule
+# and no bare flow-plugins rule.
+allows_status_only() {
+    jq -e '.permissions.allow
+        | (index("Bash(flow-plugins --status:*)") != null)
+          and (index("Bash(flow-plugins:*)") == null)' "$1" >/dev/null
+}
+for f in "${SETTINGS_FILES[@]}"; do
+    rel="${f#"$REAL_REPO"/}"
+    if allows_status_only "$f"; then
+        pass "$rel allows flow-plugins --status only"
+    else
+        fail "$rel allows flow-plugins --status only" "$(jq -c '[.permissions.allow[] | select(startswith("Bash(flow-plugins"))]' "$f")"
+    fi
+done
+# Control: a bare rule and a missing status rule must each fail the check.
+CONTROL="$(mktemp)"
+for edit in '.permissions.allow += ["Bash(flow-plugins:*)"]' \
+    '.permissions.allow -= ["Bash(flow-plugins --status:*)"]'; do
+    jq "$edit" "$TEMPLATE" > "$CONTROL"
+    if allows_status_only "$CONTROL"; then
+        fail "control: $edit fails the check"
+    else
+        pass "control: $edit fails the check"
+    fi
+done
+rm -f "$CONTROL"
+
 harness_report

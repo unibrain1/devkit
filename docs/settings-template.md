@@ -29,6 +29,11 @@ before each run:
 `tests/templates/test-settings-template.sh` fails if one of them goes into
 the allowlist, or if the allowlist names a script that does not exist.
 
+The template allows `flow-plugins --status`, not all of `flow-plugins`.
+`--status` is its only mode today. `/flow:setup` and `/flow:new-project`
+start it with `--status`. The narrow rule makes Claude ask before a mode
+that a later version adds.
+
 ## After you copy it
 
 1. Add the project's own test and lint commands to `permissions.allow`, for
