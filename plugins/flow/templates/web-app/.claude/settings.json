@@ -33,7 +33,7 @@
       "Bash(flow-labels --missing:*)",
       "Bash(flow-ledger-items-for-files:*)",
       "Bash(flow-milestone-count:*)",
-      "Bash(flow-plugins:*)",
+      "Bash(flow-plugins --status:*)",
       "Bash(flow-poll-review-posted:*)",
       "Bash(flow-project-check:*)",
       "Bash(flow-project-fact:*)",

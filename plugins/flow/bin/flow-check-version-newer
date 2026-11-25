@@ -17,10 +17,11 @@
 # now. A missing fourth number counts as 0, so v2.30.5 > v2.30.4.1 > v2.30.4.
 #
 # <last-tag>: optional. A last tag with no 'v' is accepted. The default
-#   is `git describe --tags --abbrev=0` in the current repo. Pass it
-#   explicitly to check against something other than the working tree's
-#   tag history (e.g. in a worktree or CI checkout without full tag
-#   history fetched).
+#   is `git describe --tags --abbrev=0 --match 'v*'` in the current repo.
+#   Only release tags count, so a moving tag such as skills-latest does
+#   not hide the last release. Pass it explicitly to check against
+#   something other than the working tree's tag history (e.g. in a
+#   worktree or CI checkout without full tag history fetched).
 #
 # Exit codes:
 #   0 = candidate is strictly newer than the last tag — proceed
@@ -54,10 +55,10 @@ CANDIDATE_PARSED="$(parse_version "$CANDIDATE" require_v)" || {
 if [ -n "${2:-}" ]; then
   LAST_TAG="$2"
 else
-  if ! LAST_TAG=$(git describe --tags --abbrev=0 2>&1); then
+  if ! LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>&1); then
     echo "git describe --tags --abbrev=0 failed: ${LAST_TAG}" >&2
     echo "This may mean tags aren't fetched locally (shallow clone / CI checkout) rather than" >&2
-    echo "genuinely no tags existing — run 'git fetch --tags' and retry, or pass the last tag" >&2
+    echo "genuinely no v* tags existing — run \"git fetch origin '+refs/tags/v*:refs/tags/v*'\" and retry, or pass the last tag" >&2
     echo "explicitly as the second argument, before assuming this is the first release." >&2
     exit 2
   fi

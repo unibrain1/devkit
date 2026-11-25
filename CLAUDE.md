@@ -41,6 +41,8 @@ that opens sets its ref for all projects.
 - Lint: the `lint` key in `.claude/project.md`. It runs markdownlint,
   yamllint, actionlint, and shellcheck. CI also checks action pins, JSON,
   the brain skill `.skill` files, and `claude plugin validate`.
+- shellcheck: install 0.11.0 locally, the version that CI pins in
+  `self-test.yml`. A test fails when README.md names another version.
 - Branch protection on `main` requires `lint` and `test (ubuntu-24.04)`.
   CI has no macOS job. Before a push, run the tests on the Mac with bash 3.2:
   `PATH="/bin:$PATH" bash tests/run.sh`. A plain `bash` can be Homebrew

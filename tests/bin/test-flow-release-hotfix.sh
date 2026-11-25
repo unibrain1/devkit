@@ -605,6 +605,48 @@ if [ -x /bin/bash ]; then
     fi
 fi
 
+# --- A moving tag on origin must not fail the fetch ------------------------
+# The work clone holds skills-latest at an old commit. Origin then moves the
+# tag. A fetch with --tags refuses to replace a local tag that moved, and it
+# stops with "would clobber existing tag". The script fetches only v* tags.
+setup_case movingtag
+add_release v1.4.0
+git -C "$WORK" tag skills-latest
+git -C "$WORK" push -q origin refs/tags/skills-latest
+OLD_SKILLS="$(origin_tag_commit skills-latest)"
+merge_hotfix
+git -C "$ORIGIN" tag -f skills-latest "$MERGE_SHA" >/dev/null
+OUT="$(run_hotfix --dry-run "$PR" 2>&1)"
+STATUS=$?
+if [ "$STATUS" -eq 0 ] && [ "$(git -C "$WORK" rev-parse refs/tags/skills-latest)" = "$OLD_SKILLS" ] \
+    && [ "$(origin_tag_commit skills-latest)" = "$MERGE_SHA" ] \
+    && printf '%s' "$OUT" | grep -qF "[dry-run] git tag -a v1.4.1 $MERGE_SHA -m Hotfix v1.4.1" \
+    && ! printf '%s' "$OUT" | grep -qF 'clobber'; then
+    pass "skills-latest moved on origin -> --dry-run exit 0, plans v1.4.1"
+else
+    fail "skills-latest moved on origin -> --dry-run exit 0, plans v1.4.1" "exit: $STATUS (want 0)" "output: [$OUT]"
+fi
+
+# --- A v* tag that only origin has must reach the work clone --------------
+# Another clone pushes the annotated v1.4.0, so the work clone never had it.
+# The script must fetch it to find the last release. A fetch with --no-tags,
+# or a refspec with no destination, leaves the tag out. Then the script
+# finds no release tag on main and does not plan v1.4.1.
+setup_case origintag
+OTHER="$TMPROOT/origintag/other"
+git clone -q "$ORIGIN" "$OTHER" 2>/dev/null
+git -C "$OTHER" tag -a v1.4.0 -m "Release v1.4.0" || exit 1
+git -C "$OTHER" push -q origin refs/tags/v1.4.0 || exit 1
+merge_hotfix
+OUT="$(run_hotfix --dry-run "$PR" 2>&1)"
+STATUS=$?
+if [ "$STATUS" -eq 0 ] && git -C "$WORK" rev-parse -q --verify refs/tags/v1.4.0 >/dev/null \
+    && printf '%s' "$OUT" | grep -qF "[dry-run] git tag -a v1.4.1 $MERGE_SHA -m Hotfix v1.4.1"; then
+    pass "v1.4.0 only on origin -> fetched, --dry-run plans v1.4.1"
+else
+    fail "v1.4.0 only on origin -> fetched, --dry-run plans v1.4.1" "exit: $STATUS (want 0)" "output: [$OUT]"
+fi
+
 # --- Bad arguments -> exit 2 before any gh call ----------------------------
 setup_case args
 add_release v1.4.0

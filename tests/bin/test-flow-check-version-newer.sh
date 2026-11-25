@@ -161,17 +161,50 @@ else
     fail "bad candidate in a repo with no tags -> form message only" "exit: $STATUS output: [$OUT]"
 fi
 
-# --- Nearest tag is not a release tag -> exit 2, last tag message -----------
+# --- Only a non-release tag exists -> exit 2, git describe message ----------
+# git describe uses --match 'v*', so skills-latest is not a candidate.
 (
     cd "$NOTAGS" || exit 1
     git tag skills-latest
 ) || exit 1
 OUT="$(cd "$NOTAGS" && "$SCRIPT" v1.2.0 2>&1)"
 STATUS=$?
-if [ "$STATUS" -eq 2 ] && printf '%s' "$OUT" | grep -qF "Could not parse last tag 'skills-latest'"; then
-    pass "nearest tag skills-latest -> exit 2, last tag message"
+if [ "$STATUS" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'git describe --tags --abbrev=0 failed' \
+    && ! printf '%s' "$OUT" | grep -qF "Could not parse last tag"; then
+    pass "only skills-latest, no v* tag -> exit 2, git describe message"
 else
-    fail "nearest tag skills-latest -> exit 2, last tag message" "exit: $STATUS output: [$OUT]"
+    fail "only skills-latest, no v* tag -> exit 2, git describe message" "exit: $STATUS output: [$OUT]"
+fi
+
+# --- A later non-release tag does not hide the last release tag -------------
+# The v* tag is older than skills-latest. With no second argument, the script
+# must compare with v1.4.0. v1.4.1 is newer than v1.4.0, so the exit is 0.
+# Without --match 'v*', git describe prints skills-latest, and the exit is 2.
+MOVING="$TMPROOT/moving"
+mkdir -p "$MOVING"
+(
+    cd "$MOVING" || exit 1
+    git init -q
+    git config user.name "test-check-version-newer"
+    git config user.email "test-check-version-newer@localhost"
+    git commit -q --allow-empty -m "release"
+    git tag -a v1.4.0 -m "v1.4.0"
+    git commit -q --allow-empty -m "later"
+    git tag skills-latest
+) || exit 1
+OUT="$(cd "$MOVING" && "$SCRIPT" v1.4.1 2>&1)"
+STATUS=$?
+if [ "$STATUS" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'v1.4.1 is newer than v1.4.0'; then
+    pass "skills-latest after v1.4.0 -> last tag is v1.4.0, exit 0"
+else
+    fail "skills-latest after v1.4.0 -> last tag is v1.4.0, exit 0" "exit: $STATUS output: [$OUT]"
+fi
+OUT="$(cd "$MOVING" && "$SCRIPT" v1.4.0 2>&1)"
+STATUS=$?
+if [ "$STATUS" -eq 1 ] && printf '%s' "$OUT" | grep -qF 'v1.4.0 is NOT newer than v1.4.0'; then
+    pass "skills-latest after v1.4.0 -> v1.4.0 is not newer than the last tag, exit 1"
+else
+    fail "skills-latest after v1.4.0 -> v1.4.0 is not newer than the last tag, exit 1" "exit: $STATUS output: [$OUT]"
 fi
 
 harness_report

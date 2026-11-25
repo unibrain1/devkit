@@ -69,15 +69,15 @@ flow-check-version-newer "$ARGUMENTS"
      A hotfix does not get a milestone version. `flow-release-hotfix`
      makes its tag.
   2. `git describe --tags --abbrev=0 failed` — run
-     `git fetch origin --tags`. If the fetch fails, stop and show its
-     stderr. Then run the check again. If it fails again and
+     `git fetch origin '+refs/tags/v*:refs/tags/v*'`. If the fetch fails,
+     stop and show its stderr. Then run the check again. If it fails again and
      `git tag --list 'v*'` prints nothing, the repo has no release yet.
      Run `flow-check-version-newer "$ARGUMENTS" v0.0.0`. This checks the
      form, and that the version is newer than `v0.0.0`. Read its exit code
      as above. If
      `git tag --list 'v*'` prints a tag, stop and show the stderr.
-  3. `Could not parse last tag` — the nearest tag is not a release tag
-     (for example `skills-latest`). Find the newest tag in the form
+  3. `Could not parse last tag` — the nearest `v*` tag is not in the form
+     `vX.Y.Z` (for example `v2.0.0-rc1`). Find the newest tag in the form
      `vX.Y.Z` or `vX.Y.Z.N`. A prerelease tag such as `v2.0.0-rc1` sorts
      first, so filter the list:
      `git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' | head -1`.

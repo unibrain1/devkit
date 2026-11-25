@@ -260,7 +260,8 @@ to `v2.30.5`). The script also reads an older four-part tag (for example
   After the fix, tell the user to type `/flow:release-milestone <version>`.
 - **Exit 2** — the script could not read a version. Recover in this order:
   1. If stderr says `git describe` failed, the tags are probably not
-     fetched. Run `git fetch origin --tags`, then run the script again.
+     fetched. Run `git fetch origin '+refs/tags/v*:refs/tags/v*'`, then
+     run the script again.
   2. If stderr says it could not parse the candidate version, the version
      from Step 1 is wrong. Stop and ask the user.
   3. If stderr says it could not parse the last tag, find the newest
