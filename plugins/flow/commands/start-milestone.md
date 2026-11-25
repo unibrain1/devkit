@@ -76,8 +76,8 @@ flow-check-version-newer "$ARGUMENTS"
      form, and that the version is newer than `v0.0.0`. Read its exit code
      as above. If
      `git tag --list 'v*'` prints a tag, stop and show the stderr.
-  3. `Could not parse last tag` — the nearest tag is not a release tag
-     (for example `skills-latest`). Find the newest tag in the form
+  3. `Could not parse last tag` — the nearest `v*` tag is not in the form
+     `vX.Y.Z` (for example `v2.0.0-rc1`). Find the newest tag in the form
      `vX.Y.Z` or `vX.Y.Z.N`. A prerelease tag such as `v2.0.0-rc1` sorts
      first, so filter the list:
      `git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' | head -1`.
