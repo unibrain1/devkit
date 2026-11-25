@@ -3,9 +3,10 @@
 # Tests that the shellcheck step in .github/workflows/self-test.yml is
 # pinned: SHELLCHECK_VERSION equals the version that README.md names for a
 # local install, SHELLCHECK_SHA256 is a 64-digit hex value, the step checks
-# the download with `sha256sum -c`, and the step runs no shellcheck from
-# PATH. A shellcheck from PATH can differ from the pinned version, and then
-# local lint and CI lint give different findings.
+# the download with `sha256sum -c`, the step sets `shellcheck=` one time
+# to the extracted binary under $RUNNER_TEMP, and the step runs no binary
+# from PATH. A shellcheck from PATH can differ from the pinned version, and
+# then local lint and CI lint give different findings.
 #
 # Usage: bash tests/workflows/test-self-test-shellcheck.sh
 # Exit code: 0 if all scenarios pass, 1 otherwise.
@@ -42,7 +43,7 @@ step_fields() {
 # check_pin <workflow> <readme> <work-dir>
 # Prints one reason for each broken rule. Returns 1 when any rule is broken.
 check_pin() {
-    local wf="$1" rd="$2" dir="$3" bad=0 version sha readme_versions
+    local wf="$1" rd="$2" dir="$3" bad=0 version sha readme_versions assigns
     if ! step_fields "$wf" "$dir"; then
         echo "no step named shellcheck in $wf"
         return 1
@@ -67,6 +68,16 @@ check_pin() {
     fi
     if grep -qE '(^|[[:space:];&|(])shellcheck([[:space:]]|$)' "$dir/run"; then
         echo "the step calls shellcheck from PATH"
+        bad=1
+    fi
+    # A `shellcheck=$(command -v shellcheck)` passes the check above but
+    # still runs the shellcheck from PATH. So the one assignment must name
+    # the binary that the tarball extracts.
+    assigns="$(grep -cE '^[[:space:]]*shellcheck=' "$dir/run")"
+    # shellcheck disable=SC2016 # the pattern holds a literal $
+    if [ "$assigns" -ne 1 ] \
+        || ! grep -qE '^[[:space:]]*shellcheck="\$RUNNER_TEMP/[^"$]*\$\{SHELLCHECK_VERSION\}[^"$]*/shellcheck"$' "$dir/run"; then
+        echo "the step does not set shellcheck= one time to \$RUNNER_TEMP/...\${SHELLCHECK_VERSION}.../shellcheck"
         bad=1
     fi
     return "$bad"
@@ -114,8 +125,12 @@ expect_broken "no sha256sum -c" "$CTL/wf-nosum.yml" "$README"
 sed 's/^\( *\)"\$shellcheck" plugins/\1shellcheck plugins/' "$WORKFLOW" > "$CTL/wf-path.yml"
 expect_broken "bare shellcheck from PATH" "$CTL/wf-path.yml" "$README"
 
+# shellcheck disable=SC2016 # the sed text holds a literal $
+sed 's#^\( *\)shellcheck=.*#\1shellcheck="$(command -v shellcheck)"#' "$WORKFLOW" > "$CTL/wf-lookup.yml"
+expect_broken "shellcheck= from a PATH lookup" "$CTL/wf-lookup.yml" "$README"
+
 # A control that changed nothing would prove nothing: the sed edits must differ.
-for f in wf-version.yml wf-sha.yml wf-nosum.yml wf-path.yml; do
+for f in wf-version.yml wf-sha.yml wf-nosum.yml wf-path.yml wf-lookup.yml; do
     if cmp -s "$WORKFLOW" "$CTL/$f"; then
         fail "control copy $f differs from the workflow"
     fi

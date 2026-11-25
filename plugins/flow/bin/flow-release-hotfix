@@ -168,9 +168,10 @@ release_tags() {
 }
 
 # --- Step 2: the merge commit must be on origin/main ---
-# Fetch only release tags. The forced refspec lets origin win for a v* tag.
-# A moving tag such as skills-latest stays out of the fetch, so its move on
-# origin cannot fail the fetch with a "would clobber existing tag" error.
+# Fetch the release tags by name. The forced refspec lets origin win for a
+# v* tag. The refspec does not name a moving tag such as skills-latest. Tag
+# auto-follow can still add a new tag, but it does not move a local tag, so
+# a move on origin cannot fail the fetch with "would clobber existing tag".
 git fetch -q origin main '+refs/tags/v*:refs/tags/v*'
 if ! is_on_main "$MERGE_SHA"; then
   echo "${NAME}: the merge commit ${MERGE_SHA} of PR #${PR_NUMBER} is not on origin/main. Stop." >&2

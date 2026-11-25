@@ -8,8 +8,8 @@
 #
 # - No file in plugins/flow/commands/*.md, plugins/flow/bin/* or
 #   plugins/flow/bin/lib/*.sh has a `git fetch` line with --tags.
-# - plan-milestone.md, start-milestone.md and release-milestone.md contain
-#   the refspec '+refs/tags/v*:refs/tags/v*'.
+# - plan-milestone.md, start-milestone.md, release-milestone.md and
+#   start-issue.md contain the refspec '+refs/tags/v*:refs/tags/v*'.
 # - Each `git describe --tags` has --match 'v*'. A quoted message that names
 #   the failed call (`--abbrev=0 failed`) is text, not a call.
 #
@@ -60,7 +60,7 @@ check_tree() {
         echo "$out"
         bad=1
     fi
-    for f in plan-milestone start-milestone release-milestone; do
+    for f in plan-milestone start-milestone release-milestone start-issue; do
         if ! grep -qF -- "$REFSPEC" "$root/plugins/flow/commands/$f.md"; then
             echo "$f.md has no $REFSPEC"
             bad=1
@@ -76,7 +76,7 @@ check_tree() {
 }
 
 if WHY="$(check_tree "$REAL_REPO")"; then
-    pass "no fetch with --tags, refspec in the milestone commands, describe has --match 'v*'"
+    pass "no fetch with --tags, refspec in the four commands, describe has --match 'v*'"
 else
     fail "release tag handling" "$WHY"
 fi

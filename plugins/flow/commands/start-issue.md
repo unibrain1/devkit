@@ -288,10 +288,14 @@ commit or stash the changes, then type `/flow:start-issue $ARGUMENTS` again.
 do this instead:
 
 ```bash
-git fetch origin main
+git fetch origin main '+refs/tags/v*:refs/tags/v*'
 git describe --tags --abbrev=0 --match 'v*' origin/main
 git log --oneline <tag>..origin/main
 ```
+
+The fetch brings the release tags too. Without them, `git describe` can
+print an old release tag. If the fetch or `git describe` fails, stop and
+show its stderr.
 
 Put the tag that `git describe` prints in place of `<tag>`. If the log
 prints commits, they are on `main` but not in a release, and the patch

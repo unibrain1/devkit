@@ -58,7 +58,7 @@ else
   if ! LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>&1); then
     echo "git describe --tags --abbrev=0 failed: ${LAST_TAG}" >&2
     echo "This may mean tags aren't fetched locally (shallow clone / CI checkout) rather than" >&2
-    echo "genuinely no tags existing — run \"git fetch origin '+refs/tags/v*:refs/tags/v*'\" and retry, or pass the last tag" >&2
+    echo "genuinely no v* tags existing — run \"git fetch origin '+refs/tags/v*:refs/tags/v*'\" and retry, or pass the last tag" >&2
     echo "explicitly as the second argument, before assuming this is the first release." >&2
     exit 2
   fi
