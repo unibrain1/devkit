@@ -314,11 +314,12 @@ if DB="$(y2j "$DEPENDABOT")"; then
         and (.updates[0].directory == "/")
         and (.updates[0].schedule.interval == "weekly")
         and (.updates[0]["commit-message"].prefix == "chore(deps)")
-        and (.updates[0].ignore == [{"dependency-name": "unibrain1/devkit"}])')"
+        and (.updates[0].ignore == [{"dependency-name": "unibrain1/devkit"}])
+        and (.updates[0].cooldown == {"default-days": 7})')"
     if [ "$ok" = "true" ]; then
-        pass "dependabot: v2, one github-actions entry, /, weekly, prefix chore(deps), ignores devkit"
+        pass "dependabot: v2, one github-actions entry, /, weekly, cooldown 7 days, prefix chore(deps), ignores devkit"
     else
-        fail "dependabot: v2, one github-actions entry, /, weekly, prefix chore(deps), ignores devkit" "$(printf '%s' "$DB" | jq -c .)"
+        fail "dependabot: v2, one github-actions entry, /, weekly, cooldown 7 days, prefix chore(deps), ignores devkit" "$(printf '%s' "$DB" | jq -c .)"
     fi
 else
     fail "dependabot parses"
