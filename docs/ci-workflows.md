@@ -821,7 +821,7 @@ that changes the SHA in the marketplace and in `docs/sources.md`, with a
 link to each upstream diff.
 
 The repo setting "Allow GitHub Actions to create and approve pull
-requests" must be on. Run it by hand with `gh workflow run upstream-sync.yml`.
+requests" must be on. Run the workflow by hand with `gh workflow run upstream-sync.yml`.
 
 The job opens the PR with `GITHUB_TOKEN`, so `github-actions[bot]` is the
 author. GitHub starts the PR's `pull_request` workflows, but holds each run
