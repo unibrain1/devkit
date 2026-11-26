@@ -20,7 +20,7 @@ template or in the project.
 | `.github/workflows/claude-code-review.yml` | The caller of `claude-review.yml`, with its `permissions:` block. |
 | `.github/workflows/claude.yml` | The caller of `claude.yml`, with its `permissions:` block. |
 | `.github/workflows/secrets-scan.yml` | The caller of `secrets-scan.yml`. The job ID is `secrets-scan`, so the check name is `secrets-scan / trufflehog`. |
-| `.github/dependabot.yml` | Dependabot for the `github-actions` ecosystem, weekly, with the commit prefix `chore(deps):`. It ignores `unibrain1/devkit`, because the devkit pin moves only by hand. |
+| `.github/dependabot.yml` | Dependabot for the `github-actions` ecosystem, weekly, with the commit prefix `chore(deps):`. It ignores `unibrain1/devkit`, because the devkit pin moves only by hand. Each entry has `cooldown` with `default-days: 7`: Dependabot waits 7 days after a release before it opens a PR, so that a bad or compromised release can be found first. A family override keeps the cooldown in each entry that it adds. |
 
 The three callers are the examples in [ci-workflows.md](ci-workflows.md).
 They use `@main`. A repo with outside contributors changes them to a tag.
@@ -88,7 +88,10 @@ Write each name as `gh pr checks --json name` prints it.
 
 Each repo needs these GitHub Apps:
 
-- **Semgrep.** It runs the `semgrep-cloud-platform/scan` check.
+- **Semgrep.** It runs the `semgrep-cloud-platform/scan` check. The
+  Semgrep Block policy makes this check fail when a PR adds a Critical or
+  High finding with High confidence. The check stops a merge only when it
+  is a needed check (see "Merge gate rule").
 - **GitGuardian.** It scans each push and each PR for secrets.
 
 An app does not add a new repo automatically. Jim adds each repo in each
