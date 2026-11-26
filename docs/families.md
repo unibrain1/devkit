@@ -87,7 +87,7 @@ Cloudflare Pages deploys `main` through its Git integration.
 | `package.json` | The scripts `build`, `serve`, `clean`, and `lint` (`markdownlint-cli2`). The devDependencies `@11ty/eleventy` and `markdownlint-cli2`. |
 | `eleventy.config.js` | Input `src`, output `_site`. |
 | `.markdownlint-cli2.jsonc` | The markdownlint settings. It ignores `node_modules/` and `_site/`. |
-| `.nvmrc` | Node `24`. |
+| `.nvmrc` | Node `24.22.3`, a full version. A major version alone (`24`) does not show which patch runs, so Semgrep cannot check it for a CVE. Dependabot does not bump this file: move it to a new security release by hand. |
 | `.gitignore` | `node_modules/`, `_site/`, `.env`, `.env.*` (but not `.env.example`), `.dev.vars`, and `docs/plans/`. |
 
 ### `static-site-host`
@@ -109,7 +109,7 @@ pages.
 | `eleventy.config.js` | Input `src`, output `_site`. |
 | `.markdownlint-cli2.jsonc` | The markdownlint settings. It ignores `node_modules/` and `_site/`. |
 | `.stylelintrc.json` | Extends `stylelint-config-standard`. It ignores `_site/` and `vendor/`. |
-| `.nvmrc` | Node `24`. |
+| `.nvmrc` | Node `24.22.3`, a full version. A major version alone (`24`) does not show which patch runs, so Semgrep cannot check it for a CVE. Dependabot does not bump this file: move it to a new security release by hand. |
 | `.gitignore` | `node_modules/`, `_site/`, `.env`, `.env.*` (but not `.env.example`), `.dev.vars`, and `docs/plans/`. |
 
 `lint:php` runs `php -l` on each PHP file outside `node_modules/`,

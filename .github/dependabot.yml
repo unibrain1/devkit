@@ -1,6 +1,8 @@
 # Dependabot bumps the pinned actions and the CI lint tools one time for all
 # repos (design section 6). Callers in other repos pick up the change from
 # devkit main, or from the next tag for Registry.
+# Each entry waits 7 days after a release (cooldown), so that a bad or
+# compromised release can be found before Dependabot opens a PR for it.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -10,6 +12,8 @@ updates:
       day: monday
       time: "04:00"
       timezone: America/Los_Angeles
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -21,6 +25,8 @@ updates:
       day: monday
       time: "04:00"
       timezone: America/Los_Angeles
+    cooldown:
+      default-days: 7
     groups:
       lint-tools:
         patterns: ["*"]
