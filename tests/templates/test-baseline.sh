@@ -369,6 +369,7 @@ need() { # need <file> <label> <grep-opts> <pattern>
     fi
 }
 for pat in 'required_checks' 'secrets-scan / trufflehog' 'semgrep-cloud-platform/scan' \
+    'GitGuardian Security Checks' \
     'Semgrep' 'GitGuardian' 'secret scanning' 'push protection' '20 seconds' \
     'pre-push' 'pre-commit install'; do
     need "$BASELINE_DOC" "docs/baseline.md names '$pat'" F "$pat"

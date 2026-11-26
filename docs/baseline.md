@@ -68,6 +68,7 @@ These checks must pass before a merge:
 
 - `secrets-scan / trufflehog`
 - `semgrep-cloud-platform/scan`
+- `GitGuardian Security Checks`
 
 The project adds its own stack checks to the list.
 
@@ -92,7 +93,8 @@ Each repo needs these GitHub Apps:
   Semgrep Block policy makes this check fail when a PR adds a Critical or
   High finding with High confidence. The check stops a merge only when it
   is a needed check (see "Merge gate rule").
-- **GitGuardian.** It scans each push and each PR for secrets.
+- **GitGuardian.** It scans each push and each PR for secrets, and runs
+  the `GitGuardian Security Checks` check.
 
 An app does not add a new repo automatically. Jim adds each repo in each
 app, in the app's settings.
