@@ -818,10 +818,19 @@ Each Monday, compares each upstream plugin pin in
 `.claude-plugin/marketplace.json` with upstream HEAD. The logic is in
 `.github/scripts/upstream-sync.sh`. If upstream moved, the job opens a PR
 that changes the SHA in the marketplace and in `docs/sources.md`, with a
-link to each upstream diff. It then starts `self-test.yml` on the branch,
-because a PR that `GITHUB_TOKEN` opens starts no `pull_request` workflow.
-
-Read each upstream diff before you merge. The checks do not read it.
+link to each upstream diff.
 
 The repo setting "Allow GitHub Actions to create and approve pull
-requests" must be on. Run it by hand with `gh workflow run upstream-sync.yml`.
+requests" must be on. Run the workflow by hand with `gh workflow run upstream-sync.yml`.
+
+The job opens the PR with `GITHUB_TOKEN`, so `github-actions[bot]` is the
+author. GitHub starts the PR's `pull_request` workflows, but holds each run
+until a person approves it. The required checks `lint` and
+`test (ubuntu-24.04)` come from those runs. To merge an upstream-sync PR:
+
+1. Read each upstream diff. The checks do not read it.
+2. On the PR, click **Approve and run workflows**.
+3. Merge when the required checks pass.
+
+A GitHub App token would start the runs with no approval. Issue #127
+declined it: one click for each weekly PR costs less than the App setup.
