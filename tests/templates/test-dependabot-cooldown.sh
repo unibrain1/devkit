@@ -6,8 +6,8 @@
 # self-test.yml, and the katex override in package.json.
 #
 # Env overrides, for the break-it checks on scratch copies:
-#   REPO_ROOT  the repo folder to check
-#   NO_CONTROLS  set to 1 to skip the break-it checks
+#   COOLDOWN_REPO_ROOT    the repo folder to check
+#   COOLDOWN_NO_CONTROLS  set to 1 to skip the break-it checks
 #
 # Usage: bash tests/templates/test-dependabot-cooldown.sh
 # Exit code: 0 if all scenarios pass, 1 otherwise.
@@ -19,7 +19,7 @@ set -u
 
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 REAL_REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-ROOT="${REPO_ROOT:-$REAL_REPO}"
+ROOT="${COOLDOWN_REPO_ROOT:-$REAL_REPO}"
 
 TMPROOT="$(mktemp -d)" || exit 1
 
@@ -59,22 +59,25 @@ is_full_version() {
 # --- 1. cooldown in each Dependabot entry ------------------------------
 L_COOLDOWN="each dependabot.yml entry has cooldown default-days 7"
 bad=""
+n=0
 for f in "$ROOT/.github/dependabot.yml" "$ROOT"/plugins/flow/templates/*/.github/dependabot.yml; do
     [ -f "$f" ] || continue
+    n=$((n + 1))
     # The container-ghcr stack entry is a quoted placeholder. It parses as
     # a plain string, so the file parses as it is.
     # A parse error must fail the check, so read the JSON before jq.
     if ! json="$(ruby -ryaml -rjson -e 'puts JSON.generate(YAML.safe_load(File.read(ARGV[0])))' "$f" 2>/dev/null)" \
-        || ! got="$(printf '%s' "$json" | jq -er '[.updates[] | select(.cooldown != {"default-days": 7}) | .["package-ecosystem"]] | join(",")')"; then
+        || ! got="$(printf '%s' "$json" | jq -er 'if (.updates | length) == 0 then error("no updates") else . end | [.updates[] | select(.cooldown != {"default-days": 7}) | .["package-ecosystem"]] | join(",")')"; then
         bad="$bad ${f#"$ROOT"/}:parse-error"
     elif [ -n "$got" ]; then
         bad="$bad ${f#"$ROOT"/}:$got"
     fi
 done
-if [ -z "$bad" ]; then
+# devkit and the 5 templates. A file with another name is not counted.
+if [ "$n" -ge 6 ] && [ -z "$bad" ]; then
     pass "$L_COOLDOWN"
 else
-    fail "$L_COOLDOWN" "entries with no cooldown:$bad"
+    fail "$L_COOLDOWN" "files: $n, entries with no cooldown:$bad"
 fi
 
 # --- 2. full Node version in each template .nvmrc ----------------------
@@ -107,8 +110,17 @@ fi
 # --- 4. katex override -------------------------------------------------
 L_KATEX="package.json overrides katex for micromark-extension-math, lockfile katex at or above $KATEX_MIN"
 ov="$(jq -r '.overrides["micromark-extension-math"].katex // empty' "$ROOT/package.json")"
-lk="$(jq -r '.packages["node_modules/katex"].version // empty' "$ROOT/package-lock.json")"
-if [ "$ov" = "^$KATEX_MIN" ] && is_full_version "$lk" && version_ge "$lk" "$KATEX_MIN"; then
+# Each katex copy in the lockfile, also a nested one, must have the fix.
+lks="$(jq -r '.packages | to_entries[] | select(.key | test("(^|/)node_modules/katex$")) | .value.version' "$ROOT/package-lock.json")"
+lk_ok=0
+if [ -n "$lks" ]; then
+    lk_ok=1
+    for lk in $lks; do
+        if ! is_full_version "$lk" || ! version_ge "$lk" "$KATEX_MIN"; then lk_ok=0; fi
+    done
+fi
+lk="$(printf '%s' "$lks" | tr '\n' ' ')"
+if [ "$ov" = "^$KATEX_MIN" ] && [ "$lk_ok" -eq 1 ]; then
     pass "$L_KATEX"
 else
     fail "$L_KATEX" "override: ${ov:-none}, lockfile: ${lk:-none}"
@@ -126,7 +138,7 @@ control() {
     cp -R "$ROOT/plugins/flow/templates" "$C/plugins/flow/templates"
     cp "$ROOT/package.json" "$ROOT/package-lock.json" "$C/"
     (cd "$C" && eval "$mutation")
-    out="$(REPO_ROOT="$C" NO_CONTROLS=1 bash "$SELF" 2>&1)"; rc=$?
+    out="$(COOLDOWN_REPO_ROOT="$C" COOLDOWN_NO_CONTROLS=1 bash "$SELF" 2>&1)"; rc=$?
     if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -qF -- "FAIL: $expect"; then
         pass "control $name: check failed as expected"
     else
@@ -140,7 +152,7 @@ sub() {
     sed -e "$2" "$1" > "$1.new" && mv "$1.new" "$1"
 }
 
-if [ "${NO_CONTROLS:-0}" != 1 ]; then
+if [ "${COOLDOWN_NO_CONTROLS:-0}" != 1 ]; then
     control devkit-no-cooldown "$L_COOLDOWN" \
         'sub .github/dependabot.yml "/cooldown:/,/default-days/d"'
     control stack-no-cooldown "$L_COOLDOWN" \
@@ -149,6 +161,12 @@ if [ "${NO_CONTROLS:-0}" != 1 ]; then
         'sub plugins/flow/templates/ios-app/.github/dependabot.yml "s/default-days: 7/default-days: 1/"'
     control dependabot-bad-yaml "$L_COOLDOWN" \
         'printf "updates: [\n" > plugins/flow/templates/baseline/.github/dependabot.yml'
+    control dependabot-no-file "$L_COOLDOWN" \
+        'rm plugins/flow/templates/ios-app/.github/dependabot.yml'
+    control dependabot-empty-updates "$L_COOLDOWN" \
+        'printf "version: 2\nupdates: []\n" > plugins/flow/templates/baseline/.github/dependabot.yml'
+    control katex-nested-old "$L_KATEX" \
+        'jq ".packages[\"node_modules/x/node_modules/katex\"] = {\"version\": \"0.16.47\"}" package-lock.json > l.new && mv l.new package-lock.json'
     control nvmrc-major-only "$L_NVMRC" \
         'printf "24\n" > plugins/flow/templates/static-site-host/.nvmrc'
     control nvmrc-old-patch "$L_NVMRC" \
