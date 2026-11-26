@@ -820,6 +820,9 @@ Each Monday, compares each upstream plugin pin in
 that changes the SHA in the marketplace and in `docs/sources.md`, with a
 link to each upstream diff.
 
+The repo setting "Allow GitHub Actions to create and approve pull
+requests" must be on. Run it by hand with `gh workflow run upstream-sync.yml`.
+
 The job opens the PR with `GITHUB_TOKEN`, so `github-actions[bot]` is the
 author. GitHub starts the PR's `pull_request` workflows, but holds each run
 until a person approves it. The required checks `lint` and
@@ -831,6 +834,3 @@ until a person approves it. The required checks `lint` and
 
 A GitHub App token would start the runs with no approval. Issue #127
 declined it: one click for each weekly PR costs less than the App setup.
-
-The repo setting "Allow GitHub Actions to create and approve pull
-requests" must be on. Run it by hand with `gh workflow run upstream-sync.yml`.

@@ -11,6 +11,7 @@
 # cannot merge before that click. A GitHub App token would remove the click.
 # Issue #127 declined it: one click for each weekly PR costs less than the
 # App setup.
+#
 # The repo setting "Allow GitHub Actions to create and approve pull requests"
 # must be on.
 name: upstream-sync
