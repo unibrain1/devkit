@@ -372,17 +372,17 @@ change, skip it and add it to the skipped list.
 1. Private repo: add a `required_checks` line to the end of the list in
    `.claude/project.md`. Use the check names of the family:
    - `static-site-cloudflare` and `static-site-host`:
-     `secrets-scan / trufflehog, semgrep-cloud-platform/scan, site / Build, site / Lint (Markdown)`
-   - `web-app`: `secrets-scan / trufflehog, semgrep-cloud-platform/scan, App`
+     `secrets-scan / trufflehog, semgrep-cloud-platform/scan, GitGuardian Security Checks, site / Build, site / Lint (Markdown)`
+   - `web-app`: `secrets-scan / trufflehog, semgrep-cloud-platform/scan, GitGuardian Security Checks, App`
    - `container-ghcr`:
-     `secrets-scan / trufflehog, semgrep-cloud-platform/scan, image / Lint (Dockerfile), image / Build, App`
+     `secrets-scan / trufflehog, semgrep-cloud-platform/scan, GitGuardian Security Checks, image / Lint (Dockerfile), image / Build, App`
    - `ios-app` and `other`:
-     `secrets-scan / trufflehog, semgrep-cloud-platform/scan`
+     `secrets-scan / trufflehog, semgrep-cloud-platform/scan, GitGuardian Security Checks`
 
    The line has this form:
 
    ```markdown
-   - required_checks: `secrets-scan / trufflehog, semgrep-cloud-platform/scan`
+   - required_checks: `secrets-scan / trufflehog, semgrep-cloud-platform/scan, GitGuardian Security Checks`
    ```
 
    Then run `flow-project-check`. If it fails, show the error and fix the

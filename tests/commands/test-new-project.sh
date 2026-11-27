@@ -329,6 +329,10 @@ bad_new_project() {
         'site / Build' 'image / Lint (Dockerfile)' 'semgrep-cloud-platform/scan'; do
         grep -qF -- "$name" "$1" || echo "does not name $name"
     done
+    # Each required_checks list names the three needed checks of
+    # docs/baseline.md: a list with only one of them leaves a gap.
+    grep -F 'secrets-scan / trufflehog' "$1" | grep -vF 'semgrep-cloud-platform/scan, GitGuardian Security Checks' \
+        | grep -q . && echo "a required_checks list does not name Semgrep and GitGuardian"
     grep -q 'Step 0' "$1" && echo "has a Step 0"
     awk 'NR == 1 && $0 != "---" { exit } NR > 1 && $0 == "---" { exit } /^model:/ { print "has a model: key" }' "$1"
 }
@@ -495,6 +499,9 @@ f=$(broken model.md "$NEW" '2i\
 model: sonnet
 ')
 expect_fail "new-project.md with a model: key fails" "$(bad_new_project "$f")"
+
+f=$(broken no-gitguardian.md "$NEW" 's/, GitGuardian Security Checks, App`$/, App`/')
+expect_fail "new-project.md with a required_checks list without GitGuardian fails" "$(bad_new_project "$f")"
 
 f=$(broken push-protection.md "$NEW" 's/push protection/the scan/g')
 expect_fail "new-project.md with no push protection step fails" "$(bad_new_project "$f")"
